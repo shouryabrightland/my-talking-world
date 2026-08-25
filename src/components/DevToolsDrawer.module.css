@@ -1,0 +1,843 @@
+/* GPU-Accelerated Always-Mounted Drawer Overlay */
+.drawerOverlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 140;
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.drawerOverlayVisible {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+}
+
+.drawerCard {
+    background-color: var(--bg-surface);
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    max-width: 980px;
+    height: 74svh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-elevation);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    transform: translate3d(0, 100%, 0);
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    overflow: hidden;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.drawerCardVisible {
+    transform: translate3d(0, 0, 0);
+}
+
+.drawerHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-root);
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+.tabList {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.tabList::-webkit-scrollbar {
+    display: none;
+}
+
+.tab {
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tabActiveError {
+    border-color: var(--danger);
+    background-color: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+    font-weight: 800;
+}
+
+.tabActiveWarn {
+    border-color: var(--director-gold, #f59e0b);
+    background-color: rgba(245, 158, 11, 0.15);
+    color: var(--director-gold, #f59e0b);
+    font-weight: 800;
+}
+
+.tabActiveInfo {
+    border-color: var(--success);
+    background-color: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+    font-weight: 800;
+}
+
+.tabActiveDebug {
+    border-color: var(--primary);
+    background-color: var(--primary-light);
+    color: var(--primary);
+    font-weight: 800;
+}
+
+.tabActivePrompts {
+    border-color: var(--primary);
+    background: var(--primary-gradient);
+    color: #ffffff;
+    font-weight: 800;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+.tabActiveState {
+    border-color: var(--char-hank, #7c3aed);
+    background-color: rgba(124, 58, 237, 0.15);
+    color: var(--char-hank, #7c3aed);
+    font-weight: 800;
+}
+
+.closeBtn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 2px 6px;
+}
+
+/* Tab Containers */
+.tabContainer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+}
+
+.tabContentBody {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 12px;
+    overscroll-behavior: contain;
+}
+
+.contentBody {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-root);
+    font-family: system-ui, -apple-system, sans-serif;
+}
+
+.toolBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-surface);
+    gap: 8px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.searchInput {
+    flex: 1 1 140px;
+    height: 30px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 11.5px;
+    outline: none;
+}
+
+.clearBtn {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-root);
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.stateBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.stateHeading {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.copyBtn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: none;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.emptyLogs {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    padding: 24px 0;
+}
+
+/* =====================================================================
+   LOGS STREAM STYLING
+   ===================================================================== */
+
+.logList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.logRow {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.35;
+    word-break: break-all;
+}
+
+.logTime {
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+.logTag {
+    color: var(--primary);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.logMessage {
+    color: var(--text-primary);
+}
+
+/* =====================================================================
+   PROMPT & THINKING CHAIN INSPECTOR STYLING
+   ===================================================================== */
+
+.promptCategoryList {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex: 1 1 auto;
+}
+
+.promptCategoryList::-webkit-scrollbar {
+    display: none;
+}
+
+.promptCatBtn {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-root);
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.promptCatActive {
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--primary);
+    background-color: var(--primary-light);
+    color: var(--primary);
+    font-size: 10.5px;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.promptEntryList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.promptCard {
+    background-color: var(--bg-surface);
+    border: 1.5px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+.promptCardHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background-color: var(--bg-root);
+    cursor: pointer;
+    user-select: none;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.promptMetaLeft {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.promptIndexBadge {
+    font-size: 10.5px;
+    font-weight: 800;
+    color: var(--primary);
+}
+
+.promptTimeText {
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-family: monospace;
+}
+
+.promptModelBadge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.promptLatencyBadge {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--director-gold, #f59e0b);
+}
+
+.statusBadgeSuccess {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.statusBadgeError {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+.accordionToggleBtn {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 9px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.promptCardBody {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--bg-surface);
+}
+
+.promptErrorBanner {
+    padding: 6px 10px;
+    border-radius: 6px;
+    background-color: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: var(--danger);
+    font-size: 11px;
+}
+
+.promptTraceSection {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.promptSectionHeading {
+    margin: 0;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    letter-spacing: 0.5px;
+}
+
+.promptSectionHeadingHighlight {
+    margin: 0;
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--director-gold, #f59e0b);
+    letter-spacing: 0.5px;
+}
+
+.promptMessagesContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.promptMessageItem {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-subtle, rgba(203, 213, 225, 0.4));
+}
+
+.roleBadgeSystem {
+    align-self: flex-start;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background-color: rgba(124, 58, 237, 0.12);
+    color: var(--char-hank, #7c3aed);
+}
+
+.roleBadgeUser {
+    align-self: flex-start;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background-color: var(--primary-light);
+    color: var(--primary);
+}
+
+.thinkingChainBox {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: rgba(245, 158, 11, 0.08);
+    border: 1px dashed var(--director-gold, #f59e0b);
+}
+
+.rawResponseBox {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-color);
+}
+
+.codeViewer {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* =====================================================================
+   VISUAL FLASH CARDS STATE DASHBOARD
+   ===================================================================== */
+
+.cardsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.stateCard {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow-sm);
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.stateCardWide {
+    grid-column: 1 / -1;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow-sm);
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.stateCardHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    border-bottom: 1px solid var(--border-subtle, rgba(203, 213, 225, 0.4));
+    padding-bottom: 6px;
+}
+
+.stateCardTitle {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.badgePrimary {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: var(--primary-light);
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.badgeSuccess {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+    white-space: nowrap;
+}
+
+.badgeWarning {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: rgba(245, 158, 11, 0.12);
+    color: var(--director-gold, #f59e0b);
+    white-space: nowrap;
+}
+
+.badgeSecondary {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.cardContentList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 11px;
+}
+
+.metaField {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.fieldLabel {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.fieldValueBold {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.fieldValue {
+    font-size: 11.5px;
+    color: var(--text-primary);
+}
+
+.fieldValueHighlight {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.fieldSubValue {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+
+.prePlotCallout {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    background-color: var(--bg-root);
+    padding: 4px 6px;
+    border-radius: 4px;
+    border-left: 2.5px solid var(--director-gold, #f59e0b);
+}
+
+.postPlotCallout {
+    font-size: 10.5px;
+    color: var(--text-secondary);
+    background-color: var(--bg-root);
+    padding: 4px 6px;
+    border-radius: 4px;
+    border-left: 2.5px solid var(--primary);
+}
+
+.tagRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.tagChip {
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background-color: var(--primary-light);
+    color: var(--primary);
+}
+
+.emptyNote {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-style: italic;
+}
+
+/* Metric Boxes */
+.metricGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+.metricBox {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 8px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-color);
+    text-align: center;
+}
+
+.metricNumber {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--primary);
+}
+
+.metricLabel {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+}
+
+/* Character Dynamic Memory Items */
+.characterCardsList {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px;
+}
+
+.charStateItem {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-color);
+}
+
+.charItemHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.charItemName {
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.charAgeTag {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--text-tertiary);
+}
+
+.aiTag {
+    font-size: 9px;
+    font-weight: 800;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background-color: var(--primary-light);
+    color: var(--primary);
+}
+
+.userTag {
+    font-size: 9px;
+    font-weight: 800;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background-color: rgba(124, 58, 237, 0.12);
+    color: var(--char-hank, #7c3aed);
+}
+
+.charStatusBadgeRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.typingBadge {
+    font-size: 9.5px;
+    font-weight: 800;
+    color: var(--primary);
+}
+
+.readingBadge {
+    font-size: 9.5px;
+    font-weight: 800;
+    color: var(--success);
+}
+
+.thinkingBadge {
+    font-size: 9.5px;
+    font-weight: 800;
+    color: var(--director-gold, #f59e0b);
+}
+
+.idleBadge {
+    font-size: 9.5px;
+    color: var(--text-tertiary);
+}
+
+.emotionMiniTag {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.charMemoriesList {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 2px;
+}
+
+.charMemoryChip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    font-size: 10px;
+}
+
+.permTag {
+    font-size: 8.5px;
+    font-weight: 800;
+    color: var(--success);
+    flex-shrink: 0;
+}
+
+.ttlTag {
+    font-size: 8.5px;
+    font-weight: 800;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.noMemoriesNote {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    font-style: italic;
+}

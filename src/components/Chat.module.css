@@ -1,0 +1,171 @@
+/* =====================================================================
+   Master Grid Shell — Rigid 100svh Lock
+   Grid rows: Header(auto) | SceneBar(auto) | DevToolsBar(auto) |
+              MessageArea(1fr) | Footer(auto)
+   ===================================================================== */
+.chatShell {
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    height: 100vh;
+    height: 100svh;
+    max-height: 100svh;
+    width: 100vw;
+    max-width: 800px;
+    background: var(--backdrop-gradient, var(--bg-root));
+    color: var(--text-primary);
+    position: relative;
+    overflow: hidden;
+    transition: background 0.4s ease;
+}
+
+/* =====================================================================
+   Message List Container — fills the 1fr grid row
+   ===================================================================== */
+.messageListContainer {
+    min-height: 0;
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+}
+
+/* 
+ * Scrollable List Canvas:
+ * Bottom padding ensures the lowest message never gets covered by peeking cast avatars.
+ */
+.listCanvas {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overflow-anchor: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 0 84px 0;
+    box-sizing: border-box;
+}
+
+.messageWrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+/* Zero-CLS Virtual Spacer */
+.virtualSpacer {
+    width: 100%;
+    flex-shrink: 0;
+    pointer-events: none;
+    visibility: hidden;
+}
+
+/* Floating Scroll-to-Bottom Button with Safe Area Offset */
+.scrollToBottomBtn {
+    position: absolute;
+    right: 16px;
+    bottom: 82px;
+    z-index: 38;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 19px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-elevation);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 700;
+    transition: transform 0.15s ease;
+    animation: popIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popIn {
+    0% {
+        opacity: 0;
+        transform: translate3d(0, 8px, 0) scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+}
+
+
+.scrollToBottomBtn:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+
+.scrollToBottomBtn:active {
+    transform: scale(0.96);
+}
+
+.arrowIcon {
+    font-size: 14px;
+    color: var(--primary);
+    line-height: 1;
+}
+
+.unreadBadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 8.5px;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+/* =====================================================================
+   Empty Chat Placeholder — fills the entire grid cell
+   ===================================================================== */
+.emptyChat {
+    flex: 1;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 20px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.emptyIcon {
+    font-size: 44px;
+    margin-bottom: 10px;
+}
+
+.emptyTitle {
+    margin: 0 0 6px 0;
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.emptySubtitle {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    max-width: 300px;
+    line-height: 1.45;
+}
+
+@media (max-width: 280px) {
+    .emptyTitle {
+        font-size: 14px;
+    }
+    .emptySubtitle {
+        font-size: 11px;
+        max-width: 180px;
+    }
+}

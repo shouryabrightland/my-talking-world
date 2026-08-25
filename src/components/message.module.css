@@ -1,0 +1,607 @@
+/* Base Row Layout (Default: > 530px) */
+.msgRowLeft {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 4px 16px;
+    justify-content: flex-start;
+}
+
+.msgRowRight {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 4px 16px;
+    justify-content: flex-end;
+}
+
+.popIn {
+    animation: popIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popIn {
+    0% {
+        opacity: 0;
+        transform: translate3d(0, 8px, 0) scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+}
+
+
+.avatarWrapper {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.15s ease;
+}
+
+.avatarWrapper:hover {
+    transform: scale(1.08);
+}
+
+/* Director / God-Mode Stage Event Banner */
+.directorRow {
+    display: flex;
+    justify-content: center;
+    padding: 8px 16px;
+    width: 100%;
+}
+
+.directorBanner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 10px 18px;
+    border-radius: 16px;
+    background: var(--director-bg, rgba(251, 191, 36, 0.12));
+    border: 1.5px solid var(--director-border, rgba(245, 158, 11, 0.45));
+    box-shadow: var(--shadow-director, 0 8px 24px rgba(217, 119, 6, 0.2));
+    max-width: 88%;
+    gap: 3px;
+}
+
+.directorBadge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--director-gradient, linear-gradient(135deg, #fbbf24, #d97706));
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+}
+
+.directorText {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.4;
+    font-style: italic;
+}
+
+/* Speech Bubbles */
+.bubbleOther {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 18px 18px 18px 4px;
+    background-color: var(--bubble-other);
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+    border: 1.5px solid var(--border-color);
+    border-left: 3.5px solid var(--char-accent, var(--primary));
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.bubbleUser {
+    max-width: 78%;
+    padding: 10px 16px;
+    border-radius: 18px 18px 4px 18px;
+    background: var(--bubble-user);
+    color: var(--bubble-user-text);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.senderRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.senderName {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.propTag {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    background: var(--bg-input);
+    padding: 2px 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 130px;
+}
+
+.bubbleTextOther {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+    word-break: break-word;
+    color: var(--text-primary);
+}
+
+.bubbleTextUser {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+    word-break: break-word;
+    color: var(--bubble-user-text);
+}
+
+.bubbleFooter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 2px;
+    gap: 6px;
+}
+
+.thoughtBtn {
+    background: none;
+    border: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 6px;
+}
+
+.thoughtBtn:hover {
+    color: var(--primary);
+    background-color: var(--primary-light);
+}
+
+.thoughtBtnActive {
+    background-color: var(--primary-light);
+    border: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+.emotionTag {
+    font-size: 14px;
+}
+
+.thoughtPeelContainer {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background-color: var(--thought-bg, rgba(241, 245, 249, 0.95));
+    border: 1px dashed var(--thought-border, rgba(148, 163, 184, 0.4));
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: fadeInFast 0.15s ease-out;
+}
+
+@keyframes fadeInFast {
+    0% {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.thoughtLabel {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--char-accent, var(--primary));
+    letter-spacing: 0.5px;
+}
+
+.thoughtText {
+    margin: 0;
+    font-size: 12.5px;
+    font-style: italic;
+    color: var(--thought-text, #334155);
+    line-height: 1.4;
+}
+
+.typingBubble {
+    padding: 8px 14px;
+    border-radius: 18px 18px 18px 4px;
+    background-color: var(--bubble-other);
+    border: 1.5px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dotsContainer {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 3px 2px;
+}
+
+.dot {
+    width: 6.5px;
+    height: 6.5px;
+    border-radius: 50%;
+    background-color: var(--primary);
+    display: inline-block;
+    animation: bounceWave 1.2s infinite ease-in-out;
+}
+
+.dot:nth-child(1) { animation-delay: 0s; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounceWave {
+    0%, 80%, 100% {
+        transform: translate3d(0, 0, 0) scale(0.85);
+        opacity: 0.35;
+    }
+    40% {
+        transform: translate3d(0, -6px, 0) scale(1.15);
+        opacity: 1;
+    }
+}
+
+
+.replyCard {
+    padding: 5px 8px;
+    border-radius: 8px;
+    background-color: var(--reply-bg);
+    border-left: 3px solid var(--reply-border);
+    margin-bottom: 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.replyAuthor {
+    font-size: 11.5px;
+    font-weight: 700;
+}
+
+.replyContent {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+}
+
+/* Modals */
+.modalOverlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 140;
+    padding: 16px;
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.modalOverlayVisible {
+    opacity: 1;
+    pointer-events: auto;
+    visibility: visible;
+}
+
+.inspectorCard {
+    background-color: var(--bg-surface);
+    border-radius: 24px;
+    padding: 24px;
+    max-width: 440px;
+    width: 100%;
+    box-shadow: var(--shadow-elevation);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transform: translate3d(0, 16px, 0) scale(0.96);
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.inspectorCardVisible {
+    transform: translate3d(0, 0, 0) scale(1);
+}
+
+.inspectorHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+}
+
+.inspectorName {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.inspectorStatus {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.inspectorCloseBtn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 4px;
+}
+
+.inspectorBody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.inspectorRow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.inspectorLabel {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    letter-spacing: 0.5px;
+}
+
+.inspectorValue {
+    font-size: 13.5px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.inspectorHighlightSection {
+    padding: 12px;
+    border-radius: 12px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.inspectorLabelHighlight {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--primary);
+    letter-spacing: 0.5px;
+}
+
+.inspectorThoughtText {
+    margin: 0;
+    font-size: 13.5px;
+    font-style: italic;
+    color: var(--text-primary);
+    line-height: 1.45;
+}
+
+/* =====================================================================
+   RESPONSIVE COMPACT SCALING (≤ 530px Down to 320px)
+   ===================================================================== */
+
+@media (max-width: 530px) {
+    .msgRowLeft,
+    .msgRowRight {
+        padding: 3px 8px;
+        gap: 6px;
+    }
+
+    .avatarWrapper {
+        width: 32px;
+        height: 32px;
+    }
+
+    .bubbleOther {
+        max-width: 86%;
+        padding: 7px 11px;
+        border-radius: 14px 14px 14px 3px;
+        border-left-width: 2.5px;
+        gap: 2px;
+    }
+
+    .bubbleUser {
+        max-width: 86%;
+        padding: 7px 12px;
+        border-radius: 14px 14px 3px 14px;
+        gap: 2px;
+    }
+
+    .senderName {
+        font-size: 11.5px;
+    }
+
+    .propTag {
+        font-size: 9.5px;
+        padding: 1px 5px;
+        max-width: 95px;
+    }
+
+    .bubbleTextOther,
+    .bubbleTextUser {
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    .thoughtBtn,
+    .thoughtBtnActive {
+        font-size: 10px;
+        padding: 1px 4px;
+    }
+
+    .emotionTag {
+        font-size: 12px;
+    }
+
+    .thoughtPeelContainer {
+        margin-top: 4px;
+        padding: 5px 8px;
+        border-radius: 8px;
+    }
+
+    .thoughtLabel {
+        font-size: 9px;
+    }
+
+    .thoughtText {
+        font-size: 11.5px;
+        line-height: 1.35;
+    }
+
+    .replyCard {
+        padding: 4px 7px;
+        border-radius: 6px;
+        border-left-width: 2.5px;
+        margin-bottom: 2px;
+    }
+
+    .replyAuthor {
+        font-size: 10.5px;
+    }
+
+    .replyContent {
+        font-size: 11px;
+        max-width: 200px;
+    }
+
+    .directorRow {
+        padding: 6px 8px;
+    }
+
+    .directorBanner {
+        padding: 7px 12px;
+        max-width: 92%;
+        border-radius: 12px;
+    }
+
+    .directorBadge {
+        font-size: 9px;
+        padding: 1px 6px;
+    }
+
+    .directorText {
+        font-size: 12px;
+    }
+
+    .typingBubble {
+        padding: 6px 10px;
+        border-radius: 14px 14px 14px 3px;
+    }
+
+    .dot {
+        width: 5px;
+        height: 5px;
+    }
+}
+
+/* Ultra-Compact Screens (≤ 360px) */
+@media (max-width: 360px) {
+    .msgRowLeft,
+    .msgRowRight {
+        padding: 2px 6px;
+        gap: 5px;
+    }
+
+    .avatarWrapper {
+        width: 28px;
+        height: 28px;
+    }
+
+    .bubbleOther,
+    .bubbleUser {
+        max-width: 88%;
+        padding: 6px 9px;
+    }
+
+    .bubbleTextOther,
+    .bubbleTextUser {
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    .senderName {
+        font-size: 10.5px;
+    }
+
+    .propTag {
+        display: none; /* Hides prop tag on ultra-narrow screens to prevent clutter */
+    }
+}
+
+@media (max-width: 220px) {
+    .msgRowLeft,
+    .msgRowRight {
+        padding: 2px 4px;
+        gap: 4px;
+    }
+    .avatarWrapper {
+        width: 22px;
+        height: 22px;
+    }
+    .bubbleOther,
+    .bubbleUser {
+        max-width: 92%;
+        padding: 4px 7px;
+    }
+    .bubbleTextOther,
+    .bubbleTextUser {
+        font-size: 11px;
+        line-height: 1.3;
+    }
+    .senderName {
+        font-size: 9px;
+    }
+    .thoughtTag {
+        display: none;
+    }
+}

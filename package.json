@@ -1,0 +1,53 @@
+{
+  "name": "tgf",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npx playwright test",
+    "test:live:keys": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/DualKeyLiveProbe.test.js",
+    "test:live:dialogue": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/DialogueLiveStream.test.js",
+    "test:live:planner": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/PlannerLiveHorizon.test.js",
+    "test:live:all": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/",
+    "test:ci": "npm run lint && npm run typecheck && npm run test:coverage && npm run test:e2e && npm run build"
+  },
+  "dependencies": {
+    "@google/genai": "^2.12.0",
+    "@tanstack/react-virtual": "^3.14.7",
+    "freebuff": "^0.0.154",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router": "^7.15.1",
+    "react-router-dom": "^7.15.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "fake-indexeddb": "^6.2.5",
+    "globals": "^17.6.0",
+    "jsdom": "^30.0.1",
+    "msw": "^2.15.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.0.12",
+    "vitest": "^4.1.11"
+  }
+}

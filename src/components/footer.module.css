@@ -1,0 +1,374 @@
+.footerContainer {
+    position: relative;
+    z-index: 35;
+    background-color: var(--bg-surface);
+    box-shadow: var(--shadow-elevation);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.footerDirector {
+    border-top: 1.5px solid var(--director-border, rgba(245, 158, 11, 0.45));
+}
+
+/* 
+ * Living Cast Lounge:
+ * Uses clamp to ensure all 6 cast members fit smoothly without horizontal clipping.
+ */
+.charactersTrack {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: clamp(4px, 1.5vw, 10px);
+    padding-top: 12px;
+    background: linear-gradient(transparent, var(--bg-surface));
+    position: absolute;
+    width: 100%;
+    z-index: -1;
+    transform: translate3d(0, -100%, 0);
+    pointer-events: auto;
+}
+
+.charItem {
+    aspect-ratio: 1 / 1;
+    width: clamp(40px, 11vw, 56px);
+    max-width: 56px;
+    transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.charItem:hover {
+    transform: translate3d(0, 0px, 0) scale(1.15) !important;
+}
+
+.inputHub {
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-surface);
+    border-top: 1px solid var(--border-color);
+}
+
+.replyBanner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 14px;
+    background-color: var(--reply-bg);
+    border-left: 4px solid var(--reply-border);
+    gap: 8px;
+}
+
+.replyCloseBtn {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+}
+
+.replyCloseBtn:hover {
+    color: var(--text-primary);
+}
+
+/* User Mode Input Form with Safe Area Inset */
+.inputForm {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px max(10px, env(safe-area-inset-bottom)) 14px;
+    gap: 8px;
+}
+
+.inputField {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 42px;
+    padding: 6px 14px;
+    border-radius: 21px;
+    border: 1.5px solid var(--border-color);
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.inputField:focus {
+    border-color: var(--primary);
+}
+
+.expressionBtn {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    font-size: 19px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+    flex-shrink: 0;
+}
+
+.expressionBtnActive {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    font-size: 19px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: scale(1.08);
+    box-shadow: var(--primary-glow);
+    flex-shrink: 0;
+}
+
+.sendBtn {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: var(--primary-gradient);
+    color: #ffffff;
+    font-size: 17px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.35);
+    flex-shrink: 0;
+}
+
+/* Slide-Up Emotion Drawer */
+.drawer {
+    padding: 10px 14px 12px 14px;
+    background-color: var(--bg-root);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: absolute;
+    width: 100%;
+    top: 0;
+    transform: translate3d(0, 0, 0);
+    z-index: -1;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.22s ease-in-out;
+}
+
+.drawerOpen {
+    transform: translate3d(0, -100%, 0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.drawerHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.drawerTitle {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.drawerCloseBtn {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+}
+
+.emotionGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+    gap: 6px;
+}
+
+.emotionTile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 4px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-surface);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: transform 0.12s ease, border-color 0.12s ease;
+    gap: 2px;
+}
+
+.emotionTile:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+
+.emotionEmoji {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.emotionLabel {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+/* Fluid Director Console */
+.directorHub {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 14px max(10px, env(safe-area-inset-bottom)) 14px;
+    background-color: var(--bg-surface);
+    gap: 8px;
+    width: 100%;
+}
+
+.presetTrack {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    max-width: calc(100vw - 16px);
+    width: 100%;
+    scrollbar-width: none;
+    min-width: 0;
+    overflow-y: visible;
+}
+
+.presetTrack::-webkit-scrollbar {
+    display: none;
+}
+
+.presetHeading {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: var(--director-gold, #f59e0b);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.presetChip {
+    padding: 4px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--director-border, rgba(245, 158, 11, 0.45));
+    background-color: var(--director-bg, rgba(251, 191, 36, 0.12));
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: transform 0.12s ease;
+}
+
+.presetChip:hover {
+    transform: translateY(-1px);
+}
+
+.directorForm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.directorInput {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 42px;
+    padding: 6px 14px;
+    border-radius: 21px;
+    border: 1.5px solid var(--director-border, rgba(245, 158, 11, 0.45));
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 13.5px;
+    outline: none;
+}
+
+.directorInput:focus {
+    border-color: var(--director-gold, #f59e0b);
+}
+
+.directorSendBtn {
+    flex: 0 0 auto;
+    height: 42px;
+    padding: 0 14px;
+    border-radius: 21px;
+    border: none;
+    background: var(--director-gradient, linear-gradient(135deg, #fbbf24, #d97706));
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: var(--shadow-director, 0 3px 12px rgba(217, 119, 6, 0.3));
+    white-space: nowrap;
+}
+
+.directorSendBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.directorBtnTextShort {
+    display: none;
+}
+
+@media (max-width: 480px) {
+    .directorBtnTextFull {
+        display: none;
+    }
+    .directorBtnTextShort {
+        display: inline;
+    }
+}
+
+@media (max-width: 280px) {
+    .inputForm {
+        padding: 6px 8px 8px 8px;
+        gap: 4px;
+    }
+    .inputField {
+        height: 36px;
+        font-size: 13px;
+        padding: 4px 10px;
+        border-radius: 18px;
+    }
+    .expressionBtn,
+    .expressionBtnActive,
+    .sendBtn {
+        width: 34px;
+        height: 34px;
+        font-size: 15px;
+    }
+    .charItem {
+        width: clamp(32px, 10vw, 44px);
+    }
+    .charactersTrack {
+        gap: 2px;
+        padding-top: 8px;
+    }
+    .replyBanner {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+}

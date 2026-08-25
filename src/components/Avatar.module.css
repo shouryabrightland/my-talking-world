@@ -1,0 +1,34 @@
+/* .avatarFrame {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    position: relative;
+    overflow: hidden;
+    background-color: var(--bg-surface);
+    border: 2px solid var(--avatar-border, var(--border-color));
+    box-shadow: 0 0 14px var(--avatar-glow, transparent), var(--shadow-sm);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    user-select: none;
+} */
+
+.spriteLayer {
+    width: 100%;
+    height: 100%;
+    /* border-radius: 50%; */
+    background-repeat: no-repeat;
+    background-position: var(--sprite-x, 0%) var(--sprite-y, 0%);
+    background-size: var(--sprite-size, 300%);
+    background-image: var(--sprite-url, none);
+    /* background-color: var(--primary-light); */
+    /* transition: background-position 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background-size 0.22s ease; */
+    /* transform: scale(1.02); */
+
+    /* FIX: Forces the browser to smooth out the giant image into the tiny box */
+  image-rendering: -webkit-optimize-contrast; /* For Safari/Chrome older versions */
+  image-rendering: high-quality;
+}
+
+.fallbackAvatar {
+    width: 100%;
+    height: 100%;
+}

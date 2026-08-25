@@ -1,0 +1,25 @@
+{
+  "name": "Tom & Friends",
+  "short_name": "T&F",
+  "description": "Interactive Living Sitcom & Story Sandbox with AI Characters",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait-primary",
+  "categories": ["entertainment", "social", "games"],
+  "icons": [
+    {
+      "src": "/group.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/group.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
