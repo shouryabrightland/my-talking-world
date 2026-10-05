@@ -16,6 +16,13 @@ import { Key } from "./Key";
 import Storage from "./Storage";
 
 /**
+ * Hard cap on active memories per character. When exceeded, the oldest
+ * non-permanent memory is pruned automatically to prevent prompt bloat.
+ * @type {number}
+ */
+const MAX_ACTIVE_MEMORIES = 5;
+
+/**
  * @typedef {import("./Logger").default} Logger
  * @typedef {import("./io.types").KeyValue} KeyValue
  * @typedef {import("./io.types").KeyStorageJSON} KeyStorageJSON
@@ -79,6 +86,10 @@ export default class Memory {
             return existing;
         }
 
+        // Enforce the hard memory cap BEFORE inserting the new key so the
+        // container never exceeds MAX_ACTIVE_MEMORIES entries.
+        this.#enforceMemoryCap();
+
         const key = new Key(this.logger, {
             name,
             value,
@@ -88,6 +99,42 @@ export default class Memory {
         this.keys.set(name, key);
         this.logger.debug(`Successfully created memory key: ${name}`);
         return key;
+    }
+
+    /**
+     * Prunes keys until the active memory count leaves room for one more
+     * entry, guaranteeing the container never exceeds MAX_ACTIVE_MEMORIES.
+     * Prefers the oldest non-permanent key; if every key is permanent, it
+     * falls back to the oldest key in insertion order to prevent bloat.
+     *
+     * @returns {void}
+     */
+    #enforceMemoryCap() {
+        while (this.keys.size >= MAX_ACTIVE_MEMORIES) {
+            /** @type {string|null} */
+            let oldestNonPermanent = null;
+
+            // Map preserves insertion order, so the first non-permanent key
+            // encountered is the oldest evictable entry.
+            for (const [name, key] of this.keys) {
+                if (!key.isForever()) {
+                    oldestNonPermanent = name;
+                    break;
+                }
+            }
+
+            // Evict oldest non-permanent; if all keys are permanent, evict the oldest key to prevent prompt bloat
+            const keyToPrune = oldestNonPermanent !== null
+                ? oldestNonPermanent
+                : this.keys.keys().next().value;
+
+            if (!keyToPrune) break;
+
+            this.keys.delete(keyToPrune);
+            this.logger.debug(
+                `Memory cap (${MAX_ACTIVE_MEMORIES}) reached. Pruned key: ${keyToPrune}`
+            );
+        }
     }
 
     /**

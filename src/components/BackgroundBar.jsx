@@ -20,6 +20,20 @@ import styles from "./BackgroundBar.module.css";
 import { useBackgroundBar } from "../contexts/BackgroundBarContext";
 import { useChat } from "../contexts/ChatContext";
 import { PlannerStreamEvents } from "../classes/WorldSetter";
+import { ConversationEvents } from "../classes/ConversationManager";
+
+/**
+ * Human-readable reason for a Gemini model failover.
+ * @param {number|null} status HTTP status (null = timeout/network).
+ * @param {string} reason Raw reason from the planner.
+ * @returns {string}
+ */
+function failoverReason(status, reason) {
+    if (status === 429) return "Rate limited";
+    if (status === 503) return "Model busy";
+    if (status === 404) return "Deprecated";
+    return reason || "Unavailable";
+}
 
 /**
  * Formats a timestamp to a short time string.
@@ -80,6 +94,9 @@ export default function BackgroundBar() {
     } = ctx;
     const conv = useChat();
     const { world } = conv;
+    // ConversationManager exposes the EventManager; some test harnesses mount
+    // a reduced context, so probe before subscribing.
+    const conversationEvents = conv && conv.events ? conv.events : null;
 
     // Stable ref to avoid re-subscribing event listeners when ctx changes
     const ctxRef = useRef(ctx);
@@ -90,24 +107,28 @@ export default function BackgroundBar() {
         if (!world) return;
 
         /**
-         * Track the active stream notification ID.
-         * Uses a ref (not state) to avoid re-renders and stale closures
+         * Track the active stream notification ID + resolved Gemini model.
+         * Uses refs (not state) to avoid re-renders and stale closures
          * in event handlers.
-         * @type {React.MutableRefObject<string|null>}
+         * @type {{ current: { id: string, model: string } | null }}
          */
         const activeStreamRef = { current: null };
 
         const offStart = world.events.on(
             PlannerStreamEvents.START,
-            () => {
+            (/** @type {{ model?: string }} */ payload) => {
                 // Clear any stale previous stream ID
                 activeStreamRef.current = null;
+                const model = payload?.model || "gemini";
                 const id = ctxRef.current.addNotification(
                     "stream",
                     "Generating schedule...",
                     { dismissable: false }
                 );
-                activeStreamRef.current = id;
+                ctxRef.current.updateNotification(id, {
+                    phase: `[${model}] Thinking & structuring scene...`,
+                });
+                activeStreamRef.current = { id, model };
             },
             "BackgroundBar: stream start"
         );
@@ -115,30 +136,56 @@ export default function BackgroundBar() {
         const offText = world.events.on(
             PlannerStreamEvents.TEXT,
             (/** @type {string} */ text) => {
-                const streamId = activeStreamRef.current;
-                if (!streamId) return;
+                const active = activeStreamRef.current;
+                if (!active) return;
                 const hasSchedule = text.includes("<schedule");
                 const blockCount = (
                     text.match(/<\s*block\b/gi) || []
                 ).length;
-                let phase = "Thinking...";
+                let phase = `[${active.model}] Thinking & structuring scene...`;
                 if (hasSchedule && blockCount > 0)
-                    phase = `Generating block ${blockCount}...`;
-                else if (hasSchedule) phase = "Parsing schedule...";
-                ctxRef.current.updateNotification(streamId, { phase });
+                    phase = `[${active.model}] Generating block ${blockCount} of ${Math.max(blockCount, 3)}...`;
+                else if (hasSchedule) phase = `[${active.model}] Parsing schedule...`;
+                ctxRef.current.updateNotification(active.id, { phase });
             },
             "BackgroundBar: stream text"
+        );
+
+        const offFailover = world.events.on(
+            PlannerStreamEvents.FAILOVER,
+            (/** @type {{ fromModel: string, toModel: string|null, status: number|null, reason?: string }} */ data) => {
+                const active = activeStreamRef.current;
+                const from = data?.fromModel || "?";
+                const to = data?.toModel;
+                const reason = failoverReason(data?.status ?? null, data?.reason || "");
+                const phase = to
+                    ? `⚠️ [${from}] ${reason}, moving to cooldown. Switching to [${to}]...`
+                    : `⚠️ [${from}] ${reason}, moving to cooldown. No alternate model left.`;
+
+                if (active) {
+                    if (to) active.model = to;
+                    ctxRef.current.updateNotification(active.id, { phase });
+                } else {
+                    const id = ctxRef.current.addNotification(
+                        "stream",
+                        "Switching Gemini model...",
+                        { dismissable: true }
+                    );
+                    ctxRef.current.updateNotification(id, { phase });
+                }
+            },
+            "BackgroundBar: stream failover"
         );
 
         const offDone = world.events.on(
             PlannerStreamEvents.DONE,
             () => {
-                const streamId = activeStreamRef.current;
+                const active = activeStreamRef.current;
                 // Clear stream ID immediately to prevent any race with ERROR
                 activeStreamRef.current = null;
-                if (!streamId) return;
+                if (!active) return;
                 // Transition to completed → auto-dismiss will clean up
-                ctxRef.current.updateNotification(streamId, {
+                ctxRef.current.updateNotification(active.id, {
                     message: "Schedule generated",
                     phase: "",
                     status: "completed",
@@ -150,13 +197,13 @@ export default function BackgroundBar() {
         const offError = world.events.on(
             PlannerStreamEvents.ERROR,
             (/** @type {{ error?: string }} */ data) => {
-                const streamId = activeStreamRef.current;
+                const active = activeStreamRef.current;
                 // Clear stream ID immediately
                 activeStreamRef.current = null;
 
-                if (streamId) {
+                if (active) {
                     // Update existing notification to error state
-                    ctxRef.current.updateNotification(streamId, {
+                    ctxRef.current.updateNotification(active.id, {
                         message: "Generation failed",
                         phase: data?.error || "Error occurred",
                         status: "error",
@@ -184,17 +231,84 @@ export default function BackgroundBar() {
         return () => {
             offStart();
             offText();
+            offFailover();
             offDone();
             offError();
             // If there's a pending stream on unmount, force-complete it
             if (activeStreamRef.current) {
-                ctxRef.current.updateNotification(activeStreamRef.current, {
+                ctxRef.current.updateNotification(activeStreamRef.current.id, {
                     status: "completed",
                 });
                 activeStreamRef.current = null;
             }
         };
     }, [world]);
+
+    // ── Director Mode Stage Directive Lifecycle ─────────────────────────
+    useEffect(() => {
+        if (!conversationEvents || typeof conversationEvents.on !== "function") return;
+
+        /** @type {string|null} */
+        let directorNotifId = null;
+
+        const offStart = conversationEvents.on(
+            ConversationEvents.DIRECTOR_EVENT,
+            (/** @type {string} */ plot) => {
+                if (directorNotifId) ctxRef.current.removeNotification(directorNotifId);
+                directorNotifId = ctxRef.current.addNotification(
+                    "stream",
+                    "⚡ Updating scene...",
+                    { details: plot, dismissable: false }
+                );
+                ctxRef.current.updateNotification(directorNotifId, {
+                    phase: "Waiting for cast reaction...",
+                });
+            },
+            "BackgroundBar: director event"
+        );
+
+        const offResponse = conversationEvents.on(
+            ConversationEvents.DIRECTOR_RESPONSE_START,
+            () => {
+                const id = directorNotifId;
+                directorNotifId = null;
+                if (id) {
+                    ctxRef.current.updateNotification(id, {
+                        message: "Scene updated",
+                        phase: "",
+                        status: "completed",
+                    });
+                } else {
+                    ctxRef.current.addNotification("info", "Scene updated", {
+                        dismissable: true,
+                    });
+                }
+            },
+            "BackgroundBar: director response start"
+        );
+
+        const offError = conversationEvents.on(
+            ConversationEvents.ERROR,
+            (/** @type {any} */ error) => {
+                const id = directorNotifId;
+                if (!id) return;
+                directorNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: "Scene update failed",
+                    phase: error?.message || "Turn generation failed",
+                    status: "error",
+                });
+            },
+            "BackgroundBar: director error"
+        );
+
+        return () => {
+            offStart();
+            offResponse();
+            offError();
+            directorNotifId = null;
+        };
+    }, [conversationEvents]);
 
     // ── Network Offline/Online Events ──────────────────────────────────
     // Use ctxRef (stable ref) instead of ctx in deps to prevent infinite re-renders
@@ -242,13 +356,19 @@ export default function BackgroundBar() {
 
     // ── Derived state ──────────────────────────────────────────────────
     const activeNotifications = useMemo(
-        () => notifications.filter((n) => n.status === "active" || n.status === "error"),
+        // Completed notifications stay visible until their 3s auto-dismiss
+        // fires, so success confirmations ("Scene updated", "Schedule
+        // generated") are actually seen by the user.
+        () => notifications,
         [notifications]
     );
 
-    // Bar is invisible when no active or error notifications exist
+    // Bar renders a collapsed grid row when idle so .chatShell's explicit
+    // grid rows never desynchronise (see Chat.module.css).
     const hasAny = activeNotifications.length > 0;
-    if (!hasAny) return null;
+    if (!hasAny) {
+        return <div className={styles.barCollapsed} aria-hidden="true" />;
+    }
 
     const latest = activeNotifications[activeNotifications.length - 1];
     const hasCompleted = notifications.some(
@@ -256,7 +376,7 @@ export default function BackgroundBar() {
     );
 
     return (
-        <div className={styles.bar}>
+        <div className={latest.status === "completed" ? `${styles.bar} ${styles.barCompleted}` : styles.bar}>
             <button
                 className={styles.barContent}
                 onClick={() => setSelectedNotification(latest)}

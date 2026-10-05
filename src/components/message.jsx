@@ -260,7 +260,7 @@ function CharacterInspectorModal({ isOpen, member, latestThought, onClose }) {
             >
                 <div className={styles.inspectorHeader}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <div style={{ width: "42px", height: "42px", flexShrink: 0 }}>
+                        <div className={styles.inspectorAvatarWrapper}>
                             <Avatar member={member} emotion={member.currentEmotion?.name || "Default"} />
                         </div>
                         <div>
@@ -297,7 +297,7 @@ function CharacterInspectorModal({ isOpen, member, latestThought, onClose }) {
                         {activeMemories.length === 0 ? (
                             <span className={styles.inspectorValueMuted}>No dynamic states or facts currently active in memory.</span>
                         ) : (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
                                 {activeMemories.map(memKey => {
                                     const isForever = memKey.isForever();
                                     let expiryBadge = "Permanent";
@@ -311,18 +311,20 @@ function CharacterInspectorModal({ isOpen, member, latestThought, onClose }) {
                                     }
 
                                     return (
-                                        <div key={memKey.name} className={styles.memoryFactItem}>
-                                            <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                                                    <span className={styles.memoryKeyTitle}>{memKey.name}</span>
-                                                    <span className={isForever ? styles.foreverTag : styles.ttlTag}>
-                                                        {isForever ? "♾️ Perm" : `⏱️ ${expiryBadge}`}
-                                                    </span>
-                                                </div>
-                                                <span className={styles.memoryValueText}>
-                                                    {Array.isArray(memKey.value) ? memKey.value.join(", ") : String(memKey.value)}
+                                        <div
+                                            key={memKey.name}
+                                            className={styles.memoryNotebookCard}
+                                            style={{ borderLeftColor: `var(--char-${memberId}, var(--primary))` }}
+                                        >
+                                            <div className={styles.memoryCardTopRow}>
+                                                <span className={styles.memoryCardTitle}>📌 {memKey.name}</span>
+                                                <span className={isForever ? styles.memoryCardExpiryTagPermanent : styles.memoryCardExpiryTag}>
+                                                    {isForever ? "♾️ Forever" : `⏱️ ${expiryBadge}`}
                                                 </span>
                                             </div>
+                                            <span className={styles.memoryCardContent}>
+                                                {Array.isArray(memKey.value) ? memKey.value.join(", ") : String(memKey.value)}
+                                            </span>
                                         </div>
                                     );
                                 })}

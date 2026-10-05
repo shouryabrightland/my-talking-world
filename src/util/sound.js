@@ -208,8 +208,12 @@ class SoundEngine {
  */
 class AmbientSoundEngine {
     constructor() {
-        /** @type {boolean} */
-        this.isPlaying = true;
+        /**
+         * @type {boolean}
+         * Starts FALSE: browsers block autoplay, so claiming "playing" would
+         * desync the green ON visualizer/equalizer from the actual audio state.
+         */
+        this.isPlaying = false;
 
         // Default Mixing Values
         /** @type {number} */
@@ -412,10 +416,12 @@ class AmbientSoundEngine {
         if (this.isPlaying) {
             this.stop();
             return false;
-        } else {
-            this.start(scene);
-            return true;
         }
+
+        this.start(scene);
+        // Reflect the REAL post-start state: autoplay policy / missing AudioContext
+        // can leave the engine stopped, and the UI must not show a false "ON".
+        return this.isPlaying;
     }
 
     /**

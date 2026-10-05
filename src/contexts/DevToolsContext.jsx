@@ -226,7 +226,7 @@ export function DevToolsProvider({ children }) {
 
                     setLogs((prev) => {
                         const next = [...prev, ...flushed];
-                        return next.slice(-Logger.MAX_BUFFER);
+                        return next.slice(-Logger.MAX_LOGS);
                     });
                 }, 150);
             }

@@ -11,7 +11,10 @@ import {
 
 /**
  * Dual-Key API Onboarding Screen.
- * Requires BOTH Groq and Gemini API keys with model probe verification.
+ * Requires BOTH Groq and Gemini API keys.
+ * Verification is lightweight: one 1-token Groq generation call plus one
+ * Gemini model-discovery call — no per-model probe loops, no latency badges,
+ * zero Gemini generation tokens burned.
  *
  * @param {Object} props
  * @param {() => void} props.onKeySaved
@@ -22,8 +25,6 @@ export default function ApiKeyOnboardingScreen({ onKeySaved }) {
     const [isVerifying, setIsVerifying] = useState(false);
     /** @type {[string|null, React.Dispatch<React.SetStateAction<string|null>>]} */
     const [errorMessage, setErrorMessage] = useState(/**@type {string|null}*/(null));
-    /** @type {[Array<{model: string, working: boolean, error: string|null, latencyMs: number}>|null, React.Dispatch<React.SetStateAction<Array<{model: string, working: boolean, error: string|null, latencyMs: number}>|null>>]} */
-    const [probeResults, setProbeResults] = useState(/** @type {Array<{model: string, working: boolean, error: string|null, latencyMs: number}>|null} */ (null));
 
     const handleVerifyAndSubmit = useCallback(async (/** @type {React.FormEvent} */ e) => {
         e.preventDefault();
@@ -33,42 +34,31 @@ export default function ApiKeyOnboardingScreen({ onKeySaved }) {
         // Dual-key enforcement: BOTH are required
         if (!cleanGroq) {
             setErrorMessage("Groq API key is required for live chat. Please enter a valid Groq key (gsk_...).");
-            setProbeResults(null);
             return;
         }
 
         if (!cleanGemini) {
             setErrorMessage("Gemini API key is required for schedule planning. Please enter a valid Gemini key (AIzaSy...).");
-            setProbeResults(null);
             return;
         }
 
         setIsVerifying(true);
         setErrorMessage(null);
-        setProbeResults(null);
 
         try {
             const result = await verifyAndProbeDualKeys(cleanGroq, cleanGemini);
 
             if (!result.success) {
                 setErrorMessage(result.error);
-                if (result.gemini.probeResults.length > 0) {
-                    setProbeResults(result.gemini.probeResults);
-                }
                 return;
             }
 
-            // Both keys verified, models probed — surface probe diagnostics
-            // (latency badges + model checkmarks) briefly so users can see which
-            // models responded, then transition into the studio.
+            // Both keys verified — persist and enter the studio immediately.
             setApiKey(cleanGroq);
             setGeminiApiKey(cleanGemini);
-            setProbeResults(result.gemini.probeResults);
-            await new Promise((/** @type {(value: undefined) => void} */ resolve) => setTimeout(() => resolve(undefined), 1500));
             onKeySaved();
         } catch (/** @type {unknown} */ err) {
             setErrorMessage(`Verification crashed: ${err instanceof Error ? err.message : "Unknown error"}`);
-            setProbeResults(null);
         } finally {
             setIsVerifying(false);
         }
@@ -145,28 +135,12 @@ export default function ApiKeyOnboardingScreen({ onKeySaved }) {
                         </div>
                     )}
 
-                    {probeResults && probeResults.length > 0 && (
-                        <div className={styles.probeResults}>
-                            <div className={styles.probeHeader}>Model Status Breakdown:</div>
-                            {probeResults.map((r) => (
-                                <div key={r.model} className={r.working ? styles.probeWorking : styles.probeFailed}>
-                                    <span>{r.working ? "✅" : "❌"}</span>
-                                    <span className={styles.probeModel}>{r.model}</span>
-                                    <span className={styles.probeLatency}>{r.latencyMs}ms</span>
-                                    {!r.working && r.error && (
-                                        <span className={styles.probeError}>{r.error}</span>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
                     <button
                         type="submit"
                         disabled={isSubmitDisabled}
                         className={isSubmitDisabled ? styles.btnDisabled : styles.btnSubmit}
                     >
-                        {isVerifying ? "Verifying Keys & Probing Models..." : "Verify & Enter Studio 🚀"}
+                        {isVerifying ? "Verifying Keys..." : "Verify & Enter Studio 🚀"}
                     </button>
                 </form>
             </div>

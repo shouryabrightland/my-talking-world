@@ -55,6 +55,7 @@ export const ConversationEvents = {
     ERROR: "conversation:error",
     SCHEDULE_SYNC: "conversation:schedule:sync",
     DIRECTOR_EVENT: "conversation:director:event",
+    DIRECTOR_RESPONSE_START: "conversation:director:response:start",
     MEMORY_UPDATE: "conversation:memory:update",
     LOGOUT: "conversation:logout"
 };
@@ -124,6 +125,9 @@ export default class ConversationManager {
     /** @type {ReturnType<typeof setTimeout>|null} */ #scheduleNextRequest_TimeOut = null;
     /** @readonly @type {UserInterruptHandler} */ #interruptHandler;
     /** Whether a generation stream is actively being processed. @type {boolean} */ #generationActive;
+    /** Whether DIRECTOR_RESPONSE_START was already emitted for this turn. @type {boolean} */ #directorResponseStarted = false;
+    /** Monotonic prompt-build counter driving alternating environment injection. @type {number} */ #promptTurnIndex = 0;
+    /** Set when the human user speaks so the very next prompt carries full environment grounding. @type {boolean} */ #envRefreshRequested = false;
 
     /**
      * Closes the active simulation session cleanly on user logout.
@@ -135,6 +139,9 @@ export default class ConversationManager {
         this.logger.info("User initiated logout. Closing conversation engine...");
 
         this.client.abort();
+
+        // Stop the 30s World heartbeat so it cannot leak in the background.
+        this.world.destroy();
 
         if (this.#scheduleNextRequest_TimeOut) {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
@@ -164,6 +171,8 @@ export default class ConversationManager {
         this.#generationActive = false;
         this.requesting = false;
         this.consecutiveErrors = 0;
+        this.#promptTurnIndex = 0;
+        this.#envRefreshRequested = false;
 
         this.events.emit(ConversationEvents.LOGOUT);
     }
@@ -193,8 +202,11 @@ export default class ConversationManager {
         /** Intercept human messages to trigger interruption handling */
         this.chat.events.on(
             ChatEvents.MESSAGE_ADD,
-            /** @param {Message} message */ (message) => {
+            /** @param {Message} message */            (message) => {
                 if (message && message.sender && !message.sender.isAI) {
+                    // Human messages always get fresh environmental grounding
+                    // on the next prompt build, regardless of turn parity.
+                    this.#envRefreshRequested = true;
                     this.#handleHumanInterruption();
                 }
             },
@@ -255,6 +267,7 @@ export default class ConversationManager {
         this.chat.addMessage(directiveMessage);
 
         this.pendingDirectorPlot = cleanPlot;
+        this.#directorResponseStarted = false;
         this.events.emit(ConversationEvents.DIRECTOR_EVENT, cleanPlot);
 
         await this.requestTurn();
@@ -297,6 +310,8 @@ export default class ConversationManager {
 
         this.User.isOnline = true;
         this.initialized = true;
+        this.#promptTurnIndex = 0;
+        this.#envRefreshRequested = false;
         this.events.emit(ConversationEvents.READY);
 
         this.scheduleNextRequest();
@@ -321,6 +336,7 @@ export default class ConversationManager {
         this.requesting = true;
         this.protocolBuffer = "";
         this.#generationActive = true;
+        this.#directorResponseStarted = false;
         this.logger.info("Requesting fresh conversational turn from Groq...");
 
         try {
@@ -331,7 +347,7 @@ export default class ConversationManager {
 
             await this.client.streamChat(promptPayload.messages, {
                 temperature: 0.85,
-                maxTokens: 1200,
+                maxTokens: 2000,
                 promptType: "dialogue"
             });
 
@@ -377,7 +393,16 @@ export default class ConversationManager {
 
         this.protocolBuffer += token;
 
-        const recordTagRegex = /<\s*record\b([^>]*)>([\s\S]*?)<\/\s*record\s*>/gi;
+        // Director Mode: announce the moment the cast starts reacting to the
+        // injected stage directive so BackgroundBar can show live feedback.
+        if (this.pendingDirectorPlot && !this.#directorResponseStarted) {
+            this.#directorResponseStarted = true;
+            this.events.emit(ConversationEvents.DIRECTOR_RESPONSE_START, this.pendingDirectorPlot);
+        }
+
+        // Matches BOTH paired <record>…</record> AND self-closing <record ... />
+        // tags so autonomous memories never get trapped in protocolBuffer.
+        const recordTagRegex = /<\s*record\b([^>]*?)\s*\/\s*>|<\s*record\b([^>]*)>([\s\S]*?)<\/\s*record\s*>/gi;
         let lastIndex = 0;
         let match;
         /** @type {string[]} */
@@ -630,12 +655,24 @@ export default class ConversationManager {
             "</language_mandate>"
         ));
 
-        /** World context: current time, environment, active schedule */
-        builder.useSystem(() => builder.part(
-            `<context>\n` +
-            `${this.world.toString()}\n` +
-            `</context>`
-        ));
+        /** World context: current time, active schedule, and (throttled) heavy environment block */
+        builder.useSystem(() => {
+            const turn = ++this.#promptTurnIndex;
+            const humanTriggered = this.#envRefreshRequested;
+            this.#envRefreshRequested = false;
+
+            // Full environmental grounding (weather, occasions, upcoming
+            // festivals, news headlines) is injected on alternating turns and
+            // immediately whenever the human user speaks. Interim AI-only
+            // banter turns only get <current_time> + the active schedule.
+            const includeEnvironment = humanTriggered || turn % 2 === 1;
+
+            return builder.part(
+                `<context>\n` +
+                `${this.world.toString(includeEnvironment)}\n` +
+                `</context>`
+            );
+        });
 
         /** Character definitions with bios, ages, and participant types */
         builder.useSystem(() => {
@@ -690,8 +727,12 @@ export default class ConversationManager {
             "    </record>\n\n" +
             "    [2. Dynamic Memory Set Tag (Short-term or Permanent)]:\n" +
             '    <record type="memory-set" member="tom" expiry="30m">\n' +
-            "      <key>Dynamic Memory Key (e.g. Current Posture, Reminder, Hidden Thought)</key>\n" +
+            "      <key>Dynamic Memory Key (e.g. Mood, Active Goal, Opinion on User, Secret)</key>\n" +
             "      <value>Memory description</value>\n" +
+            "    </record>\n\n" +
+            "    [3. Dynamic Memory Remove Tag]:\n" +
+            '    <record type="memory-remove" member="tom">\n' +
+            "      <key>Obsolete Key Name</key>\n" +
             "    </record>\n" +
             "    ]]>\n" +
             "  </output_format>\n" +

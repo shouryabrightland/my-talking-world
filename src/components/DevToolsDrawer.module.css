@@ -363,6 +363,17 @@
     color: var(--director-gold, #f59e0b);
 }
 
+.promptTokenBadge {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-family: monospace;
+}
+
 .statusBadgeSuccess {
     font-size: 9.5px;
     font-weight: 800;

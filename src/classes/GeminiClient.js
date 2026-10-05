@@ -11,11 +11,18 @@
  * - Handles HTTP 429/503 with Retry-After header respect.
  * - Extracts `<think>` reasoning chains from model responses.
  * - Converts standard ChatMessage[] to Gemini REST schema.
+ *
+ * @typedef {Object} GeminiClientOptions
+ * @property {Logger} logger Root parent logger.
+ * @property {string} [defaultModel] Last-resort Gemini model when the pool has no candidates.
+ * @property {string|null} [apiKey] Optional explicit API key override.
+ * @property {GeminiModelPool|null} [modelPool] Dynamic model pool used to resolve the active model.
  */
 
 /** @typedef {import("./lib/Logger").default} Logger */
 /** @typedef {import("./PromptBuilder").ChatMessage} ChatMessage */
 /** @typedef {import("./lib/PromptLogger").PromptType} PromptType */
+/** @typedef {import("./lib/GeminiModelResolver").default} GeminiModelPool */
 
 import {
     getGeminiApiKey,
@@ -48,6 +55,13 @@ export const GeminiClientEvents = {
  */
 
 /**
+ * Hidden-reasoning budget for planner generations. Keeps hybrid thinking
+ * models responsive (first XML token in ~3–6s) instead of stalling for 60–90s.
+ * @readonly @type {number}
+ */
+export const PLANNER_THINKING_BUDGET = 512;
+
+/**
  * Shared circuit breaker across all GeminiClient instances.
  * @type {CircuitBreaker}
  */
@@ -71,15 +85,13 @@ const sharedCircuitBreaker = new CircuitBreaker({
 export default class GeminiClient {
 
     /**
-     * @param {Object} options
-     * @param {Logger} options.logger Root parent logger.
-     * @param {string} [options.defaultModel=DEFAULT_GEMINI_MODEL] Target Gemini Flash model.
-     * @param {string|null} [options.apiKey=null] Optional explicit API key override.
+     * @param {GeminiClientOptions} options
      */
     constructor({
         logger,
         defaultModel = DEFAULT_GEMINI_MODEL,
-        apiKey = null
+        apiKey = null,
+        modelPool = null
     }) {
         if (!logger) throw new TypeError("GeminiClient requires a Logger instance.");
 
@@ -87,6 +99,7 @@ export default class GeminiClient {
         /** @readonly @type {EventManager} */ this.events = new EventManager(this.logger);
         /** @readonly @type {string} */ this.defaultModel = defaultModel;
         /** @private @type {string|null} */ this._customApiKey = apiKey;
+        /** @readonly @type {GeminiModelPool|null} */ this.modelPool = modelPool;
 
         /** @type {AbortController|null} */ this.abortController = null;
     }
@@ -94,6 +107,25 @@ export default class GeminiClient {
     /** Dynamically resolves the active Gemini key. @returns {string} */
     get apiKey() {
         return this._customApiKey || getGeminiApiKey();
+    }
+
+    /**
+     * Resolves the current best model from the dynamic GeminiModelPool.
+     * Falls back to the statically configured default only when the pool has
+     * no candidates at all (discovery failed / no key yet).
+     *
+     * @returns {Promise<string>}
+     */
+    async resolveModel() {
+        if (this.modelPool) {
+            try {
+                const active = await this.modelPool.getActiveModel();
+                if (active) return active;
+            } catch (/** @type {unknown} */ err) {
+                this.logger.warn("Gemini model pool resolution failed:", err);
+            }
+        }
+        return this.defaultModel;
     }
 
     /** @returns {string} */
@@ -109,7 +141,7 @@ export default class GeminiClient {
      * @param {Object} [options]
      * @param {number} [options.temperature=0.7]
      * @param {number} [options.maxOutputTokens=GEMINI_MAX_OUTPUT_TOKENS]
-     * @param {string} [options.model]
+     * @param {string|null} [options.model=null] Target model. Resolved from the pool when omitted.
      * @param {PromptType} [options.promptType="scheduler"]
      * @param {number} [options.maxRetries=2]
      * @returns {Promise<GeminiResultText>}
@@ -117,7 +149,7 @@ export default class GeminiClient {
     async streamGenerate(messages, {
         temperature = 0.7,
         maxOutputTokens = GEMINI_MAX_OUTPUT_TOKENS,
-        model = this.defaultModel,
+        model = null,
         promptType = "scheduler",
         maxRetries = 2
     } = {}) {
@@ -126,11 +158,12 @@ export default class GeminiClient {
 
         const startTime = Date.now();
         const activeKey = this.apiKey;
+        const targetModel = model || await this.resolveModel();
 
         if (!activeKey) {
             const error = new Error("Google AI Studio Gemini API key is missing. Please configure your key in Settings.");
             PromptLogger.record({
-                type: promptType, model, startTime, requestMessages: messages,
+                type: promptType, model: targetModel, startTime, requestMessages: messages,
                 rawResponse: "", status: "error", error: error.message
             });
             throw error;
@@ -140,7 +173,7 @@ export default class GeminiClient {
 
         try {
             return await sharedCircuitBreaker.execute(async () => {
-                return await this.#streamWithRetry(requestBody, model, activeKey, startTime, messages, promptType, maxRetries);
+                return await this.#streamWithRetry(requestBody, targetModel, activeKey, startTime, messages, promptType, maxRetries);
             });
         } finally {
             this.abort();
@@ -155,7 +188,7 @@ export default class GeminiClient {
      * @param {Object} [options]
      * @param {number} [options.temperature=0.7]
      * @param {number} [options.maxOutputTokens=GEMINI_MAX_OUTPUT_TOKENS]
-     * @param {string} [options.model]
+     * @param {string|null} [options.model=null] Target model. Resolved from the pool when omitted.
      * @param {PromptType} [options.promptType="scheduler"]
      * @param {number} [options.maxRetries=2]
      * @returns {Promise<GeminiResultText>}
@@ -163,7 +196,7 @@ export default class GeminiClient {
     async generateText(messages, {
         temperature = 0.7,
         maxOutputTokens = GEMINI_MAX_OUTPUT_TOKENS,
-        model = this.defaultModel,
+        model = null,
         promptType = "scheduler",
         maxRetries = 2
     } = {}) {
@@ -172,11 +205,12 @@ export default class GeminiClient {
 
         const startTime = Date.now();
         const activeKey = this.apiKey;
+        const targetModel = model || await this.resolveModel();
 
         if (!activeKey) {
             const error = new Error("Google AI Studio Gemini API key is missing. Please configure your key in Settings.");
             PromptLogger.record({
-                type: promptType, model, startTime, requestMessages: messages,
+                type: promptType, model: targetModel, startTime, requestMessages: messages,
                 rawResponse: "", status: "error", error: error.message
             });
             throw error;
@@ -186,7 +220,7 @@ export default class GeminiClient {
 
         try {
             return await sharedCircuitBreaker.execute(async () => {
-                return await this.#generateWithRetry(requestBody, model, activeKey, startTime, messages, promptType, maxRetries);
+                return await this.#generateWithRetry(requestBody, targetModel, activeKey, startTime, messages, promptType, maxRetries);
             });
         } finally {
             this.abort();
@@ -227,15 +261,9 @@ export default class GeminiClient {
                     body: JSON.stringify(requestBody)
                 });
 
-                // Handle 429/503 with Retry-After
-                if (response.status === 429 || response.status === 503) {
-                    const retryMs = this.#getRetryFromResponse(response, attempts);
-                    if (retryMs !== null && attempts < maxAttempts) {
-                        this.logger.warn(`HTTP ${response.status} on "${model}". Retrying in ${Math.round(retryMs / 1000)}s...`);
-                        await this.#sleep(retryMs);
-                        continue;
-                    }
-                }
+                // NOTE: No backoff sleep on 429/503 here. Planner streams
+                // fast-fail so WorldSetter can rotate to the next pool model
+                // immediately (0 seconds of sleep delay).
 
                 if (!response.ok) {
                     const errPayload = await response.json().catch(() => ({}));
@@ -265,6 +293,14 @@ export default class GeminiClient {
                 const castErr = /** @type {Error & {status?: number, message: string}} */ (err);
                 lastError = castErr;
                 if (castErr instanceof DOMException && castErr.name === "AbortError") throw castErr;
+
+                // Fast-failover: never sleep on 429/503/404 during planner
+                // streams — throw immediately so WorldSetter rotates to the
+                // next pool model with zero backoff delay.
+                if (castErr.status === 429 || castErr.status === 503 || castErr.status === 404) {
+                    this.logger.warn(`Fast-failover: HTTP ${castErr.status} on "${model}". Throwing immediately with no backoff.`);
+                    break;
+                }
 
                 const retryMs = this.#getRetryDelay(castErr, attempts);
                 if (retryMs !== null && attempts < maxAttempts) {
@@ -436,6 +472,9 @@ export default class GeminiClient {
 
     /**
      * Converts standard ChatMessage[] to Gemini REST schema.
+     * Includes a bounded `thinkingBudget` so hybrid reasoning models start
+     * emitting XML within seconds instead of burning 2–5K hidden reasoning
+     * tokens first.
      * @param {ChatMessage[]} messages
      * @param {number} temperature
      * @param {number} maxOutputTokens
@@ -453,7 +492,8 @@ export default class GeminiClient {
             })),
             generationConfig: {
                 temperature,
-                maxOutputTokens
+                maxOutputTokens,
+                thinkingConfig: { thinkingBudget: PLANNER_THINKING_BUDGET }
             }
         };
 

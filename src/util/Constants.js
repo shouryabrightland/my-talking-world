@@ -64,11 +64,9 @@ export {
     hasGeminiApiKey,
     verifyGeminiApiKey,
     verifyAndProbeDualKeys,
-    probeGeminiModel,
-    probeGeminiModels,
+    filterTextGenerationModels,
     getBlockedGeminiModels,
     blockGeminiModel,
     clearBlockedGeminiModels,
-    MIN_GEMINI_MODELS_REQUIRED,
-    GEMINI_PROBE_CANDIDATES
+    NON_TEXT_MODEL_MARKERS
 } from "./apiKeys";

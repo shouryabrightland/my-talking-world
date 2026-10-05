@@ -146,7 +146,7 @@ describe("WorldSetter — Expired Block Pruning", () => {
 
     beforeEach(() => {
         world = makeMockWorld();
-        ws = new WorldSetter({ logger: { child: () => ({ info() {}, warn() {}, error() {}, debug() {} }) }, world });
+        ws = new WorldSetter({ logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }, world });
     });
 
     it("prunes blocks whose endHour <= currentDecimalHour", async () => {
@@ -159,6 +159,9 @@ describe("WorldSetter — Expired Block Pruning", () => {
             makeRecord(11, 13, "Afternoon"),         // endHour 13 > 10.5 → KEPT
         ];
 
+        // Prevent planHorizon from adding fallback blocks — this test only
+        // covers expiry pruning.
+        ws.isPlanning = true;
         await ws.ensureSchedule(now);
 
         expect(ws.schedule.length).toBe(2);
@@ -219,7 +222,7 @@ describe("WorldSetter — Reorder Blocks", () => {
 
     beforeEach(() => {
         world = makeMockWorld();
-        ws = new WorldSetter({ logger: { child: () => ({ info() {}, warn() {}, error() {}, debug() {} }) }, world });
+        ws = new WorldSetter({ logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }, world });
         ws.schedule = [
             makeRecord(8, 10, "Block A"),
             makeRecord(10, 12, "Block B"),
@@ -293,5 +296,23 @@ describe("WorldSetter — Reorder Blocks", () => {
         for (let i = 1; i < ws.schedule.length; i++) {
             expect(ws.schedule[i].startHour).toBeGreaterThanOrEqual(ws.schedule[i - 1].endHour);
         }
+    });
+
+    it("reorderBlocks(0, 'down') anchors to the earliest start hour so the schedule start does not drift", () => {
+        // Block A (10:00–11:00) moved down past Block B (11:00–12:30).
+        ws.schedule = [
+            makeRecord(10, 11, "Block A"),
+            makeRecord(11, 12.5, "Block B"),
+        ];
+
+        ws.reorderBlocks(0, "down");
+
+        // The cursor must anchor to the true earliest start hour (10), not
+        // schedule[0].startHour (11) post-swap — otherwise the whole schedule
+        // shifts forward an hour, leaving an unintentional 10:00–11:00 gap.
+        expect(Math.min(...ws.schedule.map(b => b.startHour))).toBe(10);
+        expect(ws.schedule[0].startHour).toBe(10);
+        // Blocks remain contiguous — no gap between them either.
+        expect(ws.schedule[1].startHour).toBe(ws.schedule[0].endHour);
     });
 });

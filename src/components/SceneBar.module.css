@@ -174,8 +174,8 @@
 }
 
 .modalBadge {
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 800;
     text-transform: uppercase;
     color: var(--primary);
     letter-spacing: 0.5px;
@@ -216,8 +216,8 @@
 
 .sectionHeading {
     margin: 0;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 800;
     text-transform: uppercase;
     color: var(--text-tertiary);
     letter-spacing: 0.5px;
@@ -225,9 +225,9 @@
 
 .sectionText {
     margin: 0;
-    font-size: 13.5px;
+    font-size: 14px;
     color: var(--text-secondary);
-    line-height: 1.45;
+    line-height: 1.55;
 }
 
 .propsRow {
@@ -238,9 +238,9 @@
 }
 
 .propChip {
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 9px;
     border-radius: 6px;
     background-color: var(--bg-root);
     border: 1px solid var(--border-color);
@@ -248,9 +248,9 @@
 }
 
 .foodChip {
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 9px;
     border-radius: 6px;
     background-color: var(--primary-light);
     color: var(--primary);
@@ -268,8 +268,8 @@
 
 .sectionHeadingHighlight {
     margin: 0;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 800;
     text-transform: uppercase;
     color: var(--primary);
     letter-spacing: 0.5px;
@@ -277,10 +277,10 @@
 
 .situationText {
     margin: 0;
-    font-size: 13.5px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-primary);
-    line-height: 1.45;
+    line-height: 1.55;
 }
 
 @media (max-width: 280px) {

@@ -37,7 +37,10 @@ export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Break longer conversational statements across 2 to 3 shorter messages naturally.",
     "Always include a candid <thought></thought> tag for every message revealing the character's internal mindset.",
     "PERSONA FIDELITY: Tom is ambitious/dramatic, Angela is witty/trendy, Ben is technical/protective, Ginger is playful/cheeky, Hank is relaxed/foodie, Becca is sporty/direct. Stay true to each character's voice.",
-    "AUTONOMOUS MEMORIES: Use <record type=\"memory-set\"></record> with an appropriate expiry ('15m', '1h', '24h', 'forever') to store short-term reminders, temporary postures, unsaid thoughts, ongoing friction, micro-locations, or permanent facts.",
+    "AUTONOMOUS MEMORIES: Use <record type=\"memory-set\"></record> with an appropriate expiry ('15m', '1h', '24h', 'forever') to store ONLY high-impact information: emotional states, relationship dynamics, secrets, commitments to the human user, or key plot milestones.",
+    "FORBIDDEN MEMORIES: Never log micro-actions, physical movements, or trivial busywork (e.g. 'shoes laced', 'counting down', 'waiting for signal', 'picking up the phone', 'walking to the fridge'). If it will not matter in an hour, do not record it.",
+    "REUSE STANDARD MEMORY KEYS: Overwrite the standard category keys 'Mood', 'Active Goal', 'Opinion on User', and 'Secret' whenever they apply. Never invent unique event keys (e.g. 'CountdownStarted', 'SpeedRunCountdown', 'NextRoundPlan') — update an existing key instead of creating a new one, and keep each character at 5 memories or fewer.",
+    "To delete an obsolete memory, emit <record type=\"memory-remove\"> with the exact <key> to remove.",
     "When the human user speaks (participant_type=\"human_user\"), respond to and engage with them directly.",
     "Advance the active scene topic and goals naturally."
 ]);
@@ -55,11 +58,14 @@ export const PROMPT_DIALOGUE_RULES = Object.freeze([
  */
 export const PROMPT_SCHEDULER_TASK =
     "Write the upcoming storyline schedule for the characters in the group chat. " +
-    "Create a continuous, natural sequence of timeline blocks starting from the given hour.";
+    "Create a continuous, natural sequence of timeline blocks starting from the given hour. " +
+    "Generate exactly 3 to 4 sequential blocks covering the upcoming 4 hours starting from the given hour. " +
+    "Never emit more than 4 blocks for a single horizon request.";
 
 export const PROMPT_SCHEDULER_RULES = Object.freeze([
     "Every block must naturally follow from the preceding block.",
     "Each block must have a clear discussion topic, a main objective, and individual character motivations.",
+    "LOCATIONS: Dynamically choose realistic, varied, real-world locations across the active city that fit each scheduled activity — drawing naturally from the <location> grounding tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Never reuse the same spot for every block and never default to a single recurring hangout.",
     "pre_plot must describe the backstory or momentum leading directly into the scene.",
     "post_plot must describe the consequences or lead-up transition into the subsequent scene.",
     "Facts must be concrete, specific items or situational details useful for interaction.",
@@ -84,6 +90,8 @@ export const PROMPT_DEMAND_TASK =
 
 export const PROMPT_DEMAND_RULES = Object.freeze([
     "The user's requested activity has highest priority. Schedule it at the requested time window.",
+    "LOCATIONS: Dynamically choose a realistic, varied, real-world location across the active city that fits the requested activity — grounded in the <location> tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Do not force a fixed or repeating location.",
+    "Every block in the updated schedule MUST include individual <goal> entries for all 6 characters: tom, angela, ben, ginger, hank, becca — never drop or omit any character's goal.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
     "In the block immediately preceding the requested activity, write a post_plot transition in the final 5 to 10 minutes that smoothly leads into and prepares the upcoming activity.",
     "Connect the requested activity to the subsequent block through post_plot.",
@@ -112,6 +120,7 @@ export const PROMPT_RESTABILIZER_RULES = Object.freeze([
     "Write a believable <pre_plot></pre_plot> for the context leading into each scene.",
     "Write a believable <post_plot></post_plot> for the aftermath leading out of each scene.",
     "Assign individual character <goal id=\"...\" name=\"...\"></goal> tags aligning with the main objective.",
+    "Every block MUST include individual goals for all 6 characters: tom, angela, ben, ginger, hank, becca — never drop or omit any character's goal.",
     "Ensure timeline blocks maintain chronological sequence without overlaps.",
     "Output strictly valid XML <schedule><block start=\"...\" end=\"...\">...</block></schedule>.",
     "Return the complete and final updated schedule."

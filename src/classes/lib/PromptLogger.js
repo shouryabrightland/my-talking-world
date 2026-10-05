@@ -30,6 +30,9 @@
  * @property {string} rawResponse Full unparsed text returned by model.
  * @property {string|null} thinkingChain Extracted <think>...</think> reasoning chain.
  * @property {string|null} error Error description if request failed.
+ * @property {number|null} tokensIn Prompt tokens consumed (usage.prompt_tokens).
+ * @property {number|null} tokensOut Completion tokens generated (usage.completion_tokens).
+ * @property {string|null} finishReason Final finish reason (e.g. "stop", "length").
  */
 
 /**
@@ -73,6 +76,9 @@ export default class PromptLogger {
      * @param {string|null} [options.thinkingChain=null]
      * @param {"success" | "error"} [options.status="success"]
      * @param {string|null} [options.error=null]
+     * @param {number|null} [options.tokensIn=null] Prompt token count.
+     * @param {number|null} [options.tokensOut=null] Completion token count.
+     * @param {string|null} [options.finishReason=null] Final finish reason from the model.
      * @returns {PromptLogEntry}
      */
     static record({
@@ -83,7 +89,10 @@ export default class PromptLogger {
         rawResponse,
         thinkingChain = null,
         status = "success",
-        error = null
+        error = null,
+        tokensIn = null,
+        tokensOut = null,
+        finishReason = null
     }) {
         const now = new Date();
         const latencyMs = Math.max(1, now.getTime() - startTime);
@@ -100,7 +109,10 @@ export default class PromptLogger {
             requestMessages,
             rawResponse,
             thinkingChain,
-            error
+            error,
+            tokensIn,
+            tokensOut,
+            finishReason
         };
 
         if (PromptLogger._buffers[type]) {

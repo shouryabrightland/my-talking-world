@@ -38,11 +38,17 @@ vi.mock("../../src/classes/GeminiClient.js", () => ({
     }
 }));
 
-vi.mock("../../src/classes/GroqClient.js", () => ({
-    default: class MockGroqClient {
-        constructor() { this.events = { on() { return () => {}; }, emit() {} }; }
-        async streamChat() { return ""; }
-        async generateText() { return { text: "", model: "mock", thinking: null }; }
+// The planner resolves its Gemini model ladder exclusively through the pool.
+vi.mock("../../src/classes/lib/GeminiModelResolver.js", () => ({
+    default: class MockGeminiModelPool {
+        constructor() {
+            this.candidates = [{ id: "mock-gemini", tier: 1, version: 1 }];
+            this.failures = [];
+        }
+        async getCandidates() { return this.candidates; }
+        async getActiveModel() { return this.candidates.length > 0 ? this.candidates[0].id : null; }
+        reportFailure(id, status) { this.failures.push({ id, status }); return true; }
+        reportSuccess() {}
     }
 }));
 
@@ -130,12 +136,11 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
     beforeEach(() => {
         world = makeMockWorld();
         ws = new WorldSetter({
-            logger: { child: () => ({ info() {}, warn() {}, error() {}, debug() {} }) },
+            logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } },
             world
         });
-        // Mock generatePlannerXml to return controlled XML
+        // The planner is Gemini-only: streamGenerate is the single generation path.
         ws.geminiClient.streamGenerate = async () => ({ text: "", model: "mock" });
-        ws.groqClient.streamChat = async () => "";
     });
 
     it("parses a complete <narrative_report> from applyUserDemand", async () => {
@@ -161,7 +166,7 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
             </demand_resolution>
         `;
 
-        ws.groqClient.streamChat = async () => mockXml;
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
         const result = await ws.applyUserDemand("Study physics at 5pm");
 
         expect(ws.pendingProposal.report).toBeDefined();
@@ -180,7 +185,7 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
     it("returns safe defaults when <narrative_report> is missing entirely", async () => {
         const mockXml = `<demand_resolution><summary_line_1>Done</summary_line_1><schedule><block start="14.0" end="15.0"><topic>Test</topic><goals><main>Goal</main></goals></block></schedule></demand_resolution>`;
 
-        ws.groqClient.streamChat = async () => mockXml;
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
         const result = await ws.applyUserDemand("Test demand");
 
         expect(ws.pendingProposal.report).toBeDefined();
@@ -206,7 +211,7 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
             </demand_resolution>
         `;
 
-        ws.groqClient.streamChat = async () => mockXml;
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
         const result = await ws.applyUserDemand("Study at 5pm");
 
         expect(ws.pendingProposal.report.summary).toBe("Added a study block at 5pm.");
@@ -232,7 +237,7 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
             </demand_resolution>
         `;
 
-        ws.groqClient.streamChat = async () => mockXml;
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
         const result = await ws.applyUserDemand("Do something");
 
         expect(ws.pendingProposal.report.summary).toBe("Quick update to the schedule.");
@@ -258,7 +263,7 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
             </demand_resolution>
         `;
 
-        ws.groqClient.streamChat = async () => mockXml;
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
         const result = await ws.applyUserDemand("Study physics");
 
         expect(ws.pendingProposal.report.summary).toBe("Physics study session scheduled at 5pm.");
@@ -266,7 +271,7 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
     });
 
     it("handles empty XML response gracefully", async () => {
-        ws.groqClient.streamChat = async () => "";
+        ws.geminiClient.streamGenerate = async () => ({ text: "", model: "mock" });
         const result = await ws.applyUserDemand("Do something");
 
         expect(ws.pendingProposal.report).toBeDefined();
@@ -298,8 +303,8 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
             </demand_resolution>
         `;
 
-        // Override streamChat to return our mock XML
-        ws.groqClient.streamChat = async () => mockXml;
+        // Override streamGenerate to return our mock XML
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
 
         const result = await ws.applyUserDemand("I want to study physics at 5pm");
 
@@ -310,5 +315,54 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
         expect(ws.pendingProposal.report.continuityImpact).toBe("Enhances the afternoon flow.");
         expect(result.schedule).toBeDefined();
         expect(Array.isArray(result.schedule)).toBe(true);
+    });
+
+    it("preserves individual goals for ALL 6 characters in generated schedule blocks", async () => {
+        const mockXml = `
+            <demand_resolution>
+                <summary_line_1>Scheduled evening park outing</summary_line_1>
+                <summary_line_2>Leads into the night wind-down block</summary_line_2>
+                <schedule>
+                    <block start="17.0" end="18.0">
+                        <topic>Evening park outing</topic>
+                        <goals>
+                            <main>Spend the evening outdoors together</main>
+                            <goal id="tom" name="Tom">Rally the group for the outing</goal>
+                            <goal id="angela" name="Angela">Document the evening on her phone</goal>
+                            <goal id="ben" name="Ben">Scout the best spot in the park</goal>
+                            <goal id="ginger" name="Ginger">Race everyone to the benches</goal>
+                            <goal id="hank" name="Hank">Grab snacks for the group</goal>
+                            <goal id="becca" name="Becca">Organize a quick football match</goal>
+                        </goals>
+                        <pre_plot>The group finishes work and head out</pre_plot>
+                        <post_plot>They walk home as the sky darkens</post_plot>
+                        <facts><fact>Park gate is open</fact></facts>
+                    </block>
+                </schedule>
+            </demand_resolution>
+        `;
+
+        ws.geminiClient.streamGenerate = async () => ({ text: mockXml, model: "mock" });
+        await ws.applyUserDemand("Evening outing at the park");
+
+        // Goals are staged in the pending proposal before acceptance.
+        const proposedBlocks = ws.pendingProposal.changes
+            .filter(c => c.action === "add")
+            .map(c => c.block);
+        expect(proposedBlocks.length).toBeGreaterThan(0);
+
+        const proposedIds = proposedBlocks[0].characterGoals.map(g => g.id);
+        expect(proposedIds).toHaveLength(6);
+        for (const id of ["tom", "angela", "ben", "ginger", "hank", "becca"]) {
+            expect(proposedIds).toContain(id);
+        }
+
+        // After accepting, the committed schedule carries all 6 goals too.
+        await ws.acceptProposal();
+        const committedIds = ws.schedule[0].characterGoals.map(g => g.id);
+        expect(committedIds).toHaveLength(6);
+        for (const id of ["tom", "angela", "ben", "ginger", "hank", "becca"]) {
+            expect(committedIds).toContain(id);
+        }
     });
 });

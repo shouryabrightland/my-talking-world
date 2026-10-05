@@ -273,6 +273,8 @@ export default class GroqClient {
         for (const targetModel of candidateModels) {
             let attempts = 0;
             const maxAttempts = 1 + maxRetries;
+            /** @type {(Error & {status?: number, retryAfter?: string|null, message: string})|null} */
+            let attemptError = null;
 
             while (attempts < maxAttempts) {
                 attempts++;
@@ -280,15 +282,18 @@ export default class GroqClient {
                 try {
                     this.logger.debug(`Initiating SSE stream using model: "${targetModel}" (attempt ${attempts}/${maxAttempts})...`);
 
-                    const accumulatedText = await this.#executeStream(targetModel, messages, temperature, maxTokens, activeKey);
+                    const streamResult = await this.#executeStream(targetModel, messages, temperature, maxTokens, activeKey);
                     this.isStreaming = false;
 
-                    const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(accumulatedText);
+                    const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(streamResult.text);
 
                     PromptLogger.record({
                         type: promptType, model: targetModel, startTime,
-                        requestMessages: messages, rawResponse: accumulatedText,
-                        thinkingChain: thinking, status: "success"
+                        requestMessages: messages, rawResponse: streamResult.text,
+                        thinkingChain: thinking, status: "success",
+                        tokensIn: streamResult.usage?.prompt_tokens ?? null,
+                        tokensOut: streamResult.usage?.completion_tokens ?? null,
+                        finishReason: streamResult.finishReason
                     });
 
                     this.events.emit(GroqClientEvents.DONE, cleanText);
@@ -296,6 +301,7 @@ export default class GroqClient {
                 } catch (err) {
                     const castErr = /** @type {Error & {status?: number, retryAfter?: string|null, message: string}} */ (err);
                     lastError = castErr;
+                    attemptError = castErr;
 
                     if (castErr instanceof DOMException && castErr.name === "AbortError") {
                         this.logger.debug("Active stream was cancelled by user action.");
@@ -316,15 +322,22 @@ export default class GroqClient {
                     break;
                 }
             }
+
+            // Record an explicit PromptLogger card for THIS model's failure so
+            // the inspector never pairs the first model's name with the last
+            // model's error.
+            if (attemptError) {
+                PromptLogger.record({
+                    type: promptType, model: targetModel, startTime,
+                    requestMessages: messages, rawResponse: "",
+                    status: "error", error: attemptError.message || String(attemptError)
+                });
+            }
         }
 
         this.isStreaming = false;
 
         const lastErr = lastError || new Error("All streaming fallback attempts failed.");
-        PromptLogger.record({
-            type: promptType, model, startTime, requestMessages: messages,
-            rawResponse: "", status: "error", error: lastErr?.message
-        });
 
         this.events.emit(GroqClientEvents.ERROR, lastErr);
         throw new Error(`All streaming fallback attempts failed. Last error: ${lastErr?.message}`, { cause: lastErr });
@@ -435,12 +448,13 @@ export default class GroqClient {
 
     /**
      * Internal SSE stream reader separating thinking tokens from text tokens.
+     * Captures `usage` (with include_usage) and `finish_reason` from the stream.
      * @param {string} model
      * @param {ChatMessage[]} messages
      * @param {number} temperature
      * @param {number} maxTokens
      * @param {string} key
-     * @returns {Promise<string>}
+     * @returns {Promise<{ text: string, usage: { prompt_tokens?: number, completion_tokens?: number }|null, finishReason: string|null }>}
      */
     async #executeStream(model, messages, temperature, maxTokens, key) {
         const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
@@ -451,7 +465,8 @@ export default class GroqClient {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                model, messages, temperature, max_tokens: maxTokens, stream: true
+                model, messages, temperature, max_tokens: maxTokens, stream: true,
+                stream_options: { include_usage: true }
             })
         });
 
@@ -478,6 +493,10 @@ export default class GroqClient {
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
         let fullText = "";
+        /** @type {{ prompt_tokens?: number, completion_tokens?: number }|null} */
+        let usage = null;
+        /** @type {string|null} */
+        let finishReason = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -492,7 +511,7 @@ export default class GroqClient {
                 if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) continue;
 
                 const payload = trimmed.replace(/^data:\s*/, "");
-                if (payload === "[DONE]") return fullText;
+                if (payload === "[DONE]") return { text: fullText, usage, finishReason };
 
                 try {
                     const parsed = JSON.parse(payload);
@@ -501,13 +520,22 @@ export default class GroqClient {
                         fullText += delta;
                         this.events.emit(GroqClientEvents.TEXT, delta);
                     }
+
+                    // Capture terminal metrics from the final SSE chunks.
+                    const chunkFinish = parsed?.choices?.[0]?.finish_reason;
+                    if (typeof chunkFinish === "string" && chunkFinish) {
+                        finishReason = chunkFinish;
+                    }
+                    if (parsed?.usage && typeof parsed.usage === "object") {
+                        usage = parsed.usage;
+                    }
                 } catch {
                     // Ignore non-JSON heartbeat lines
                 }
             }
         }
 
-        return fullText;
+        return { text: fullText, usage, finishReason };
     }
 
     // =========================================================================

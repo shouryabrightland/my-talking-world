@@ -2,6 +2,7 @@
 
 import React, { useMemo } from "react";
 import styles from "../DevToolsDrawer.module.css";
+import Logger from "../../classes/lib/Logger";
 
 /** @typedef {import("../../classes/lib/Logger").LogEntry} LogEntry */
 /** @typedef {import("../../classes/lib/Logger").LogSeverity} LogSeverity */
@@ -25,7 +26,14 @@ export default function DevToolsLogsTab({
     clearLogs
 }) {
     const filteredLogs = useMemo(() => {
-        return logs.filter(log => {
+        // Pull from the dedicated per-severity ring buffer for the active tab
+        // filter (errors 100 / warns 150 / infos 250 / debugs 350), so chatty
+        // debug entries can never evict critical error/warn records.
+        const source = activeLevel === "error" || activeLevel === "warn" || activeLevel === "info" || activeLevel === "debug"
+            ? Logger.getStack(activeLevel)
+            : logs;
+
+        return source.filter(log => {
             const matchesLevel = activeLevel === log.level;
             if (!matchesLevel) return false;
 

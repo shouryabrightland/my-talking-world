@@ -15,16 +15,14 @@
  */
 
 import GeminiClient from "./GeminiClient";
-import GroqClient from "./GroqClient";
+import GeminiModelPool from "./lib/GeminiModelResolver";
 import PromptBuilderClass from "./PromptBuilder";
 import Storage from "./lib/Storage";
 import ProtocolCodec from "./ProtocolCodec";
 import XmlEncoder from "./lib/XmlEncoder";
 import { getEnvironmentSnapshot } from "../util/environment";
 import {
-    hasGeminiApiKey,
     DEFAULT_GEMINI_MODEL,
-    DEFAULT_CHAT_MODEL,
     GEMINI_MAX_OUTPUT_TOKENS,
     PROMPT_SCHEDULER_TASK,
     PROMPT_SCHEDULER_RULES,
@@ -35,6 +33,9 @@ import {
 } from "../util/Constants";
 
 const SCHEDULE_STORAGE_KEY = "world:schedule_v2";
+
+/** @readonly @type {number} Minimum gap between stream progress parses (ms). */
+const STREAM_PROGRESS_DEBOUNCE_MS = 150;
 
 /**
  * Planner stream event identifiers emitted during real-time schedule generation.
@@ -48,6 +49,8 @@ export const PlannerStreamEvents = {
     TEXT: "planner:stream:text",
     /** A complete <block> has been parsed from the stream. */
     BLOCK: "planner:stream:block",
+    /** The active Gemini model failed and the pool rotated to the next one. */
+    FAILOVER: "planner:stream:failover",
     /** The <schedule> generation is complete. */
     DONE: "planner:stream:done",
     /** Stream generation failed. */
@@ -56,8 +59,10 @@ export const PlannerStreamEvents = {
 
 /**
  * Hybrid World & Horizon Controller.
- * Uses Gemini 2.5 Flash streaming for full-timeline normalization and demand processing
- * with seamless Groq fallback, preventing token truncation permanently.
+ * Uses the dynamic Gemini Model Pool for full-timeline normalization and
+ * demand processing. Gemini is the ONLY provider the planner may call — when
+ * every pool model fails it degrades to the local synthetic schedule
+ * generator instead of crossing over to another provider.
  */
 export default class WorldSetter {
 
@@ -75,14 +80,13 @@ export default class WorldSetter {
 
         /** @readonly @type {Storage} */ this.storage = new Storage("Memories", this.logger);
 
+        /** Dynamic, self-healing Gemini model pool (discovery + cooldown). */
+        this.modelPool = new GeminiModelPool(this.logger);
+
         /** @readonly @type {GeminiClient} */ this.geminiClient = new GeminiClient({
             logger: this.logger,
-            defaultModel: DEFAULT_GEMINI_MODEL
-        });
-
-        /** @readonly @type {GroqClient} */ this.groqClient = new GroqClient({
-            logger: this.logger,
-            defaultModel: DEFAULT_CHAT_MODEL
+            defaultModel: DEFAULT_GEMINI_MODEL,
+            modelPool: this.modelPool
         });
 
         /** @type {ScheduleRecord[]} */ this.schedule = [];
@@ -92,96 +96,171 @@ export default class WorldSetter {
     }
 
     /**
-     * Executes planner queries using Gemini streaming with Groq fallback.
+     * Throttled stream parsing state. Global regex extraction never runs on
+     * individual token chunks — only on a completed `</block>` arrival, a
+     * 150ms debounce, or the terminal flush.
+     * @type {{ lastEmitAt: number, emittedBlocks: number }}
+     */
+    #streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
+
+    /**
+     * Executes planner queries by cascading across the dynamic Gemini Model
+     * Pool. Groq is NEVER used here — if every pool model fails, the error
+     * propagates so callers can drop to `#buildFallbackSchedule()`.
+     *
      * @param {import("./PromptBuilder").PromptPayload} promptPayload
      * @param {PromptType} promptType
      * @returns {Promise<string>}
      */
     async #generatePlannerXml(promptPayload, promptType) {
-        // Emit stream start
-        this.world.events.emit(PlannerStreamEvents.START, { promptType });
-
-        let rawText = "";
-        /** @type {Set<Function>} */
+        /** @type {Set<Function>} */ 
         const cleanups = new Set();
 
-        // Internal: hook into client TEXT events to parse blocks in real-time
+        let rawText = "";
+
+        // Internal: hook into the active client TEXT event to parse blocks in real-time
         const onChunk = (/** @type {string} */ chunk) => {
             rawText += chunk;
-            this.#emitStreamProgress(rawText, cleanups);
+            this.#emitStreamProgress(rawText, chunk);
         };
-
-        // Subscribe to both client stream events (whichever is active)
         cleanups.add(this.geminiClient.events.on("text", onChunk, "PlannerStream:text"));
-        cleanups.add(this.groqClient.events.on("text", onChunk, "PlannerStream:text"));
+
+        const events = this.world.events;
 
         try {
-            // Try Gemini first (streaming for better timeout handling)
-            if (hasGeminiApiKey()) {
+            const candidates = await this.#resolveModelCandidates();
+
+            if (candidates.length === 0) {
+                const message = "No Gemini models available in the active pool.";
+                this.logger.error(`Planner "${promptType}" aborted: ${message}`);
+                events.emit(PlannerStreamEvents.ERROR, { promptType, error: message });
+                throw new Error(message);
+            }
+
+            this.#resetStreamProgress();
+            events.emit(PlannerStreamEvents.START, { promptType, model: candidates[0].id });
+
+            /** @type {Error|null} */
+            let lastError = null;
+
+            for (let i = 0; i < candidates.length; i++) {
+                const model = candidates[i].id;
+                rawText = "";
+                this.#resetStreamProgress();
+
                 try {
-                    this.logger.debug(`Dispatching "${promptType}" to Gemini 2.5 Flash streaming...`);
+                    this.logger.debug(`Dispatching "${promptType}" to Gemini model "${model}" (${i + 1}/${candidates.length})...`);
+
                     const result = await this.geminiClient.streamGenerate(promptPayload.messages, {
                         temperature: 0.7,
                         maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
-                        promptType
+                        promptType,
+                        model
                     });
+
                     rawText = result.text;
+                    this.modelPool.reportSuccess(model);
                     return result.text;
-                } catch (/** @type {unknown} */ geminiError) {
-                    const gemErr = geminiError instanceof Error ? geminiError : new Error(String(geminiError));
-                    if (/** @type {Record<string, unknown>} */ (geminiError)?.code === "CIRCUIT_OPEN") {
-                        this.logger.warn(`Gemini circuit breaker OPEN: ${gemErr.message}. Falling back to Groq...`);
-                    } else {
-                        this.logger.warn(`Gemini 2.5 Flash streaming failed: ${gemErr.message}. Falling back to Groq...`);
-                    }
-                    rawText = ""; // Reset for Groq fallback
+                } catch (/** @type {unknown} */ genError) {
+                    const err = /** @type {Error & {status?: number, code?: string}} */ (genError);
+                    lastError = err;
+
+                    if (err instanceof DOMException && err.name === "AbortError") throw err;
+
+                    // Circuit breaker rejections are provider-wide, not model-specific.
+                    const isCircuitOpen = err.code === "CIRCUIT_OPEN";
+                    const status = typeof err.status === "number" ? err.status : null;
+                    if (!isCircuitOpen) this.modelPool.reportFailure(model, status);
+
+                    const reason = isCircuitOpen
+                        ? "Circuit breaker open"
+                        : status === null ? "Timed out" : `HTTP ${status}`;
+                    const next = candidates[i + 1];
+
+                    this.logger.warn(`Gemini model "${model}" failed (${reason}). ${next ? `Switching to "${next.id}"...` : "No alternate model left."}`);
+
+                    events.emit(PlannerStreamEvents.FAILOVER, {
+                        promptType,
+                        fromModel: model,
+                        toModel: next ? next.id : null,
+                        status,
+                        reason,
+                        error: err.message
+                    });
                 }
             }
 
-            // Fallback to Groq streaming
-            this.logger.debug(`Dispatching "${promptType}" to Groq streaming fallback...`);
-            rawText = "";
-            const groqResult = await this.groqClient.streamChat(promptPayload.messages, {
-                temperature: 0.7,
-                maxTokens: 3000,
-                promptType
-            });
-            rawText = groqResult;
-            return groqResult;
+            const message = `All ${candidates.length} Gemini model(s) failed for "${promptType}": ${lastError?.message || lastError || "unknown error"}`;
+            this.logger.error(message);
+            events.emit(PlannerStreamEvents.ERROR, { promptType, error: message });
+            throw new Error(message);
         } finally {
             // Clean up all TEXT listeners
             for (const off of cleanups) off();
             cleanups.clear();
             // Emit final progress to flush any remaining blocks
-            this.#emitStreamProgress(rawText, new Set());
-            this.world.events.emit(PlannerStreamEvents.DONE, { promptType, rawText });
+            this.#emitStreamProgress(rawText, "", true);
+            events.emit(PlannerStreamEvents.DONE, { promptType, rawText });
         }
     }
 
     /**
-     * Parses accumulated stream text for <block> boundaries and emits
-     * BLOCK events for each complete block detected.
-     * @param {string} accumulated Full accumulated stream text.
-     * @param {Set<Function>} cleanups Cleanup set (unused here, kept for API consistency).
+     * Resolves the current active Gemini model stack from the pool.
+     * Never throws — an empty array means "fall back to the local generator".
+     *
+     * @returns {Promise<import("./lib/GeminiModelResolver").GeminiModelEntry[]>}
      */
-    #emitStreamProgress(accumulated, cleanups) {
+    async #resolveModelCandidates() {
+        try {
+            return await this.modelPool.getCandidates();
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Gemini model pool discovery failed:", err);
+            return [];
+        }
+    }
+
+    /** Resets throttled stream parsing state. @returns {void} */
+    #resetStreamProgress() {
+        this.#streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
+    }
+
+    /**
+     * Parses accumulated stream text for <block> boundaries and emits BLOCK
+     * events for each complete block detected.
+     *
+     * Extraction is throttled: it only runs when a closing `</block>` tag
+     * arrives in the chunk, when the 150ms debounce elapses, or on the terminal
+     * flush — never on every single token.
+     *
+     * @param {string} accumulated Full accumulated stream text.
+     * @param {string} [chunk=""] Raw chunk that triggered this call.
+     * @param {boolean} [force=false] Force a parse/emit (terminal flush).
+     */
+    #emitStreamProgress(accumulated, chunk = "", force = false) {
+        const now = Date.now();
+        const closedBlockArrived = /<\/\s*block\s*>/i.test(chunk);
+        const debounced = now - this.#streamProgress.lastEmitAt >= STREAM_PROGRESS_DEBOUNCE_MS;
+
+        if (!force && !closedBlockArrived && !debounced) return;
+        this.#streamProgress.lastEmitAt = now;
+
         const events = this.world.events;
 
-        // Emit raw text chunk for consumers that want it
+        // Emit raw text for consumers that want it (throttled)
         events.emit(PlannerStreamEvents.TEXT, accumulated);
 
-        // Scan for complete <block>...</block> tags
+        // Scan for complete <block>...</block> tags (deduped across calls)
         const blockRegex = /<\s*block\b[^>]*>([\s\S]*?)<\/\s*block\s*>/gi;
         let match;
-        const seen = new Set();
+        let matchIndex = 0;
 
         while ((match = blockRegex.exec(accumulated)) !== null) {
             const rawBlock = match[0];
             const content = match[1];
 
-            // Use the raw block string as dedup key
-            if (seen.has(rawBlock)) continue;
-            seen.add(rawBlock);
+            // Skip blocks that were already emitted in a previous pass
+            if (matchIndex++ < this.#streamProgress.emittedBlocks) continue;
+            this.#streamProgress.emittedBlocks++;
 
             // Parse the block into a ScheduleRecord-like object
             const startAttr = rawBlock.match(/start\s*=\s*["']([^"']+)["']/);
@@ -332,7 +411,10 @@ export default class WorldSetter {
             }
 
             promptBuilder.useUser(() => promptBuilder.part(
-                `<horizon_request date="${XmlEncoder.encode(date.toDateString())}" start_hour="${startHour}:00"></horizon_request>`
+                `<horizon_request date="${XmlEncoder.encode(date.toDateString())}" start_hour="${startHour}:00">` +
+                "  Generate exactly 3 to 4 sequential blocks covering the upcoming 4 hours starting from the given hour. " +
+                "Do not emit more than 4 blocks.\n" +
+                "</horizon_request>"
             ));
 
             const promptPayload = await promptBuilder.build();
@@ -424,6 +506,11 @@ export default class WorldSetter {
             "          <goals>\n" +
             "            <main></main>\n" +
             '            <goal id="tom" name="Tom"></goal>\n' +
+            '            <goal id="angela" name="Angela"></goal>\n' +
+            '            <goal id="ben" name="Ben"></goal>\n' +
+            '            <goal id="ginger" name="Ginger"></goal>\n' +
+            '            <goal id="hank" name="Hank"></goal>\n' +
+            '            <goal id="becca" name="Becca"></goal>\n' +
             "          </goals>\n" +
             "          <pre_plot></pre_plot>\n" +
             "          <post_plot></post_plot>\n" +
@@ -606,7 +693,7 @@ export default class WorldSetter {
                 "  <rules>\n" +
                 PROMPT_RESTABILIZER_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
                 "  </rules>\n" +
-                '  <output_format>Output strictly &lt;schedule&gt;&lt;block start="..." end="..."&gt;...&lt;/block&gt;&lt;/schedule&gt; XML tags.</output_format>\n' +
+                '  <output_format>Output strictly &lt;schedule&gt;&lt;block start="..." end="..."&gt;...&lt;/block&gt;&lt;/schedule&gt; XML tags. Every block MUST include individual &lt;goal&gt; entries for all 6 characters: &lt;goal id="tom" name="Tom"&gt;, &lt;goal id="angela" name="Angela"&gt;, &lt;goal id="ben" name="Ben"&gt;, &lt;goal id="ginger" name="Ginger"&gt;, &lt;goal id="hank" name="Hank"&gt;, &lt;goal id="becca" name="Becca"&gt;.</output_format>\n' +
                 "</restabilizer_instruction>"
             ));
 
@@ -629,13 +716,9 @@ export default class WorldSetter {
                 `<schedule>\n${blocksXml}\n</schedule>`
             ));
 
-            // Emit stream events for UI progress
-            this.world.events.emit(PlannerStreamEvents.START, { promptType: "stabilizer" });
-
+            // #generatePlannerXml emits START / TEXT / BLOCK / DONE for the UI.
             const promptPayload = await promptBuilder.build();
             const xmlResponseText = await this.#generatePlannerXml(promptPayload, "stabilizer");
-
-            this.world.events.emit(PlannerStreamEvents.DONE, { promptType: "stabilizer", rawText: xmlResponseText });
 
             // Parse the stabilized schedule
             const startHour = this.schedule.length > 0 ? this.schedule[0].startHour : 0;
@@ -781,7 +864,7 @@ export default class WorldSetter {
             mainGoal: String(recordData.mainGoal || "Hang out together").trim(),
             characterGoals: Array.isArray(recordData.characterGoals) ? recordData.characterGoals : [],
             facts: Array.isArray(recordData.facts) ? recordData.facts.map(String).filter(Boolean) : [],
-            prePlot: recordData.prePlot || "Friends chatting in garage",
+            prePlot: recordData.prePlot || "Friends chatting casually",
             postPlot: recordData.postPlot || "Transitioning to next activity",
             createdAt: Date.now(),
             updatedAt: Date.now()
@@ -890,9 +973,9 @@ export default class WorldSetter {
             const preMatch = content.match(/<\s*pre_plot\b[^>]*>([\s\S]*?)<\/\s*pre_plot\s*>/i);
             const postMatch = content.match(/<\s*post_plot\b[^>]*>([\s\S]*?)<\/\s*post_plot\s*>/i);
 
-            const topic = topicMatch ? topicMatch[1].trim() : (fallbackTopic || "Garage hangout & chai");
+            const topic = topicMatch ? topicMatch[1].trim() : (fallbackTopic || "Afternoon chai & hangout");
             const mainGoal = mainGoalMatch ? mainGoalMatch[1].trim() : "Banter and share daily news";
-            const prePlot = preMatch ? preMatch[1].trim() : "Friends hanging out in the garage";
+            const prePlot = preMatch ? preMatch[1].trim() : "Friends hanging out together";
             const postPlot = postMatch ? postMatch[1].trim() : "Winding down to next activity";
 
             /** @type {CharacterGoalRecord[]} */
@@ -1103,7 +1186,7 @@ export default class WorldSetter {
      */
     #buildFallbackSchedule(startHour) {
         const topics = [
-            { topic: "Creative project discussion", mainGoal: "Brainstorm new concepts", facts: ["Working in the garage space"] },
+            { topic: "Creative project discussion", mainGoal: "Brainstorm new concepts", facts: ["Fresh notebook and markers on the table"] },
             { topic: "Snack break & tea", mainGoal: "Relax and discuss local city events", facts: ["Ordered hot samosas"] },
             { topic: "Weekend sports challenge", mainGoal: "Organize teams for outdoor games", facts: ["Checking equipment availability"] },
             { topic: "Evening entertainment session", mainGoal: "Pick a movie or comedy show", facts: ["Setting up screen and snacks"] }
@@ -1165,7 +1248,8 @@ export default class WorldSetter {
         // original start so the swap survives #sanitizeAndSortSchedule (which
         // would otherwise re-sort by the now-stale startHour values and undo
         // the move).
-        const anchorStart = this.schedule[0].startHour;
+        // Anchor to the true earliest start hour so moving the first block down preserves the original start time
+        const anchorStart = Math.min(...this.schedule.map(b => b.startHour));
         const durations = this.schedule.map(b => Math.max(0.5, b.endHour - b.startHour));
         let cursor = anchorStart;
         for (let i = 0; i < this.schedule.length; i++) {

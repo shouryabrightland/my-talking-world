@@ -3,18 +3,19 @@
 /**
  * @file apiKeys.js
  * API key management for Groq and Gemini providers.
- * Handles storage, verification, probing, and dual-key enforcement.
+ * Handles storage, lightweight verification, and dual-key enforcement.
  *
  * Responsibilities:
- * - Groq key verification against GET /models.
- * - Gemini key verification + model list fetch + per-model live probe.
- * - Requires at least 3 working Gemini models before permitting entry.
- * - Returns detailed probe results for UI diagnostics.
+ * - Groq key verification via a single 1-token generation request (proves the
+ *   key can actually generate tokens, not merely that it exists).
+ * - Gemini key verification via a single GET /models discovery request.
+ *   Zero generation tokens are burned during onboarding — no probe loops.
  */
 
 import {
     GROQ_API_BASE_URL,
     GEMINI_API_BASE_URL,
+    DEFAULT_CHAT_MODEL,
     STORAGE_API_KEY_NAME,
     STORAGE_GEMINI_API_KEY_NAME
 } from "./config";
@@ -23,27 +24,11 @@ import {
 // CONSTANTS
 // =========================================================================
 
-/** @readonly @type {number} Minimum number of live Gemini models required. */
-export const MIN_GEMINI_MODELS_REQUIRED = 3;
-
-/** @readonly @type {number} Timeout in ms for a single model probe request. */
-const PROBE_TIMEOUT_MS = 15_000;
-
-/** @readonly @type {number} Maximum concurrent probe requests. */
-const MAX_CONCURRENT_PROBES = 3;
-
 /**
- * Candidate model IDs to probe for live text generation capability.
- * These are the most commonly available Gemini models that support generateContent.
+ * Substrings marking non text-generation Gemini models (media / embedding).
  * @readonly @type {readonly string[]}
  */
-export const GEMINI_PROBE_CANDIDATES = Object.freeze([
-    "gemini-3.7-flash",
-    "gemini-3.5-flash",
-    "gemini-3.1-pro",
-    "gemini-3.5-flash-lite",
-    "gemini-2.5-flash"
-]);
+export const NON_TEXT_MODEL_MARKERS = Object.freeze(["embedding", "imagen", "veo", "tts", "audio"]);
 
 // =========================================================================
 // TYPE DEFINITIONS
@@ -59,11 +44,11 @@ export const GEMINI_PROBE_CANDIDATES = Object.freeze([
 
 /**
  * @typedef {Object} GeminiVerificationResult
- * @property {boolean} valid True if key is valid AND >=3 models are working.
+ * @property {boolean} valid True if key is valid AND >=1 text model discovered.
  * @property {string|null} error Error description if verification failed.
- * @property {string[]} models Raw model list from the Gemini API.
- * @property {ModelProbeResult[]} probeResults Per-model probe diagnostics.
- * @property {number} workingModels Count of models that responded successfully.
+ * @property {string[]} models Text-generation model IDs discovered via GET /models.
+ * @property {ModelProbeResult[]} probeResults Always empty — onboarding never probes.
+ * @property {number} workingModels Count of discovered text-generation models.
  */
 
 /**
@@ -129,7 +114,11 @@ export function hasApiKey() {
 }
 
 /**
- * Verifies the provided Groq API key against Groq's `/models` endpoint.
+ * Verifies the provided Groq API key with a single 1-token generation request.
+ *
+ * Unlike `GET /models` (which only proves the key exists), this proves the key
+ * has active token-generation quota — and it does so in one round trip.
+ *
  * @param {string} key API key to verify.
  * @returns {Promise<ApiKeyVerificationResult>}
  */
@@ -138,12 +127,19 @@ export async function verifyApiKey(key) {
     if (!cleanKey) return { valid: false, error: "API key cannot be empty.", models: [] };
 
     try {
-        const response = await fetch(`${GROQ_API_BASE_URL}/models`, {
-            method: "GET",
+        const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
+            method: "POST",
             headers: {
                 "Authorization": `Bearer ${cleanKey}`,
                 "Content-Type": "application/json"
-            }
+            },
+            body: JSON.stringify({
+                model: DEFAULT_CHAT_MODEL,
+                messages: [{ role: "user", content: "hi" }],
+                max_tokens: 1,
+                temperature: 0,
+                stream: false
+            })
         });
 
         if (!response.ok) {
@@ -155,9 +151,8 @@ export async function verifyApiKey(key) {
             return { valid: false, error: errorMsg, models: [] };
         }
 
-        const payload = await response.json();
-        const models = Array.isArray(payload.data) ? payload.data.map((/** @type {Record<string, unknown>} */ m) => /** @type {string} */ (m.id)) : [];
-        return { valid: true, error: null, models };
+        // 200 on a max_tokens:1 generation => key is authentic AND generating.
+        return { valid: true, error: null, models: [] };
     } catch (err) {
         const error = /** @type {Error & {message?: string}} */ (err);
         return {
@@ -224,16 +219,23 @@ export function hasGeminiApiKey() {
 }
 
 /**
- * Verifies the provided Gemini API key against the `/models` endpoint.
- * Fetches the list of available models but does NOT probe them.
- * For full verification with probing, use `verifyAndProbeGeminiKey`.
+ * Verifies the provided Gemini API key with EXACTLY ONE network request:
+ * `GET /v1beta/models?key=...`. No `generateContent` probes are issued, so
+ * zero generation tokens are burned and the 15 RPM free-tier quota is left
+ * untouched.
+ *
+ * The key is considered valid when the model list contains at least one
+ * text-generation model (`supportedGenerationMethods` includes
+ * `generateContent`).
  *
  * @param {string} key API key to verify.
- * @returns {Promise<ApiKeyVerificationResult>}
+ * @returns {Promise<GeminiVerificationResult>}
  */
 export async function verifyGeminiApiKey(key) {
     const cleanKey = String(key || "").trim();
-    if (!cleanKey) return { valid: false, error: "Gemini API key cannot be empty.", models: [] };
+    if (!cleanKey) {
+        return { valid: false, error: "Gemini API key cannot be empty.", models: [], probeResults: [], workingModels: 0 };
+    }
 
     try {
         const response = await fetch(`${GEMINI_API_BASE_URL}/models?key=${cleanKey}`, {
@@ -247,128 +249,79 @@ export async function verifyGeminiApiKey(key) {
                 const errData = await response.json();
                 errorMsg = errData?.error?.message || errorMsg;
             } catch {}
-            return { valid: false, error: errorMsg, models: [] };
+            return { valid: false, error: errorMsg, models: [], probeResults: [], workingModels: 0 };
         }
 
         const payload = await response.json();
-        const models = Array.isArray(payload.models)
-            ? payload.models
-                .map((/** @type {Record<string, unknown>} */ m) => /** @type {string} */ (m.name).replace("models/", ""))
-                .filter((/** @type {string} */ name) => name.toLowerCase().includes("gemini"))
-            : [];
-        return { valid: true, error: null, models };
+        const models = filterTextGenerationModels(Array.isArray(payload.models) ? payload.models : []);
+        const valid = models.length > 0;
+
+        return {
+            valid,
+            error: valid ? null : "No text-generation Gemini models are available for this key.",
+            models,
+            probeResults: [],
+            workingModels: models.length
+        };
     } catch (err) {
         const error = /** @type {Error & {message?: string}} */ (err);
         return {
             valid: false,
             error: error.message || "Network error encountered while connecting to Gemini API.",
-            models: []
+            models: [],
+            probeResults: [],
+            workingModels: 0
         };
     }
 }
 
 // =========================================================================
-// GEMINI MODEL PROBING
+// MODEL DISCOVERY FILTERING (shared with GeminiModelPool)
 // =========================================================================
 
 /**
- * Sends a minimal probe request to a single Gemini model to verify live availability.
- * Uses generateContent with a 1-token test prompt.
+ * Extracts usable text-generation model IDs from a raw `GET /v1beta/models`
+ * payload. Non-text models (embedding / imagen / veo / tts / audio) and any
+ * model without `generateContent` support are discarded.
  *
- * @param {string} modelId Model ID to probe (e.g. "gemini-3.7-flash").
- * @param {string} apiKey Gemini API key.
- * @returns {Promise<ModelProbeResult>}
+ * @param {any[]} rawModels Raw `models[]` array from the Gemini REST API.
+ * @returns {string[]} Ordered model IDs (without the `models/` prefix).
  */
-export async function probeGeminiModel(modelId, apiKey) {
-    const startTime = Date.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+export function filterTextGenerationModels(rawModels) {
+    if (!Array.isArray(rawModels)) return [];
 
-    try {
-        const url = `${GEMINI_API_BASE_URL}/models/${modelId}:generateContent?key=${apiKey}`;
-        const response = await fetch(url, {
-            method: "POST",
-            signal: controller.signal,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: "Hi" }] }],
-                generationConfig: { maxOutputTokens: 1 }
-            })
-        });
+    /** @type {string[]} */
+    const ids = [];
 
-        const latencyMs = Date.now() - startTime;
+    for (const model of rawModels) {
+        if (!model || typeof model !== "object") continue;
 
-        if (response.ok) {
-            return { model: modelId, working: true, error: null, latencyMs };
-        }
+        const rawName = typeof model.name === "string" ? model.name : "";
+        const id = rawName.replace(/^models\//, "") || String(model.baseModelId || "");
+        if (!id) continue;
 
-        // Parse error for diagnostics
-        let errorMsg = `HTTP ${response.status}`;
-        try {
-            const errData = await response.json();
-            errorMsg = errData?.error?.message || errorMsg;
-        } catch {}
+        const lowered = id.toLowerCase();
+        if (NON_TEXT_MODEL_MARKERS.some(marker => lowered.includes(marker))) continue;
 
-        // Mark 404 (deprecated) and 400 (invalid model) as non-working
-        if (response.status === 404 || response.status === 400) {
-            return { model: modelId, working: false, error: `${errorMsg} [deprecated/unavailable]`, latencyMs };
-        }
+        const methods = Array.isArray(model.supportedGenerationMethods)
+            ? model.supportedGenerationMethods
+            : [];
+        if (!methods.includes("generateContent")) continue;
 
-        // Rate limit: treat as non-working during onboarding so exhausted keys
-        // cannot falsely count toward MIN_GEMINI_MODELS_REQUIRED
-        if (response.status === 429) {
-            return { model: modelId, working: false, error: `${errorMsg} [Quota exceeded or Rate Limited]`, latencyMs };
-        }
-
-        // Server error — still counts as "working" (transient)
-        if (response.status >= 500) {
-            return { model: modelId, working: true, error: `${errorMsg} [transient]`, latencyMs };
-        }
-
-        return { model: modelId, working: false, error: errorMsg, latencyMs };
-    } catch (err) {
-        const latencyMs = Date.now() - startTime;
-        const error = /** @type {Error} */ (err);
-        if (error.name === "AbortError") {
-            return { model: modelId, working: false, error: "Probe timed out", latencyMs };
-        }
-        return { model: modelId, working: false, error: error.message || "Network error", latencyMs };
-    } finally {
-        clearTimeout(timeout);
-    }
-}
-
-/**
- * Probes multiple Gemini models concurrently with controlled parallelism.
- * Returns results for all models, marking each as working or not.
- *
- * @param {string[]} modelIds Array of model IDs to probe.
- * @param {string} apiKey Gemini API key.
- * @returns {Promise<ModelProbeResult[]>}
- */
-export async function probeGeminiModels(modelIds, apiKey) {
-    /** @type {ModelProbeResult[]} */
-    const results = [];
-
-    // Process in batches of MAX_CONCURRENT_PROBES
-    for (let i = 0; i < modelIds.length; i += MAX_CONCURRENT_PROBES) {
-        const batch = modelIds.slice(i, i + MAX_CONCURRENT_PROBES);
-        const batchResults = await Promise.all(
-            batch.map(modelId => probeGeminiModel(modelId, apiKey))
-        );
-        results.push(...batchResults);
+        ids.push(id);
     }
 
-    return results;
+    return ids;
 }
 
 // =========================================================================
-// FULL DUAL-KEY VERIFICATION WITH PROBING
+// FULL DUAL-KEY VERIFICATION (NO PROBING — ZERO GENERATION TOKENS)
 // =========================================================================
 
 /**
- * Verifies BOTH Groq and Gemini API keys, probes Gemini models,
- * and enforces the minimum model count requirement.
+ * Verifies BOTH Groq and Gemini API keys with exactly two lightweight
+ * requests (1-token Groq generation + Gemini model discovery). No Gemini
+ * model is ever probed, so onboarding cannot self-DoS the 15 RPM quota.
  *
  * @param {string} groqKey Groq API key.
  * @param {string} geminiKey Gemini API key.
@@ -397,8 +350,8 @@ export async function verifyAndProbeDualKeys(groqKey, geminiKey) {
         };
     }
 
-    // Verify both keys in parallel
-    const [groqResult, geminiBasicResult] = await Promise.all([
+    // Both verifications run in parallel — two lightweight requests total.
+    const [groqResult, geminiResult] = await Promise.all([
         verifyApiKey(cleanGroq),
         verifyGeminiApiKey(cleanGemini)
     ]);
@@ -406,47 +359,18 @@ export async function verifyAndProbeDualKeys(groqKey, geminiKey) {
     if (!groqResult.valid) {
         return {
             groq: groqResult,
-            gemini: { ...geminiBasicResult, probeResults: [], workingModels: 0 },
+            gemini: geminiResult,
             success: false,
             error: `Groq key verification failed: ${groqResult.error || "Invalid key."}`
         };
     }
 
-    if (!geminiBasicResult.valid) {
-        return {
-            groq: groqResult,
-            gemini: { ...geminiBasicResult, probeResults: [], workingModels: 0 },
-            success: false,
-            error: `Gemini key verification failed: ${geminiBasicResult.error || "Invalid key."}`
-        };
-    }
-
-    // Build probe candidate list: merge API-reported models with known candidates
-    const apiModels = geminiBasicResult.models;
-    const probeCandidates = [...new Set([.../** @type {string[]} */ (GEMINI_PROBE_CANDIDATES), ...apiModels])];
-
-    // Probe models
-    const probeResults = await probeGeminiModels(probeCandidates, cleanGemini);
-    const workingModels = probeResults.filter(r => r.working).length;
-
-    /** @type {{valid: boolean, error: string|null, models: string[], probeResults: ModelProbeResult[], workingModels: number}} */
-    const geminiResult = {
-        valid: workingModels >= MIN_GEMINI_MODELS_REQUIRED,
-        error: null,
-        models: apiModels,
-        probeResults,
-        workingModels
-    };
-
-    if (workingModels < MIN_GEMINI_MODELS_REQUIRED) {
-        const failedModels = probeResults.filter(r => !r.working);
-        const diagnosticLines = failedModels.map(r => `  • ${r.model}: ${r.error || "failed"}`).join("\n");
-        geminiResult.error = `Only ${workingModels}/${probeCandidates.length} Gemini models are responding (need ≥${MIN_GEMINI_MODELS_REQUIRED}).\nFailed models:\n${diagnosticLines}`;
+    if (!geminiResult.valid) {
         return {
             groq: groqResult,
             gemini: geminiResult,
             success: false,
-            error: `Gemini model verification failed: Only ${workingModels} model(s) responding. Need at least ${MIN_GEMINI_MODELS_REQUIRED} working models.\n\nFailed models:\n${diagnosticLines}`
+            error: `Gemini key verification failed: ${geminiResult.error || "Invalid key."}`
         };
     }
 

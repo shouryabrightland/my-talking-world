@@ -15,18 +15,20 @@
 import React, { useCallback, useState } from "react";
 import { useOffline } from "../contexts/OfflineContext";
 
-/** @type {React.CSSProperties} */
+/**
+ * In-flow banner: sits above the header in the document flow so it pushes the
+ * header down instead of obscuring its buttons.
+ * @type {React.CSSProperties}
+ */
 const bannerBase = {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
+    position: "relative",
     zIndex: 9999,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: "8px",
     padding: "8px 16px",
+    paddingTop: "max(8px, env(safe-area-inset-top))",
     fontSize: "12px",
     fontWeight: "700",
     textAlign: "center",

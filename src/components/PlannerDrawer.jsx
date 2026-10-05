@@ -1,6 +1,6 @@
 // @ts-check
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import styles from "./PlannerDrawer.module.css";
 import { useChat } from "../contexts/ChatContext";
 import { useInputBox } from "../contexts/InputBoxContext";
@@ -92,6 +92,17 @@ export default function PlannerDrawer() {
     /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
     const [streamPhase, setStreamPhase] = useState("");
 
+    /** Mutable mirror of the active planner model for stream phase labels. @type {React.MutableRefObject<string|null>} */
+    const streamModelRef = useRef(/** @type {string|null} */ (null));
+
+    // Auto-scroll targets
+    /** @type {React.MutableRefObject<HTMLDivElement|null>} */ const scrollBodyRef = useRef(null);
+    /** @type {React.MutableRefObject<HTMLDivElement|null>} */ const proposalRef = useRef(null);
+    /** @type {React.MutableRefObject<HTMLDivElement|null>} */ const streamProgressRef = useRef(null);
+    /** @type {React.MutableRefObject<HTMLDivElement|null>} */ const timelineListRef = useRef(null);
+    /** Previous record count for "block added" auto-scroll detection. @type {React.MutableRefObject<number|null>} */
+    const prevRecordCount = useRef(/** @type {number|null} */ (null));
+
     // Inline Edit Form State (per-card)
     /** @type {[ScheduleFormState, React.Dispatch<React.SetStateAction<ScheduleFormState>>]} */
     const [editForm, setEditForm] = useState({
@@ -142,10 +153,12 @@ export default function PlannerDrawer() {
 
         const offStart = world.events.on(
             PlannerStreamEvents.START,
-            () => {
+            (/** @type {{ model?: string }} */ payload) => {
+                const model = payload?.model || null;
+                streamModelRef.current = model;
                 setIsStreaming(true);
                 setStreamingBlocks([]);
-                setStreamPhase("Connecting to AI model...");
+                setStreamPhase(model ? `⚡ [${model}] Thinking & structuring scene...` : "Connecting to AI model...");
             },
             "PlannerDrawer: stream start"
         );
@@ -153,17 +166,37 @@ export default function PlannerDrawer() {
         const offText = world.events.on(
             PlannerStreamEvents.TEXT,
             (/** @type {string} */ text) => {
+                const model = streamModelRef.current;
+                const prefix = model ? `⚡ [${model}] ` : "⚡ ";
                 const hasSchedule = text.includes("<schedule");
                 const blockCount = (text.match(/<\s*block\b/gi) || []).length;
                 if (hasSchedule && blockCount > 0) {
-                    setStreamPhase(`Generating block ${blockCount}...`);
+                    setStreamPhase(`${prefix}Generating block ${blockCount} of ${Math.max(3, blockCount)}...`);
                 } else if (hasSchedule) {
-                    setStreamPhase("Parsing schedule...");
+                    setStreamPhase(`${prefix}Structuring schedule...`);
                 } else {
-                    setStreamPhase("Thinking...");
+                    setStreamPhase(`${prefix}Thinking & structuring scene...`);
                 }
             },
             "PlannerDrawer: stream text"
+        );
+
+        const offFailover = world.events.on(
+            PlannerStreamEvents.FAILOVER,
+            (/** @type {{ fromModel?: string, toModel?: string|null, status?: number|null, reason?: string }} */ payload) => {
+                const from = payload?.fromModel || "unknown model";
+                const to = payload?.toModel || null;
+                const reason = payload?.status === 429 ? "Rate limited"
+                    : payload?.status === 503 ? "Service unavailable"
+                    : payload?.status === 404 ? "Model unavailable"
+                    : (payload?.reason || "Model failed");
+
+                streamModelRef.current = to;
+                setStreamPhase(to
+                    ? `⚠️ [${from}] ${reason}, switching to [${to}]...`
+                    : `⚠️ [${from}] ${reason}, no alternate model left...`);
+            },
+            "PlannerDrawer: stream failover"
         );
 
         const offBlock = world.events.on(
@@ -183,6 +216,7 @@ export default function PlannerDrawer() {
             () => {
                 setIsStreaming(false);
                 setStreamPhase("");
+                streamModelRef.current = null;
                 setTimeout(() => setStreamingBlocks([]), 500);
             },
             "PlannerDrawer: stream done"
@@ -193,6 +227,7 @@ export default function PlannerDrawer() {
             () => {
                 setIsStreaming(false);
                 setStreamPhase("Stream failed. Retrying...");
+                streamModelRef.current = null;
                 setTimeout(() => setStreamPhase(""), 2000);
             },
             "PlannerDrawer: stream error"
@@ -201,11 +236,39 @@ export default function PlannerDrawer() {
         return () => {
             offStart();
             offText();
+            offFailover();
             offBlock();
             offDone();
             offError();
         };
     }, [world]);
+
+    // ─── Auto-Scroll to Proposed / Newly Added Blocks ───────────────────
+
+    // Scroll to the proposal callout when a new proposal is generated.
+    useEffect(() => {
+        if (!isPlannerOpen || !proposal) return;
+        proposalRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, [proposal, isPlannerOpen]);
+
+    // Scroll to the live streaming progress box as blocks stream in.
+    useEffect(() => {
+        if (!isPlannerOpen || streamingBlocks.length === 0) return;
+        streamProgressRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, [streamingBlocks.length, isPlannerOpen]);
+
+    // Scroll to the newest card whenever a block is added to the timeline.
+    useEffect(() => {
+        if (prevRecordCount.current === null) {
+            prevRecordCount.current = records.length;
+            return;
+        }
+        if (records.length > prevRecordCount.current && isPlannerOpen) {
+            const list = timelineListRef.current;
+            list?.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        prevRecordCount.current = records.length;
+    }, [records.length, isPlannerOpen]);
 
     // ─── Card Expansion (Read-Only Inspection) ──────────────────────────
 
@@ -416,12 +479,12 @@ export default function PlannerDrawer() {
                 </div>
 
                 {/* Fluid Scrollable Body */}
-                <div className={styles.scrollBody}>
+                <div className={styles.scrollBody} ref={scrollBodyRef}>
                     {/* Director Demand Form */}
                     <form onSubmit={handleApplyDemand} className={styles.demandCard}>
                         <div className={styles.demandHeader}>
                             <span className={styles.demandTitle}>🎬 Director Demand Engine</span>
-                            <span className={styles.demandSubtitle}>Groq will contextualize your demand & inject lead-up hooks</span>
+                            <span className={styles.demandSubtitle}>Gemini will contextualize your demand & inject lead-up hooks</span>
                         </div>
 
                         <div className={styles.demandInputRow}>
@@ -513,7 +576,7 @@ export default function PlannerDrawer() {
 
                     {/* Proposal Callout — AI/Director Proposed Changes */}
                     {proposal && proposal.changes.length > 0 && (
-                        <div className={styles.proposalCallout}>
+                        <div className={styles.proposalCallout} ref={proposalRef}>
                             <div className={styles.proposalHeader}>
                                 <span className={styles.proposalTitle}>🤖 AI Proposed Changes</span>
                                 <span className={styles.proposalSummary}>{proposal.summary}</span>
@@ -574,7 +637,7 @@ export default function PlannerDrawer() {
 
                     {/* Real-time Streaming Progress */}
                     {isStreaming && (
-                        <div className={styles.streamProgress}>
+                        <div className={styles.streamProgress} ref={streamProgressRef}>
                             <div className={styles.streamHeader}>
                                 <span className={styles.streamDot} />
                                 <span className={styles.streamPhase}>{streamPhase || "Generating schedule..."}</span>
@@ -604,7 +667,7 @@ export default function PlannerDrawer() {
                     )}
 
                     {/* Timeline Card List */}
-                    <div className={styles.timelineList}>
+                    <div className={styles.timelineList} ref={timelineListRef}>
                         {records.map((record, idx) => {
                             const isCurrent = record.id === activeScheduleId;
                             const isExpanded = expandedCardIds.has(record.id);
@@ -626,6 +689,16 @@ export default function PlannerDrawer() {
                                 >
                                     {/* ─── Card Header (always visible) ─── */}
                                     <div className={styles.cardHeaderRow}>
+                                        {/* Accordion Toggle (left-anchored, before reorder controls) */}
+                                        <button
+                                            type="button"
+                                            className={styles.accordionToggleBtn}
+                                            onClick={() => toggleCardExpansion(record.id)}
+                                            aria-label={isExpanded ? "Minimize block" : "Maximize block"}
+                                        >
+                                            {isExpanded ? "▲" : "▼"}
+                                        </button>
+
                                         {/* Reorder Controls */}
                                         <div className={styles.reorderControls}>
                                             <button
@@ -667,16 +740,6 @@ export default function PlannerDrawer() {
                                                 {isRemoved && <span className={styles.diffBadgeRemoved}>− REMOVED</span>}
                                             </div>
                                         </div>
-
-                                        {/* Accordion Toggle */}
-                                        <button
-                                            type="button"
-                                            className={styles.accordionToggleBtn}
-                                            onClick={() => toggleCardExpansion(record.id)}
-                                            aria-label={isExpanded ? "Minimize block" : "Maximize block"}
-                                        >
-                                            {isExpanded ? "▲" : "▼"}
-                                        </button>
                                     </div>
 
                                     {/* ─── Expanded Read-Only Inspection ─── */}

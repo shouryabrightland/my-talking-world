@@ -30,13 +30,22 @@ vi.mock("../../src/classes/GeminiClient.js", () => ({
     }
 }));
 
-vi.mock("../../src/classes/GroqClient.js", () => ({
-    default: class MockGroqClient {
+// The planner resolves its Gemini ladder exclusively through the pool.
+// Tests mutate `ws.modelPool.candidates` to simulate discovery / failover.
+vi.mock("../../src/classes/lib/GeminiModelResolver.js", () => ({
+    default: class MockGeminiModelPool {
         constructor() {
-            this.events = { on() { return () => {}; }, emit() {} };
+            /** @type {Array<{id: string, tier?: number, version?: number}>} */
+            this.candidates = [{ id: "gemini-mock-flash", tier: 1, version: 3 }];
+            /** @type {Array<{id: string, status: number|null}>} */
+            this.failures = [];
+            /** @type {string[]} */
+            this.successes = [];
         }
-        async streamChat() { return ""; }
-        async generateText() { return { text: "", model: "mock", thinking: null }; }
+        async getCandidates() { return this.candidates; }
+        async getActiveModel() { return this.candidates.length > 0 ? this.candidates[0].id : null; }
+        reportFailure(id, status) { this.failures.push({ id, status }); return true; }
+        reportSuccess(id) { this.successes.push(id); }
     }
 }));
 
@@ -177,6 +186,42 @@ describe("WorldSetter restabilizeAndSave", () => {
         expect(ws.storage.setItem).toHaveBeenCalled();
     });
 
+    it("stabilizes blocks with individual goals for ALL 6 characters", async () => {
+        ws.isDirty = true;
+        const stabilizedXml = [
+            "<schedule>",
+            "  <block start=\"14\" end=\"15\">",
+            "    <topic>Tea break</topic>",
+            "    <goals>",
+            "      <main>Relax together</main>",
+            "      <goal id=\"tom\" name=\"Tom\">Lead the conversation</goal>",
+            "      <goal id=\"angela\" name=\"Angela\">Share trending gossip</goal>",
+            "      <goal id=\"ben\" name=\"Ben\">Tinker with his gadget</goal>",
+            "      <goal id=\"ginger\" name=\"Ginger\">Pull a playful prank</goal>",
+            "      <goal id=\"hank\" name=\"Hank\">Enjoy samosas and chai</goal>",
+            "      <goal id=\"becca\" name=\"Becca\">Propose an evening run</goal>",
+            "    </goals>",
+            "    <pre_plot>Afternoon lull begins</pre_plot>",
+            "    <post_plot>Energy picks up for the evening</post_plot>",
+            "    <facts><fact>Chai is ready</fact></facts>",
+            "  </block>",
+            "</schedule>"
+        ].join("\n");
+
+        ws.geminiClient.streamGenerate = vi.fn().mockResolvedValue({ text: stabilizedXml });
+
+        const result = await ws.restabilizeAndSave();
+
+        expect(result.success).toBe(true);
+        expect(result.schedule).toHaveLength(1);
+
+        const ids = result.schedule[0].characterGoals.map(g => g.id);
+        expect(ids).toHaveLength(6);
+        for (const id of ["tom", "angela", "ben", "ginger", "hank", "becca"]) {
+            expect(ids).toContain(id);
+        }
+    });
+
     it("returns validation errors when Gemini returns overlapping blocks", async () => {
         ws.isDirty = true;
         const badXml = buildXmlSchedule([
@@ -209,36 +254,117 @@ describe("WorldSetter restabilizeAndSave", () => {
         expect(result.schedule.length).toBe(1);
     });
 
-    it("returns error when both Gemini and Groq fail", async () => {
+    it("returns success without calling Groq when every Gemini model fails", async () => {
         ws.isDirty = true;
+        ws.modelPool.candidates = [{ id: "gemini-a" }, { id: "gemini-b" }];
         ws.geminiClient.streamGenerate = vi.fn().mockRejectedValue(new Error("API key invalid"));
-        ws.groqClient.streamChat = vi.fn().mockRejectedValue(new Error("Groq also down"));
 
         const result = await ws.restabilizeAndSave();
 
         expect(result.success).toBe(false);
         expect(result.message).toContain("error");
         expect(ws.isDirty).toBe(true);
+        // Strict provider isolation: no Groq client ever exists on the planner.
+        expect(ws.groqClient).toBeUndefined();
     });
 
-    it("falls back to Groq when Gemini circuit breaker is open", async () => {
+    it("does not invoke Groq when the Gemini circuit breaker is open", async () => {
         ws.isDirty = true;
-        const stabilizedXml = buildXmlSchedule([
-            { startHour: 14, endHour: 15, topic: "Tea break", mainGoal: "Relax", facts: ["Chai"] },
-            { startHour: 15, endHour: 16, topic: "Project brainstorm", mainGoal: "Plan", facts: [] },
-        ]);
-
-        // Gemini fails with CIRCUIT_OPEN
+        ws.modelPool.candidates = [{ id: "gemini-a" }];
         ws.geminiClient.streamGenerate = vi.fn().mockRejectedValue(
             Object.assign(new Error("Circuit open"), { code: "CIRCUIT_OPEN" })
         );
-        // Groq fallback succeeds
-        ws.groqClient.streamChat = vi.fn().mockResolvedValue(stabilizedXml);
 
         const result = await ws.restabilizeAndSave();
 
-        expect(result.success).toBe(true);
-        expect(ws.groqClient.streamChat).toHaveBeenCalled();
+        expect(result.success).toBe(false);
+        expect(ws.groqClient).toBeUndefined();
+        expect(ws.isDirty).toBe(true);
+    });
+});
+
+describe("WorldSetter — Gemini Model Pool cascade & local fallback", () => {
+    /** @type {WorldSetter} */
+    let ws;
+    /** @type {ReturnType<typeof makeFakeWorld>} */
+    let fakeWorld;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        fakeWorld = makeFakeWorld();
+        ws = new WorldSetter({ logger: makeFakeLogger(), world: fakeWorld });
+        ws.schedule = [];
+    });
+
+    const VALID_SCHEDULE_XML =
+        '<schedule><block start="14" end="15">' +
+        "<topic>Chai and casual banter</topic>" +
+        "<goals><main>Relax and chat</main></goals>" +
+        "<pre_plot>Afternoon begins</pre_plot>" +
+        "<post_plot>Transition to evening</post_plot>" +
+        "<facts><fact>Chai ready</fact></facts>" +
+        "</block></schedule>";
+
+    it("cascades to the next pool model when the primary model is rate limited (429)", async () => {
+        ws.modelPool.candidates = [
+            { id: "gemini-2.5-flash", tier: 1, version: 2.5 },
+            { id: "gemini-2.0-flash", tier: 1, version: 2 }
+        ];
+
+        ws.geminiClient.streamGenerate = vi.fn(async (
+            _messages,
+            /** @type {{model?: string}} */ options
+        ) => {
+            if (options.model === "gemini-2.5-flash") {
+                throw Object.assign(new Error("Rate limit exceeded"), { status: 429 });
+            }
+            return { text: VALID_SCHEDULE_XML, model: options.model };
+        });
+
+        await ws.planHorizon(new Date(2026, 7, 25, 14, 0));
+
+        expect(ws.geminiClient.streamGenerate).toHaveBeenCalledTimes(2);
+        expect(ws.geminiClient.streamGenerate.mock.calls[0][1].model).toBe("gemini-2.5-flash");
+        expect(ws.geminiClient.streamGenerate.mock.calls[1][1].model).toBe("gemini-2.0-flash");
+
+        // The rate-limited model was ejected into the cooldown pool.
+        expect(ws.modelPool.failures).toEqual([
+            { id: "gemini-2.5-flash", status: 429 }
+        ]);
+        expect(ws.modelPool.successes).toEqual(["gemini-2.0-flash"]);
+        expect(ws.schedule.length).toBeGreaterThan(0);
+        expect(ws.groqClient).toBeUndefined();
+    });
+
+    it("falls back to #buildFallbackSchedule when all pool models fail, without calling Groq", async () => {
+        ws.modelPool.candidates = [{ id: "gemini-2.5-flash" }, { id: "gemini-2.0-flash" }];
+        ws.geminiClient.streamGenerate = vi.fn().mockRejectedValue(
+            Object.assign(new Error("Model busy"), { status: 503 })
+        );
+
+        const schedule = await ws.planHorizon(new Date(2026, 7, 25, 14, 0));
+
+        expect(ws.geminiClient.streamGenerate).toHaveBeenCalledTimes(2);
+        expect(ws.modelPool.failures).toEqual([
+            { id: "gemini-2.5-flash", status: 503 },
+            { id: "gemini-2.0-flash", status: 503 }
+        ]);
+
+        // Local synthetic generator output (never a remote provider).
+        expect(schedule.length).toBe(4);
+        expect(schedule.map(r => r.topic)).toContain("Creative project discussion");
+        expect(ws.groqClient).toBeUndefined();
+    });
+
+    it("falls back to the local generator immediately when the pool is empty", async () => {
+        ws.modelPool.candidates = [];
+        ws.geminiClient.streamGenerate = vi.fn();
+
+        const schedule = await ws.planHorizon(new Date(2026, 7, 25, 14, 0));
+
+        expect(ws.geminiClient.streamGenerate).not.toHaveBeenCalled();
+        expect(schedule.length).toBe(4);
+        expect(ws.groqClient).toBeUndefined();
     });
 });
 

@@ -6,7 +6,9 @@
  *
  * Responsibilities:
  * - Provides debug/info/warn/error logging with severity filtering.
- * - Maintains an in-memory ring buffer (250 entries) for DevTools inspection.
+ * - Maintains 4 dedicated in-memory ring buffers (errors 100, warns 150,
+ *   infos 250, debugs 350) so chatty debug logs can never evict critical
+ *   error/warn entries.
  * - Supports hierarchical child loggers (e.g. 'World/Members/Tom').
  * - Provides subscription hooks for real-time log streaming.
  * - Protects subscriber execution with try/catch error boundaries.
@@ -46,13 +48,37 @@ export default class Logger {
     static level = Logger.INFO;
 
     /** 
-     * In-memory ring buffer holding recent log entries for DevTools inspection.
-     * @type {LogEntry[]} 
+     * Dedicated in-memory ring buffer per severity, so low-severity churn
+     * can never push critical entries out of memory.
+     * @type {Record<LogSeverity, LogEntry[]>} 
      */
-    static buffer = [];
+    static stacks = {
+        error: [],
+        warn: [],
+        info: [],
+        debug: []
+    };
+
+    /** @readonly @type {number} Max retained error entries (never evicted by debug logs). */
+    static MAX_ERRORS = 100;
+
+    /** @readonly @type {number} Max retained warn entries. */
+    static MAX_WARNS = 150;
+
+    /** @readonly @type {number} Max retained info entries. */
+    static MAX_INFOS = 250;
+
+    /** @readonly @type {number} Max retained debug entries. */
+    static MAX_DEBUGS = 350;
 
     /** 
-     * Maximum entries retained in the ring buffer.
+     * Combined capacity across all ring buffers.
+     * @readonly
+     */
+    static MAX_LOGS = Logger.MAX_ERRORS + Logger.MAX_WARNS + Logger.MAX_INFOS + Logger.MAX_DEBUGS;
+
+    /** 
+     * Maximum entries retained in a single flat view (kept for compatibility).
      * @readonly
      */
     static MAX_BUFFER = 250;
@@ -78,19 +104,33 @@ export default class Logger {
     }
 
     /**
-     * Returns a snapshot of the in-memory ring buffer.
+     * Returns a merged, chronologically sorted snapshot of every ring buffer.
      * @returns {LogEntry[]}
      */
     static getRecentLogs() {
-        return [...Logger.buffer];
+        return [...Logger.stacks.error, ...Logger.stacks.warn, ...Logger.stacks.info, ...Logger.stacks.debug]
+            .sort((a, b) => a.timestamp - b.timestamp);
     }
 
     /**
-     * Clears the in-memory log buffer.
+     * Returns a snapshot of the dedicated ring buffer for a single severity.
+     *
+     * @param {LogSeverity} level Severity stack to read.
+     * @returns {LogEntry[]}
+     */
+    static getStack(level) {
+        return [...(Logger.stacks[level] || [])];
+    }
+
+    /**
+     * Clears every log ring buffer.
      * @returns {void}
      */
     static clearBuffer() {
-        Logger.buffer.length = 0;
+        Logger.stacks.error.length = 0;
+        Logger.stacks.warn.length = 0;
+        Logger.stacks.info.length = 0;
+        Logger.stacks.debug.length = 0;
     }
 
     /**
@@ -123,9 +163,16 @@ export default class Logger {
             time: now.toLocaleTimeString("en-GB", { hour12: false })
         };
 
-        Logger.buffer.push(entry);
-        if (Logger.buffer.length > Logger.MAX_BUFFER) {
-            Logger.buffer.shift();
+        const stack = Logger.stacks[level];
+        if (stack) {
+            stack.push(entry);
+            const cap = level === "error" ? Logger.MAX_ERRORS
+                : level === "warn" ? Logger.MAX_WARNS
+                : level === "info" ? Logger.MAX_INFOS
+                : Logger.MAX_DEBUGS;
+            while (stack.length > cap) {
+                stack.shift();
+            }
         }
 
         for (const sub of Logger.subscribers) {

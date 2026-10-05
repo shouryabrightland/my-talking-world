@@ -28,7 +28,7 @@ export default function StudioLobbyScreen({ onLogin }) {
                 </div>
 
                 <h1 className={styles.title}>Tom & Friends</h1>
-                <p className={styles.dateTag}>📍 Lucknow Garage • {todayFormatted}</p>
+                <p className={styles.dateTag}>📍 Lucknow Studio • {todayFormatted}</p>
 
                 <p className={styles.subtitle}>
                     Tom, Angela, Ben, Ginger, Hank, and Becca are hanging out. Step into the studio to chat or direct today's scene!

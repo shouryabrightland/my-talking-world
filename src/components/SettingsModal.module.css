@@ -57,7 +57,7 @@
 
 .badge {
     display: inline-block;
-    font-size: clamp(9px, 2vw, 10px);
+    font-size: clamp(11.5px, 2.5vw, 13px);
     font-weight: 800;
     letter-spacing: 0.6px;
     color: var(--primary);
@@ -111,7 +111,7 @@
     padding: 6px 4px;
     border-radius: 8px;
     border: none;
-    font-size: clamp(10.5px, 2.2vw, 12px);
+    font-size: clamp(12px, 2.4vw, 13.5px);
     font-weight: 700;
     cursor: pointer;
     text-align: center;
@@ -181,7 +181,7 @@
 
 .sectionTitle {
     margin: 0;
-    font-size: clamp(10px, 2vw, 11px);
+    font-size: clamp(13px, 2.6vw, 14px);
     font-weight: 800;
     text-transform: uppercase;
     color: var(--text-tertiary);
@@ -197,10 +197,10 @@
 }
 
 .keyPreviewTag {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     font-family: monospace;
-    padding: 2px 6px;
+    padding: 4px 9px;
     border-radius: 6px;
     background-color: var(--bg-surface);
     border: 1px solid var(--border-color);
@@ -229,7 +229,7 @@
 }
 
 .rowSubtitle {
-    font-size: clamp(9.5px, 2vw, 10.5px);
+    font-size: clamp(12px, 2.4vw, 13px);
     color: var(--text-secondary);
 }
 
@@ -237,9 +237,9 @@
 .togglePillActive,
 .togglePillSuccess,
 .togglePillMuted {
-    padding: 4px 10px;
+    padding: 4px 9px;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 11.5px;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
@@ -290,7 +290,7 @@
     border: 1px solid var(--border-color);
     background-color: var(--bg-surface);
     color: var(--text-primary);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
@@ -324,13 +324,13 @@
 }
 
 .sliderLabel {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
 }
 
 .sliderValueBadge {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 800;
     color: var(--primary);
     font-family: monospace;
@@ -362,7 +362,7 @@
     border: 1.5px solid var(--border-color);
     background-color: var(--bg-surface);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: 14px;
     outline: none;
     box-sizing: border-box;
 }
@@ -379,7 +379,7 @@
     border: none;
     background: var(--primary-gradient);
     color: #ffffff;
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;
     white-space: nowrap;
@@ -391,7 +391,7 @@
 }
 
 .groqConsoleLink {
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--primary);
     text-decoration: none;
     font-weight: 700;
@@ -419,15 +419,15 @@
 }
 
 .verifyTitle {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 800;
     color: var(--text-primary);
 }
 
 .verifyDetails {
-    font-size: 10px;
+    font-size: 14px;
     color: var(--text-secondary);
-    line-height: 1.3;
+    line-height: 1.5;
     word-break: break-word;
 }
 
@@ -445,7 +445,7 @@
 
 .dangerTitle {
     margin: 0;
-    font-size: 10.5px;
+    font-size: 13px;
     font-weight: 800;
     text-transform: uppercase;
     color: var(--danger);
@@ -458,7 +458,7 @@
     border: none;
     background-color: var(--danger);
     color: #ffffff;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(239, 68, 68, 0.35);
@@ -492,9 +492,9 @@
 
 .memberSelectBtn,
 .memberSelectBtnActive {
-    padding: 4px 10px;
+    padding: 4px 9px;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 11.5px;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
@@ -567,27 +567,28 @@
 }
 
 .ageBadge {
-    font-size: 9.5px;
+    font-size: 11.5px;
     font-weight: 800;
     color: var(--primary);
     background-color: var(--bg-surface);
-    padding: 1px 5px;
+    padding: 3px 8px;
     border-radius: 4px;
     border: 1px solid var(--border-color);
 }
 
 .birthdaySubtitle {
-    font-size: 10px;
+    font-size: 14px;
     color: var(--text-secondary);
+    line-height: 1.5;
 }
 
 .editProfileBtn {
-    padding: 3px 8px;
+    padding: 4px 9px;
     border-radius: 6px;
     border: 1px solid var(--border-color);
     background-color: var(--bg-surface);
     color: var(--text-primary);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 700;
     cursor: pointer;
     flex-shrink: 0;
@@ -600,10 +601,10 @@
 
 .memberAboutText {
     margin: 0;
-    font-size: 11px;
+    font-size: 14px;
     color: var(--text-secondary);
     font-style: italic;
-    line-height: 1.35;
+    line-height: 1.5;
     word-break: break-word;
 }
 
@@ -616,7 +617,7 @@
 }
 
 .formLabel {
-    font-size: 9.5px;
+    font-size: 13px;
     font-weight: 800;
     color: var(--text-tertiary);
     text-transform: uppercase;
@@ -630,7 +631,7 @@
     border: 1px solid var(--border-color);
     background-color: var(--bg-surface);
     color: var(--text-primary);
-    font-size: 11.5px;
+    font-size: 14px;
     outline: none;
     width: 100%;
     box-sizing: border-box;
@@ -641,7 +642,7 @@
 }
 
 .liveComputedAgeTag {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 800;
     color: var(--primary);
     background-color: var(--primary-light);
@@ -656,8 +657,8 @@
     border: 1px solid var(--border-color);
     background-color: var(--bg-surface);
     color: var(--text-primary);
-    font-size: 11px;
-    line-height: 1.35;
+    font-size: 14px;
+    line-height: 1.5;
     outline: none;
     resize: vertical;
     font-family: inherit;
@@ -682,7 +683,7 @@
     border: none;
     background: var(--primary-gradient);
     color: #ffffff;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 700;
     cursor: pointer;
 }
@@ -708,19 +709,19 @@
 }
 
 .memoryCountBadge {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     color: var(--text-secondary);
     display: block;
 }
 
 .addFactBtn {
-    padding: 3px 8px;
+    padding: 4px 9px;
     border-radius: 6px;
     border: 1px solid var(--primary);
     background-color: var(--primary-light);
     color: var(--primary);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 800;
     cursor: pointer;
 }
@@ -743,7 +744,7 @@
     border: 1px solid var(--border-color);
     background-color: var(--bg-surface);
     color: var(--text-primary);
-    font-size: 11px;
+    font-size: 14px;
     outline: none;
     width: 100%;
     box-sizing: border-box;
@@ -764,8 +765,8 @@
     border: 1px solid var(--border-color);
     text-align: center;
     color: var(--text-tertiary);
-    font-size: 10.5px;
-    line-height: 1.4;
+    font-size: 14px;
+    line-height: 1.5;
 }
 
 .memoryFactItem {
@@ -781,7 +782,7 @@
 }
 
 .memoryKeyTitle {
-    font-size: 11px;
+    font-size: 13.5px;
     font-weight: 800;
     color: var(--text-primary);
 }
@@ -789,9 +790,9 @@
 .foreverTag,
 .ttlTag,
 .expiredTag {
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 800;
-    padding: 1px 4px;
+    padding: 3px 8px;
     border-radius: 3px;
     white-space: nowrap;
 }
@@ -812,9 +813,9 @@
 }
 
 .memoryValueText {
-    font-size: 10.5px;
+    font-size: 13.5px;
     color: var(--text-secondary);
-    line-height: 1.3;
+    line-height: 1.5;
     word-break: break-word;
 }
 
@@ -833,10 +834,11 @@
     background-color: rgba(239, 68, 68, 0.1);
 }
 
-/* Submodal Confirmation */
+/* Submodal Confirmation — viewport-anchored so it never drifts with body scroll */
 .subModalOverlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
+    z-index: 200;
     background-color: rgba(0, 0, 0, 0.7);
     display: flex;
     align-items: center;
@@ -868,9 +870,9 @@
 
 .subModalText {
     margin: 0 0 12px 0;
-    font-size: 11.5px;
+    font-size: 14px;
     color: var(--text-secondary);
-    line-height: 1.4;
+    line-height: 1.55;
 }
 
 .subModalButtonRow {
@@ -884,7 +886,7 @@
     flex: 1;
     padding: 6px;
     border-radius: 6px;
-    font-size: 11.5px;
+    font-size: 12px;
     cursor: pointer;
 }
 

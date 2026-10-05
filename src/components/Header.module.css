@@ -124,6 +124,9 @@
     right: 0;
     top: calc(100% + 6px);
     width: 224px;
+    max-height: calc(100dvh - 75px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background-color: var(--bg-surface);
     border-radius: 18px;
     border: 1px solid var(--border-color);

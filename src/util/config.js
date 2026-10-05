@@ -21,9 +21,9 @@ export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b";
 /** @readonly @type {readonly string[]} */
 export const CHAT_MODEL_FALLBACK_CHAIN = Object.freeze([
     "openai/gpt-oss-120b",
-    "qwen/qwen3.6-27b",
-    "openai/gpt-oss-20b",
-    "meta-llama/llama-4-scout-17b-16e-instruct"
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
 ]);
 
 // =========================================================================
@@ -95,14 +95,15 @@ export const Message_generate_per_live_request = 3;
 export const STORAGE_TABLES = Object.freeze([
     "MessageStore",
     "Scheduler",
-    "Memories"
+    "Memories",
+    "ModelCache"
 ]);
 
 /** @readonly @type {string} */
 export const STORAGE_DATABASE_NAME = "tgf";
 
 /** @readonly @type {number} */
-export const STORAGE_DATABASE_VERSION = 7;
+export const STORAGE_DATABASE_VERSION = 8;
 
 /** @readonly @type {string} */
 export const STORAGE_API_KEY_NAME = "tgf:groq_api_key";

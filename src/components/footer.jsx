@@ -152,6 +152,13 @@ function Character({ member }) {
             style={{ transform: `translate3d(0, ${translateY}, 0)` }}
             title={`${member.name} • Mood: ${member.currentEmotion?.name || "Neutral"}`}
         >
+            {state.typing && (
+                <div className={styles.avatarTypingCloud} aria-label={`${member.name} is typing`}>
+                    <span className={styles.cloudDot} />
+                    <span className={styles.cloudDot} />
+                    <span className={styles.cloudDot} />
+                </div>
+            )}
             <Avatar member={member} emotion={emotion} />
         </div>
     );
@@ -353,7 +360,7 @@ const DirectorInputBox = memo(function DirectorInputBox() {
         { label: "🍕 Pizza Arrived", plot: "The doorbell rings! The hot spicy pizza order has finally arrived." },
         { label: "🧪 Gadget Sparks", plot: "Ben's laser gadget suddenly starts beeping rapidly and emitting smoke!" },
         { label: "🌧️ Heavy Rain", plot: "Sudden thunder cracks outside and heavy monsoon rain pours on the roof." },
-        { label: "🚪 Mystery Knock", plot: "An aggressive, mysterious knock sounds on the garage door." }
+        { label: "🚪 Mystery Knock", plot: "An aggressive, mysterious knock sounds on the front door." }
     ];
 
     /**

@@ -38,10 +38,26 @@
     cursor: pointer;
     user-select: none;
     transition: transform 0.15s ease;
+    /* Chat message avatars must be perfectly circular */
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+    box-sizing: border-box;
 }
 
 .avatarWrapper:hover {
     transform: scale(1.08);
+}
+
+/* Circular avatar in the Character Inspector modal header */
+.inspectorAvatarWrapper {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+    flex-shrink: 0;
+    box-sizing: border-box;
 }
 
 /* Director / God-Mode Stage Event Banner */
@@ -205,6 +221,9 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    max-height: 160px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     animation: fadeInFast 0.15s ease-out;
 }
 
@@ -299,7 +318,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 240px;
+    max-width: 100%;
+    width: 100%;
 }
 
 /* Modals */
@@ -330,6 +350,8 @@
     padding: 24px;
     max-width: 440px;
     width: 100%;
+    max-height: min(85dvh, 620px);
+    overflow: hidden;
     box-shadow: var(--shadow-elevation);
     border: 1px solid var(--border-color);
     display: flex;
@@ -349,6 +371,7 @@
     justify-content: space-between;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 12px;
+    flex-shrink: 0;
 }
 
 .inspectorName {
@@ -358,7 +381,7 @@
 }
 
 .inspectorStatus {
-    font-size: 11px;
+    font-size: 13px;
     color: var(--text-tertiary);
     font-weight: 700;
     text-transform: uppercase;
@@ -378,6 +401,9 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-height: 0;
 }
 
 .inspectorRow {
@@ -387,17 +413,18 @@
 }
 
 .inspectorLabel {
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 800;
     text-transform: uppercase;
     color: var(--text-tertiary);
     letter-spacing: 0.5px;
 }
 
 .inspectorValue {
-    font-size: 13.5px;
+    font-size: 14px;
     color: var(--text-primary);
     font-weight: 500;
+    line-height: 1.55;
 }
 
 .inspectorHighlightSection {
@@ -411,7 +438,7 @@
 }
 
 .inspectorLabelHighlight {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 800;
     text-transform: uppercase;
     color: var(--primary);
@@ -420,10 +447,70 @@
 
 .inspectorThoughtText {
     margin: 0;
-    font-size: 13.5px;
+    font-size: 14px;
     font-style: italic;
     color: var(--text-primary);
-    line-height: 1.45;
+    line-height: 1.55;
+}
+
+/* ─── Notebook Index Cards (Dynamic Memories) ──────────────────── */
+
+.memoryNotebookCard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background-color: var(--bg-root);
+    border: 1px solid var(--border-color);
+    border-left: 3.5px solid var(--char-accent, var(--primary));
+    border-radius: 12px;
+    padding: 10px 14px;
+    box-sizing: border-box;
+}
+
+.memoryCardTopRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.memoryCardTitle {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.memoryCardExpiryTag {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.memoryCardExpiryTagPermanent {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background-color: var(--primary-light);
+    border: 1px solid var(--primary);
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.memoryCardContent {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    font-style: italic;
+    word-break: break-word;
 }
 
 /* =====================================================================

@@ -25,6 +25,34 @@ import Avatar from "./Avatar";
  */
 
 /**
+ * Parses a date-only `YYYY-MM-DD` string using LOCAL calendar parts.
+ * `new Date("2006-01-01")` is parsed as UTC midnight, which renders as
+ * Dec 31 in negative UTC offsets — an off-by-one birthday bug.
+ *
+ * @param {string} str Raw date string.
+ * @returns {Date} Local-calendar date (falls back to Date's own parsing).
+ */
+function parseLocalDateOnly(str) {
+    const clean = String(str || "").trim();
+    const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(clean);
+    if (match) {
+        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    }
+    return new Date(clean);
+}
+
+/**
+ * Formats a stored birthday without timezone drift.
+ * @param {string} str Raw birthday string.
+ * @returns {string} Localized date label.
+ */
+function formatLocalDate(str) {
+    const date = parseLocalDateOnly(str);
+    if (Number.isNaN(date.getTime())) return String(str || "");
+    return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
  * Responsive Dual-Key Settings Modal Scalable down to 200px screens.
  * Contains Groq Key Manager, Google AI Studio Key Manager, Audio Mixer, and Memory Manager.
  *
@@ -232,7 +260,7 @@ export default function SettingsModal({ isOpen, onClose }) {
 
     const computedFormAge = useMemo(() => {
         if (!memberForm.birthday) return 20;
-        const birthDate = new Date(memberForm.birthday);
+        const birthDate = parseLocalDateOnly(memberForm.birthday);
         if (Number.isNaN(birthDate.getTime())) return 20;
 
         const now = new Date();
@@ -382,7 +410,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         🎉 Sitcom
                                     </button>
                                     <button onClick={() => handleApplyAmbientPreset("coffee")} className={styles.vibePresetBtn}>
-                                        ☕ Garage Chai
+                                        ☕ Afternoon Chai
                                     </button>
                                     <button onClick={() => handleApplyAmbientPreset("sleep")} className={styles.vibePresetBtn}>
                                         🌙 Sleep
@@ -611,7 +639,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                                 </span>
                                             </div>
                                             <span className={styles.birthdaySubtitle}>
-                                                Born: {new Date(activeSelectedMember.birthday).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                                                Born: {formatLocalDate(activeSelectedMember.birthday)}
                                             </span>
                                         </div>
                                     </div>
@@ -722,7 +750,7 @@ export default function SettingsModal({ isOpen, onClose }) {
 
                                         <label className={styles.formLabel}>Memory Content:</label>
                                         <input
-                                            placeholder="e.g. Check on the garage prototype in 20m"
+                                            placeholder="e.g. Check on the project in 20m"
                                             value={newMemoryForm.value}
                                             onChange={(e) => setNewMemoryForm(prev => ({ ...prev, value: e.target.value }))}
                                             className={styles.formInput}

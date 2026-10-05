@@ -1,14 +1,14 @@
 /* =====================================================================
-   Master Grid Shell — Rigid 100svh Lock
+   Master Grid Shell — Rigid 100dvh Lock
    Grid rows: Header(auto) | SceneBar(auto) | DevToolsBar(auto) |
-              MessageArea(1fr) | Footer(auto)
+              BackgroundBar(auto) | MessageArea(1fr) | Footer(auto)
    ===================================================================== */
 .chatShell {
     display: grid;
-    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-rows: auto auto auto auto 1fr auto;
     height: 100vh;
-    height: 100svh;
-    max-height: 100svh;
+    height: 100dvh;
+    max-height: 100dvh;
     width: 100vw;
     max-width: 800px;
     background: var(--backdrop-gradient, var(--bg-root));
@@ -18,10 +18,19 @@
     transition: background 0.4s ease;
 }
 
+/*
+ * Pin the two rows that carry real content so a conditional child
+ * (BackgroundBar / DevToolsBar rendering null) can never shift them.
+ */
+.chatShell > footer {
+    grid-row: 6;
+}
+
 /* =====================================================================
-   Message List Container — fills the 1fr grid row
+   Message List Container — fills row 5 (1fr)
    ===================================================================== */
 .messageListContainer {
+    grid-row: 5;
     min-height: 0;
     position: relative;
     width: 100%;
@@ -129,6 +138,7 @@
    Empty Chat Placeholder — fills the entire grid cell
    ===================================================================== */
 .emptyChat {
+    grid-row: 5;
     flex: 1;
     min-height: 100%;
     display: flex;

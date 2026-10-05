@@ -204,6 +204,23 @@ export default class ChatMember {
     }
 
     /**
+     * Parses a birthday using LOCAL calendar parts for `YYYY-MM-DD` strings.
+     * Native parsing treats date-only strings as UTC midnight, which shifts the
+     * birthday to the previous day in negative UTC offsets (off-by-one age).
+     *
+     * @param {string} isoDate Raw birthday string.
+     * @returns {Date} Local-calendar Date (or an Invalid Date).
+     */
+    static #parseBirthday(isoDate) {
+        const clean = String(isoDate || "").trim();
+        const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(clean);
+        if (match) {
+            return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        }
+        return new Date(clean);
+    }
+
+    /**
      * Calculates the member's current age dynamically by comparing their birthday against the current date.
      *
      * @returns {number} Age in full integer years.
@@ -211,7 +228,7 @@ export default class ChatMember {
     get age() {
         if (!this.birthday) return 20;
 
-        const birthDate = new Date(this.birthday);
+        const birthDate = ChatMember.#parseBirthday(this.birthday);
         if (Number.isNaN(birthDate.getTime())) return 20;
 
         const now = new Date();
@@ -233,7 +250,7 @@ export default class ChatMember {
      */
     setBirthday(isoDate) {
         if (typeof isoDate !== "string" || !isoDate.trim()) return;
-        const parsed = new Date(isoDate);
+        const parsed = ChatMember.#parseBirthday(isoDate);
         if (Number.isNaN(parsed.getTime())) return;
 
         this.birthday = isoDate.trim();

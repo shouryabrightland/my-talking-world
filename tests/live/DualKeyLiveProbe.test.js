@@ -29,7 +29,7 @@ const describeLive = process.env.TEST_LIVE_API === "true" ? describe : describe.
 
 // Production model constants
 const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
-const GROQ_FALLBACK_MODELS = ["qwen/qwen3.6-27b", "openai/gpt-oss-20b", "meta-llama/llama-4-scout-17b-16e-instruct"];
+const GROQ_FALLBACK_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"];
 const GEMINI_PROBE_CANDIDATES = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
 const MIN_GEMINI_MODELS_REQUIRED = 3;
 

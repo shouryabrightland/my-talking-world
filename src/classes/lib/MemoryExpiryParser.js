@@ -23,6 +23,9 @@ export default class MemoryExpiryParser {
     /**
      * Parses a raw expiry value into a Date, null, or -1 (forever).
      *
+     * Malformed values fall back to a safe +24h Date — they must NEVER be
+     * coerced into `-1` (permanent).
+     *
      * @param {string|Date|null|-1} rawExpiry Raw expiry from protocol or storage.
      * @returns {Date|null|-1} Parsed expiry: Date for relative/absolute, null for unset, -1 for permanent.
      */
@@ -46,8 +49,13 @@ export default class MemoryExpiryParser {
             }
         }
 
-        // Try absolute ISO date
+        // Absolute ISO/absolute date.
         const parsedDate = new Date(str);
-        return Number.isNaN(parsedDate.getTime()) ? -1 : parsedDate;
+        if (!Number.isNaN(parsedDate.getTime())) return parsedDate;
+
+        // DANGEROUS FALLBACK: NEVER return -1 (permanent) for garbage input.
+        // A malformed expiry must not silently become an immortal memory —
+        // degrade to a safe 24-hour TTL instead.
+        return new Date(now + 24 * 3600 * 1000);
     }
 }

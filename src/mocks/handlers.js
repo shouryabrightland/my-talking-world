@@ -35,6 +35,9 @@ const GROQ_STREAM_CHUNKS = [
     { choices: [{ delta: { content: "character=\"tom\" " } }] },
     { choices: [{ delta: { content: "text=\"Chal yaar, " } }] },
     { choices: [{ delta: { content: "chai peete hain aur baat karte hain!\" />" } }] },
+    // Terminal chunks: finish_reason + usage (stream_options.include_usage).
+    { choices: [{ delta: {}, finish_reason: "stop" }] },
+    { choices: [], usage: { prompt_tokens: 210, completion_tokens: 48 } },
 ];
 
 /**
@@ -110,6 +113,16 @@ export const groqHandlers = [
             );
         }
 
+        // Mirror the /models contract: reject unknown keys with 401 so the
+        // lightweight 1-token verification test can distinguish them.
+        const bearerKey = auth.replace("Bearer ", "").trim();
+        if (bearerKey === "invalid-groq-key" || !bearerKey.startsWith("gsk_")) {
+            return HttpResponse.json(
+                { error: { message: "Invalid API key", code: "invalid_api_key" } },
+                { status: 401 }
+            );
+        }
+
         const body = /** @type {Record<string, unknown>} */ (await request.json());
         const isStreaming = /** @type {Record<string, unknown>} */ (body).stream === true;
 
@@ -145,7 +158,11 @@ const GEMINI_MODELS = [
     { name: "models/gemini-3.1-pro", displayName: "Gemini 3.1 Pro", baseModelId: "gemini-3.1-pro", supportedGenerationMethods: ["generateContent", "streamGenerateContent"] },
     { name: "models/gemini-3.5-flash-lite", displayName: "Gemini 3.5 Flash Lite", baseModelId: "gemini-3.5-flash-lite", supportedGenerationMethods: ["generateContent"] },
     { name: "models/gemini-2.5-flash", displayName: "Gemini 2.5 Flash", baseModelId: "gemini-2.5-flash", supportedGenerationMethods: ["generateContent", "streamGenerateContent"] },
+    { name: "models/gemini-2.0-flash", displayName: "Gemini 2.0 Flash", baseModelId: "gemini-2.0-flash", supportedGenerationMethods: ["generateContent", "streamGenerateContent"] },
+    { name: "models/gemini-1.5-flash", displayName: "Gemini 1.5 Flash", baseModelId: "gemini-1.5-flash", supportedGenerationMethods: ["generateContent", "streamGenerateContent"] },
+    { name: "models/gemma-3-27b-it", displayName: "Gemma 3 27B IT", baseModelId: "gemma-3-27b-it", supportedGenerationMethods: ["generateContent"] },
     { name: "models/text-embedding-004", displayName: "Text Embedding 004", baseModelId: "text-embedding-004", supportedGenerationMethods: ["embedContent"] },
+    { name: "models/imagen-3.0-generate-002", displayName: "Imagen 3", baseModelId: "imagen-3.0-generate-002", supportedGenerationMethods: ["predict"] },
 ];
 
 /** @type {Set<string>} Models configured to return 404 during probing. */

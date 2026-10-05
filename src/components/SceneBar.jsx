@@ -134,7 +134,7 @@ export default function SceneBar() {
                             <span className={styles.modalBadge}>
                                 {schedule?.timeRange || "ACTIVE HORIZON"} • LIVE ENVIRONMENT
                             </span>
-                            <h3 className={styles.modalTitle}>{schedule?.topic || "Garage Hangout"}</h3>
+                            <h3 className={styles.modalTitle}>{schedule?.topic || "Group Hangout"}</h3>
                         </div>
                         <button onClick={() => setIsModalOpen(false)} className={styles.closeButton}>
                             ✕

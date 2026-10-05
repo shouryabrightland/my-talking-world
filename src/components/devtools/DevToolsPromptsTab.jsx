@@ -103,6 +103,19 @@ export default function DevToolsPromptsTab({
                                             <span className={styles.promptTimeText}>{entry.time}</span>
                                             <span className={styles.promptModelBadge}>{entry.model.split("/").pop()}</span>
                                             <span className={styles.promptLatencyBadge}>⚡ {entry.latencyMs}ms</span>
+                                            {(entry.tokensIn != null || entry.tokensOut != null) && (
+                                                <span
+                                                    className={styles.promptTokenBadge}
+                                                    title={`Tokens In: ${entry.tokensIn ?? "n/a"} • Tokens Out: ${entry.tokensOut ?? "n/a"}`}
+                                                >
+                                                    ⇅ In {entry.tokensIn ?? "—"} / Out {entry.tokensOut ?? "—"}
+                                                </span>
+                                            )}
+                                            {entry.finishReason === "length" && (
+                                                <span className={styles.statusBadgeError} title="Model hit the max token limit mid-response">
+                                                    TRUNCATED
+                                                </span>
+                                            )}
                                         </div>
 
                                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

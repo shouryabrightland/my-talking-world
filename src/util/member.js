@@ -58,7 +58,7 @@ function createMember(id, name, about, birthday, image, sprites, typingSpeedMs =
 export const Tom = createMember(
     "tom",
     "Tom",
-    "Overconfident, charismatic, ambitious leader of the garage gang. " +
+    "Overconfident, charismatic, ambitious leader of the group. " +
     "Constantly pitches creative concepts and bold plans, attempts to appear impressive, " +
     "and navigates comical complications with high energy.",
     "2006-08-18", // Age 20 in 2026

@@ -354,18 +354,24 @@ export default class World {
     /**
      * Formats current World & Environmental state into structured XML tags with 10%/90% temporal phasing and full goals format.
      *
+     * @param {boolean} [includeEnvironment=true] When false, the heavy environment block
+     * (weather, occasions, festivals, news) is omitted for lightweight interim prompts.
      * @returns {string}
      */
-    toString() {
+    toString(includeEnvironment = true) {
         const schedule = this.activeSchedule;
         const env = this.environment;
         const enc = XmlEncoder.encode;
 
-        const envXml = env ? [
+        const envXml = !includeEnvironment ? null : env ? [
             `  <environment city="${enc(env.city)}">`,
             `    <weather temperature="${enc(env.temperature)}" humidity="${enc(env.humidity)}">${enc(env.weather)}</weather>`,
             `    <occasion>${enc(env.todayCelebration)}</occasion>`,
-            `    <upcoming_festivals>${enc(env.upcomingFestivals.join(", "))}</upcoming_festivals>`,
+            `    <upcoming_festivals>${enc(env.upcomingFestivals.map(f => {
+                if (typeof f === "string") return f;
+                const fest = /** @type {{name?: string, localName?: string}|null} */ (/** @type {unknown} */ (f));
+                return fest?.name || fest?.localName || "Festival";
+            }).join(", "))}</upcoming_festivals>`,
             `    <headlines>`,
             ...env.newsHeadlines.slice(0, 3).map(h => `      <headline>${enc(h)}</headline>`),
             `    </headlines>`,
@@ -415,7 +421,7 @@ export default class World {
 
         return [
             `<current_time date="${enc(this.date)}" time="${enc(this.time)}" datetime="${enc(this.dateTime)}"></current_time>`,
-            envXml,
+            ...(envXml !== null ? [envXml] : []),
             scheduleXml
         ].join("\n");
     }

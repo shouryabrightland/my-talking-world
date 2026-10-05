@@ -59,11 +59,32 @@ vi.mock("../../src/classes/World.js", () => ({
             this.members = new Map();
             this.events = { on() {}, emit() {} };
             this.activeSchedule = null;
+            this.destroyed = false;
+            // Stable chat event bus so tests can emit MESSAGE_ADD.
+            const listeners = {};
+            this._chatEvents = {
+                on(event, handler) {
+                    if (!listeners[event]) listeners[event] = [];
+                    listeners[event].push(handler);
+                    return () => {
+                        listeners[event] = (listeners[event] || []).filter(h => h !== handler);
+                    };
+                },
+                emit(event, data) {
+                    for (const h of (listeners[event] || [])) h(data);
+                }
+            };
         }
         get chat() {
-            return { getMembers: () => [], getMember: () => null, getHistory: () => [], addMessage() {}, clear() {}, events: { on() {}, emit() {} } };
+            const world = this;
+            return {
+                getMembers: () => [], getMember: () => null, getHistory: () => [],
+                addMessage() {}, clear() {},
+                events: world._chatEvents
+            };
         }
         async init() {}
+        destroy() { this.destroyed = true; }
         toString() { return "Mock World"; }
     },
     WorldEvents: { SCHEDULE_CHANGE: "schedule:change" }
@@ -164,6 +185,9 @@ vi.mock("../../src/util/sound.js", () => ({ AmbientAudio: { stop() {} } }));
 // ─── Import after mocks ───
 
 import ConversationManager, { ConversationEvents } from "../../src/classes/ConversationManager.js";
+import { ChatEvents } from "../../src/classes/Chat.js";
+import Logger from "../../src/classes/lib/Logger.js";
+import Memory from "../../src/classes/lib/Memory.js";
 
 // ─── Helper: create a real ConversationManager with mocked deps ───
 
@@ -355,6 +379,12 @@ describe("ConversationManager — Protocol Buffer Lifecycle", () => {
             expect(manager.protocolBuffer).toBe("");
             expect(manager.requesting).toBe(false);
         });
+
+        it("destroys the World so the heartbeat timer is cleared", () => {
+            manager.logout();
+
+            expect(manager.world.destroyed).toBe(true);
+        });
     });
 
     // ─────────────────────────────────────────────
@@ -411,5 +441,250 @@ describe("ConversationManager — Protocol Buffer Lifecycle", () => {
             expect(spy).not.toHaveBeenCalled();
             expect(manager.protocolBuffer).toBe("");
         });
+    });
+});
+
+// ─── Streaming tag extraction ───────────────────────────────────
+
+describe("ConversationManager — Streaming <record> Extraction", () => {
+    /** @type {ConversationManager} */
+    let manager;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        const result = createManager();
+        manager = result.manager;
+        manager.initialized = true;
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    /** Starts a turn whose stream hangs so tokens can be injected mid-flight. */
+    async function startHangingTurn() {
+        /** @type {(value: string) => void} */
+        let resolveStream;
+        manager.client.streamChat = () => new Promise(resolve => { resolveStream = resolve; });
+        const turnPromise = manager.requestTurn();
+        await vi.advanceTimersByTimeAsync(10);
+        return { turnPromise, finish: () => resolveStream("done") };
+    }
+
+    it("extracts paired <record>...</record> tags during streaming", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        const spy = vi.spyOn(manager, "handleProtocolRecord");
+
+        manager.onStreamToken('<record type="memory-set" member="tom" expiry="1h"><key>Mood</key><value>Calm</value></record>');
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][0].recordType).toBe("memory-set");
+        expect(manager.protocolBuffer).toBe("");
+
+        finish();
+        await turnPromise;
+    });
+
+    it("extracts self-closing <record ... /> tags so memories are not trapped in the buffer", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        const spy = vi.spyOn(manager, "handleProtocolRecord");
+
+        manager.onStreamToken('<record type="memory-set" member="tom" expiry="15m" key="Posture" value="Leaning back" />');
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        const record = spy.mock.calls[0][0];
+        expect(record.recordType).toBe("memory-set");
+        expect(record.member).toBe("tom");
+        expect(record.key).toBe("Posture");
+        // Nothing left behind in protocolBuffer — the tag was fully consumed.
+        expect(manager.protocolBuffer).toBe("");
+
+        finish();
+        await turnPromise;
+    });
+});
+
+// ─── Director Mode transparency ──────────────────────────────────
+
+describe("ConversationManager — Director Mode Notifications", () => {
+    /** @type {ConversationManager} */
+    let manager;
+    /** @type {string[]} */
+    let emitted;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        const result = createManager();
+        manager = result.manager;
+        manager.initialized = true;
+        emitted = [];
+        manager.events.on(
+            ConversationEvents.DIRECTOR_EVENT,
+            () => emitted.push("director:start"),
+            "test: director start"
+        );
+        manager.events.on(
+            ConversationEvents.DIRECTOR_RESPONSE_START,
+            () => emitted.push("director:response"),
+            "test: director response"
+        );
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it("emits DIRECTOR_EVENT then DIRECTOR_RESPONSE_START exactly once on the first token", async () => {
+        /** @type {(value: string) => void} */
+        let resolveStream;
+        manager.client.streamChat = () => new Promise(resolve => { resolveStream = resolve; });
+
+        const turnPromise = manager.injectDirectorPlot("A mysterious door appears in the garage");
+        await vi.advanceTimersByTimeAsync(10);
+
+        expect(emitted).toEqual(["director:start"]);
+        expect(manager.pendingDirectorPlot).toBe("A mysterious door appears in the garage");
+
+        manager.onStreamToken('<record type="message" id="1" sender="tom"><text>Arre kya hai yeh?</text></record>');
+        expect(emitted).toEqual(["director:start", "director:response"]);
+
+        // Subsequent tokens in the same turn must not re-emit the start signal.
+        manager.onStreamToken(" more text");
+        expect(emitted).toEqual(["director:start", "director:response"]);
+
+        resolveStream("done");
+        await turnPromise;
+        expect(manager.pendingDirectorPlot).toBeNull();
+    });
+});
+
+// ─── Environmental prompt throttling ───────────────────────────
+
+/**
+ * Capturing prompt builder that stores system callbacks so tests can
+ * invoke them manually (the real PromptBuilder runs them on build()).
+ * @returns {{ systemFns: Function[], useSystem: (fn: Function) => void, useUser: (fn: Function) => void, part: (t: string) => string, build: () => Promise<{ messages: never[] }> }}
+ */
+function makeCapturingBuilder() {
+    const systemFns = [];
+    return {
+        systemFns,
+        useSystem(fn) { systemFns.push(fn); },
+        useUser() {},
+        part(text) { return text; },
+        async build() { return { messages: [] }; }
+    };
+}
+
+describe("ConversationManager — Environmental Context Throttling", () => {
+    /** @type {ConversationManager} */
+    let manager;
+    /** @type {boolean[]} */
+    let envCalls;
+    /** @type {ReturnType<typeof makeCapturingBuilder>} */
+    let builder;
+
+    beforeEach(() => {
+        const result = createManager();
+        manager = result.manager;
+        envCalls = [];
+
+        // Spy on the heavy environment injection flag passed to World.toString().
+        manager.world.toString = (/** @type {boolean} */ includeEnvironment = true) => {
+            envCalls.push(includeEnvironment !== false);
+            return "Mock World";
+        };
+
+        builder = makeCapturingBuilder();
+        manager.registerPrompt(builder);
+    });
+
+    /** Runs one prompt build cycle (invokes all registered system parts). */
+    function buildPrompt() {
+        for (const fn of builder.systemFns) fn();
+    }
+
+    it("injects the full environment on alternating turns only", () => {
+        buildPrompt(); // turn 1
+        buildPrompt(); // turn 2
+        buildPrompt(); // turn 3
+        buildPrompt(); // turn 4
+
+        expect(envCalls).toEqual([true, false, true, false]);
+    });
+
+    it("immediately refreshes environmental grounding when the human user speaks", () => {
+        buildPrompt(); // turn 1 → full
+        buildPrompt(); // turn 2 → minimal
+        buildPrompt(); // turn 3 → full
+
+        // Human user sends a message — the NEXT build must carry full env,
+        // even though turn 4 is an even (minimal) turn.
+        manager.chat.events.emit(ChatEvents.MESSAGE_ADD, { sender: { isAI: false } });
+        buildPrompt(); // turn 4 → full (human override)
+        buildPrompt(); // turn 5 → flag consumed; odd turn → full
+        buildPrompt(); // turn 6 → minimal again
+
+        expect(envCalls).toEqual([true, false, true, true, true, false]);
+    });
+});
+
+// ─── Hard memory cap (5 active memories per character) ─────────
+
+describe("ConversationManager — Memory Cap Enforcement", () => {
+    it("prunes the oldest non-permanent memory when the 5-item cap is exceeded", () => {
+        const memory = new Memory(new Logger("Test"), "tom");
+
+        memory.set("Old Grudge", "still upset about last week", new Date(Date.now() + 3_600_000));
+        memory.set("Active Goal", "finish the project", new Date(Date.now() + 7_200_000));
+        memory.set("Mood", "excited", new Date(Date.now() + 900_000));
+        memory.set("Permanent Fact", "afraid of heights", -1);
+        memory.set("Opinion on User", "trusts the user", null);
+        expect(memory.size).toBe(5);
+
+        // 6th memory → oldest NON-permanent ("Old Grudge") is pruned.
+        memory.set("Secret", "hides the spare key", new Date(Date.now() + 3_600_000));
+        expect(memory.size).toBe(5);
+        expect(memory.has("Old Grudge")).toBe(false);
+        expect(memory.has("Permanent Fact")).toBe(true);
+        expect(memory.has("Secret")).toBe(true);
+
+        // Overflow again → next-oldest non-permanent is pruned; permanents survive.
+        memory.set("Milestone", "reached level 10", null);
+        expect(memory.size).toBe(5);
+        expect(memory.has("Active Goal")).toBe(false);
+        expect(memory.has("Permanent Fact")).toBe(true);
+        expect(memory.has("Milestone")).toBe(true);
+    });
+
+    it("prunes the oldest permanent memory when all 5 keys are permanent (-1)", () => {
+        const memory = new Memory(new Logger("Test"), "brit");
+
+        for (let i = 1; i <= 5; i++) {
+            memory.set(`Permanent Fact ${i}`, `fact ${i}`, -1);
+        }
+        expect(memory.size).toBe(5);
+
+        // 6th memory with ALL keys permanent → oldest key (insertion order)
+        // is evicted so the strict 5-memory cap is never exceeded.
+        memory.set("New Permanent Fact", "freshly learned", -1);
+        expect(memory.size).toBe(5);
+        expect(memory.has("Permanent Fact 1")).toBe(false);
+        expect(memory.has("Permanent Fact 2")).toBe(true);
+        expect(memory.has("New Permanent Fact")).toBe(true);
+    });
+
+    it("updates existing keys in place without triggering the prune cap", () => {
+        const memory = new Memory(new Logger("Test"), "angela");
+
+        memory.set("Mood", "happy", new Date(Date.now() + 900_000));
+        memory.set("Active Goal", "plan the trip", null);
+
+        // Re-setting an existing key overwrites instead of adding a new entry.
+        memory.set("Mood", "annoyed", new Date(Date.now() + 900_000));
+        expect(memory.size).toBe(2);
+        expect(memory.getValue("Mood")).toBe("annoyed");
     });
 });

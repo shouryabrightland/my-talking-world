@@ -97,6 +97,11 @@ export default class CircuitBreaker {
             this._onSuccess();
             return result;
         } catch (/** @type {unknown} */ err) {
+            // User-initiated cancellations are NOT failures — re-throw without
+            // touching the failure counter so AbortError can never trip the breaker OPEN.
+            if (err instanceof DOMException && err.name === "AbortError") {
+                throw err;
+            }
             this._onFailure(err);
             throw err;
         }
