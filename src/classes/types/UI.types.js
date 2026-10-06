@@ -61,6 +61,7 @@
  * @property {string} [error] Error message if status is "error".
  * @property {string} [rawResponse] Full raw model response.
  * @property {string|null} [thinkingChain] Extracted thinking chain.
+ * @property {Record<string, any>|null} [groundingMetadata] Google Search grounding metadata.
  */
 
 /**

@@ -41,7 +41,12 @@ export const groqHandlers = [
             data: [
                 { id: "llama-3.3-70b-versatile", object: "model" },
                 { id: "llama-3.1-8b-instant", object: "model" },
-                { id: "mixtral-8x7b-32768", object: "model" }
+                { id: "mixtral-8x7b-32768", object: "model" },
+                // Non-chat models: GroqModelPool MUST filter these out.
+                { id: "llama-prompt-guard-2-8b", object: "model" },
+                { id: "whisper-large-v3", object: "model" },
+                { id: "orpheus-tts", object: "model" },
+                { id: "text-embedding-v3", object: "model" }
             ]
         });
     })

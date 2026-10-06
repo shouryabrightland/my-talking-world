@@ -148,7 +148,11 @@ export default function DevToolsPromptsTab({
 
                                             {/* Section 1: Full Request Messages Sent to Model */}
                                             <div className={styles.promptTraceSection}>
-                                                <h5 className={styles.promptSectionHeading}>📤 Request Messages Sent to Groq:</h5>
+                                                <h5 className={styles.promptSectionHeading}>
+                                                    {selectedCategory === "dialogue"
+                                                        ? "📤 Request Messages Sent to Groq:"
+                                                        : "📤 Request Messages Sent to Gemini:"}
+                                                </h5>
                                                 <div className={styles.promptMessagesContainer}>
                                                     {entry.requestMessages.map((msg, i) => (
                                                         <div key={i} className={styles.promptMessageItem}>
@@ -168,6 +172,31 @@ export default function DevToolsPromptsTab({
                                                     <div className={styles.thinkingChainBox}>
                                                         <pre className={styles.codeViewer}>{entry.thinkingChain}</pre>
                                                     </div>
+                                                </div>
+                                            )}
+
+                                            {/* Section 2b: Google Search Grounding (if captured) */}
+                                            {entry.groundingMetadata && (
+                                                <div className={styles.promptTraceSection}>
+                                                    <h5 className={styles.promptSectionHeadingHighlight}>🌐 Google Search Grounding:</h5>
+                                                    {Array.isArray(entry.groundingMetadata.webSearchQueries) && entry.groundingMetadata.webSearchQueries.length > 0 && (
+                                                        <div className={styles.thinkingChainBox}>
+                                                            <pre className={styles.codeViewer}>{
+                                                                "🔎 Search Queries:\n" +
+                                                                entry.groundingMetadata.webSearchQueries.map((/** @type {string} */ q) => `• ${q}`).join("\n")
+                                                            }</pre>
+                                                        </div>
+                                                    )}
+                                                    {Array.isArray(entry.groundingMetadata.groundingChunks) && entry.groundingMetadata.groundingChunks.length > 0 && (
+                                                        <div className={styles.thinkingChainBox}>
+                                                            <pre className={styles.codeViewer}>{
+                                                                "📚 Source Citations:\n" +
+                                                                entry.groundingMetadata.groundingChunks.map((/** @type {any} */ c, /** @type {number} */ i) =>
+                                                                    `${i + 1}. ${c?.web?.title || c?.retrievedContext?.title || "Untitled source"} — ${c?.web?.uri || c?.retrievedContext?.uri || ""}`
+                                                                ).join("\n")
+                                                            }</pre>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 

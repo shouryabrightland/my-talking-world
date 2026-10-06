@@ -27,7 +27,10 @@ vi.mock("../../src/classes/GeminiClient.js", () => ({
         }
         async streamGenerate() { return { text: "", model: "mock" }; }
         async generateText() { return { text: "", model: "mock" }; }
-    }
+    },
+    GOOGLE_SEARCH_TOOL: [{ googleSearch: {} }],
+    DEEP_THINKING_BUDGET: 1024,
+    STABILIZER_THINKING_BUDGET: 128
 }));
 
 // The planner resolves its Gemini ladder exclusively through the pool.

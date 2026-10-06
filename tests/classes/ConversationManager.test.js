@@ -85,9 +85,9 @@ vi.mock("../../src/classes/World.js", () => ({
         }
         async init() {}
         destroy() { this.destroyed = true; }
-        toString() { return "Mock World"; }
+        toString() { return this._worldContext ?? "Mock World"; }
     },
-    WorldEvents: { SCHEDULE_CHANGE: "schedule:change" }
+    WorldEvents: { SCHEDULE_CHANGE: "schedule:change", BIRTHDAY_TODAY: "world:birthday:today" }
 }));
 
 vi.mock("../../src/classes/EventManager.js", () => ({
@@ -139,10 +139,10 @@ vi.mock("../../src/classes/TimelineProcessor.js", () => ({
 
 vi.mock("../../src/classes/PromptBuilder.js", () => ({
     default: class MockPromptBuilder {
-        constructor() { this._parts = []; }
+        constructor() { this.systems = []; this.users = []; }
         async build() { return { messages: [] }; }
-        useSystem() {}
-        useUser() {}
+        useSystem(fn) { this.systems.push(fn); }
+        useUser(fn) { this.users.push(fn); }
         part(text) { return text; }
     }
 }));
@@ -686,5 +686,29 @@ describe("ConversationManager — Memory Cap Enforcement", () => {
         memory.set("Mood", "annoyed", new Date(Date.now() + 900_000));
         expect(memory.size).toBe(2);
         expect(memory.getValue("Mood")).toBe("annoyed");
+    });
+});
+
+describe("ConversationManager — birthday celebration context injection", () => {
+    it("passes the world's <active_celebration> tag into the dialogue system prompt", () => {
+        const { manager } = createManager();
+
+        // World.toString() emits this tag on a matching calendar date.
+        manager.world._worldContext = [
+            '<active_celebration type="birthday" member="tom" name="Tom" turning_age="20">',
+            "  Today is Tom's 20th birthday! The characters should congratulate them, plan surprises, or joke about getting older.",
+            "</active_celebration>"
+        ].join("\n");
+
+        const parts = manager.promptBuilder.systems
+            .map(fn => fn())
+            .filter(t => typeof t === "string");
+        const contextPart = parts.find(t => t.includes("<context>"));
+
+        expect(contextPart).toBeDefined();
+        expect(contextPart).toContain("<active_celebration");
+        expect(contextPart).toContain('member="tom"');
+        expect(contextPart).toContain('turning_age="20"');
+        expect(contextPart).toContain("20th birthday");
     });
 });

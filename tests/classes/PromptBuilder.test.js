@@ -80,14 +80,16 @@ describe("Prompt Templates — Hinglish Language Mandate", () => {
             expect(personaRule).toBeDefined();
         });
 
-        it("persona rule mentions all six characters", () => {
+        it("persona rule delegates to the <characters> block with no hardcoded names", () => {
             const personaRule = PROMPT_DIALOGUE_RULES.find(r => r.includes("PERSONA FIDELITY"));
-            expect(personaRule).toContain("Tom");
-            expect(personaRule).toContain("Angela");
-            expect(personaRule).toContain("Ben");
-            expect(personaRule).toContain("Ginger");
-            expect(personaRule).toContain("Hank");
-            expect(personaRule).toContain("Becca");
+            expect(personaRule).toBeDefined();
+            expect(personaRule).toContain("<characters>");
+
+            // Renaming/editing characters in Settings must never contradict the
+            // system prompt, so no participant names may be baked into rules.
+            for (const name of ["Tom", "Angela", "Ben", "Ginger", "Hank", "Becca"]) {
+                expect(personaRule).not.toContain(name);
+            }
         });
 
         it("contains Hinglish example phrases in rules", () => {

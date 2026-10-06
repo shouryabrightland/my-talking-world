@@ -18,10 +18,6 @@ export const CircuitState = {
  * - CLOSED: Normal operation. Failures increment the counter.
  * - OPEN: Too many failures. All calls are rejected immediately for `resetTimeoutMs`.
  * - HALF_OPEN: After timeout, one test call is allowed through. If it succeeds → CLOSED, if fails → OPEN.
- *
- * @example
- * const cb = new CircuitBreaker({ failureThreshold: 5, resetTimeoutMs: 30000 });
- * const result = await cb.execute(() => fetchFromAPI());
  */
 export default class CircuitBreaker {
 
@@ -53,7 +49,6 @@ export default class CircuitBreaker {
 
     /** @returns {string} */
     get state() {
-        // Auto-transition OPEN → HALF_OPEN if reset timeout has elapsed
         if (this._state === CircuitState.OPEN) {
             const elapsed = Date.now() - this._lastFailureTime;
             if (elapsed >= this.resetTimeoutMs) {
@@ -96,10 +91,10 @@ export default class CircuitBreaker {
             const result = await operation();
             this._onSuccess();
             return result;
-        } catch (/** @type {unknown} */ err) {
-            // User-initiated cancellations are NOT failures — re-throw without
-            // touching the failure counter so AbortError can never trip the breaker OPEN.
-            if (err instanceof DOMException && err.name === "AbortError") {
+        } catch (/** @type {any} */ err) {
+            // User cancellations (AbortError) and per-model rotation errors (noCircuitTrip)
+            // must NOT increment the provider-wide failure counter.
+            if ((err instanceof DOMException && err.name === "AbortError") || err?.noCircuitTrip) {
                 throw err;
             }
             this._onFailure(err);
@@ -122,7 +117,6 @@ export default class CircuitBreaker {
                 this._setState(CircuitState.CLOSED);
             }
         } else {
-            // CLOSED → reset failure count on success
             this._failureCount = 0;
         }
     }
@@ -139,7 +133,6 @@ export default class CircuitBreaker {
         this._lastError = err instanceof Error ? err.message : String(err);
 
         if (this._state === CircuitState.HALF_OPEN) {
-            // Failed during half-open → re-open
             this._setState(CircuitState.OPEN);
         } else if (this._failureCount >= this.failureThreshold) {
             this._setState(CircuitState.OPEN);
@@ -161,7 +154,7 @@ export default class CircuitBreaker {
             try {
                 this._onStateChange(newState, oldState);
             } catch {
-                // Don't let callback errors break the circuit
+                // Ignore callback errors
             }
         }
     }

@@ -23,6 +23,7 @@ import { useInputBox } from "../contexts/InputBoxContext";
 import { useOffline } from "../contexts/OfflineContext";
 import Avatar from "./Avatar";
 import { ReplyBox } from "./message";
+import { sampleDirectorPresets } from "../util/directorPresets";
 
 /**
  * Dual-Mode Footer Hub.
@@ -354,14 +355,8 @@ const DirectorInputBox = memo(function DirectorInputBox() {
     /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
     const [plotText, setPlotText] = useState("");
 
-    /** Pre-defined quick director cues for common plot twists */
-    const quickPresets = [
-        { label: "⚡ Power Cut", plot: "A sudden power cut hits the neighborhood, plunging the room into darkness!" },
-        { label: "🍕 Pizza Arrived", plot: "The doorbell rings! The hot spicy pizza order has finally arrived." },
-        { label: "🧪 Gadget Sparks", plot: "Ben's laser gadget suddenly starts beeping rapidly and emitting smoke!" },
-        { label: "🌧️ Heavy Rain", plot: "Sudden thunder cracks outside and heavy monsoon rain pours on the roof." },
-        { label: "🚪 Mystery Knock", plot: "An aggressive, mysterious knock sounds on the front door." }
-    ];
+    /** 10 random unique director cues sampled once per mount from the 200-cue library */
+    const [quickPresets] = useState(() => sampleDirectorPresets(10));
 
     /**
      * Injects a director plot twist into the conversation flow.
@@ -406,8 +401,9 @@ const DirectorInputBox = memo(function DirectorInputBox() {
                 {quickPresets.map((preset) => (
                     <button
                         key={preset.label}
-                        onClick={() => handleInject(preset.plot)}
+                        onClick={() => setPlotText(preset.plot)}
                         className={styles.presetChip}
+                        title={preset.plot}
                     >
                         {preset.label}
                     </button>
@@ -417,7 +413,7 @@ const DirectorInputBox = memo(function DirectorInputBox() {
             {/* Fluid Input & Inject Action */}
             <form onSubmit={handleSubmit} className={styles.directorForm}>
                 <input
-                    placeholder="Inject a plot twist (e.g. 'Tom drops his phone in chai')..."
+                    placeholder="Inject a plot twist (e.g. 'finds a mystery package on the doorstep')..."
                     value={plotText}
                     onChange={(e) => setPlotText(e.target.value)}
                     className={styles.directorInput}

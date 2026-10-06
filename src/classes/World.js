@@ -42,7 +42,8 @@ export const WorldEvents = {
     SCHEDULE_CHANGE: "world:schedule:change",
     HOUR_CHANGE: "world:hour:change",
     DAY_CHANGE: "world:day:change",
-    ENVIRONMENT_CHANGE: "world:environment:change"
+    ENVIRONMENT_CHANGE: "world:environment:change",
+    BIRTHDAY_TODAY: "world:birthday:today"
 };
 
 /**
@@ -139,6 +140,18 @@ export default class World {
 
         /** @type {boolean} */
         this.initialized = false;
+
+        /**
+         * Active celebration descriptors (birthdays) for the current calendar day.
+         * @type {Array<{ type: "birthday", member: ChatMember, id: string, name: string, turningAge: number }>}
+         */
+        this.activeCelebrations = [];
+
+        /**
+         * Date key of the last birthday scan (avoids re-emitting daily).
+         * @type {string|null}
+         */
+        this.birthdayCheckDate = null;
 
         this.#initializeDefaults();
     }
@@ -275,6 +288,9 @@ export default class World {
             this.events.emit(WorldEvents.DAY_CHANGE, now);
         }
 
+        // 1b. Scan for participant birthdays (once per calendar day)
+        this.#refreshBirthdayCelebrations(now);
+
         // 2. Resolve Active Schedule Record
         const previousScheduleId = this.activeSchedule?.id;
         this.activeSchedule = this.worldSetter.getActiveRecord(now);
@@ -292,6 +308,64 @@ export default class World {
             this.logger.info(`Clock hour shifted to ${newHour}:00. Checking schedule horizon...`);
             this.events.emit(WorldEvents.HOUR_CHANGE, newHour);
             void this.worldSetter.ensureSchedule(now);
+        }
+    }
+
+    /**
+     * Parses a birthday using LOCAL calendar parts for `YYYY-MM-DD` strings
+     * (mirrors ChatMember's parsing so age math never shifts a day in UTC).
+     *
+     * @param {string} isoDate Raw birthday string.
+     * @returns {Date} Local-calendar Date (or an Invalid Date).
+     */
+    static #parseBirthday(isoDate) {
+        const clean = String(isoDate || "").trim();
+        const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(clean);
+        if (match) {
+            return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        }
+        return new Date(clean);
+    }
+
+    /**
+     * Recomputes active birthday celebrations for the current calendar day.
+     * Scans every registered participant (characters + human user) and emits
+     * `WorldEvents.BIRTHDAY_TODAY` per celebrant. Runs at most once per day.
+     *
+     * @param {Date} now Current world clock.
+     * @returns {void}
+     */
+    #refreshBirthdayCelebrations(now) {
+        const dateKey = now.toDateString();
+        if (this.birthdayCheckDate === dateKey) return;
+        this.birthdayCheckDate = dateKey;
+
+        /** @type {Array<{ type: "birthday", member: ChatMember, id: string, name: string, turningAge: number }>} */
+        const celebrations = [];
+        const month = now.getMonth();
+        const day = now.getDate();
+
+        for (const member of this.members.values()) {
+            const birth = World.#parseBirthday(member.birthday);
+            if (Number.isNaN(birth.getTime())) continue;
+            if (birth.getMonth() !== month || birth.getDate() !== day) continue;
+
+            const turningAge = Math.max(1, now.getFullYear() - birth.getFullYear());
+            celebrations.push({ type: "birthday", member, id: member.id, name: member.name, turningAge });
+            this.events.emit(WorldEvents.BIRTHDAY_TODAY, {
+                id: member.id,
+                name: member.name,
+                turningAge,
+                member
+            });
+        }
+
+        this.activeCelebrations = celebrations;
+
+        if (celebrations.length > 0) {
+            this.logger.info(
+                `Birthday celebration active: ${celebrations.map(c => `${c.name} turns ${c.turningAge}`).join(", ")}`
+            );
         }
     }
 
@@ -315,6 +389,9 @@ export default class World {
         if (!this.chat.getMember(this.User.id)) {
             this.chat.addMember(this.User);
         }
+
+        // Membership changed — allow the next tick/toString to rescan birthdays.
+        this.birthdayCheckDate = null;
     }
 
     /**
@@ -362,6 +439,9 @@ export default class World {
         const schedule = this.activeSchedule;
         const env = this.environment;
         const enc = XmlEncoder.encode;
+
+        // Ensure celebrations reflect the current day even before the next heartbeat.
+        this.#refreshBirthdayCelebrations(this.now);
 
         const envXml = !includeEnvironment ? null : env ? [
             `  <environment city="${enc(env.city)}">`,
@@ -422,6 +502,19 @@ export default class World {
         return [
             `<current_time date="${enc(this.date)}" time="${enc(this.time)}" datetime="${enc(this.dateTime)}"></current_time>`,
             ...(envXml !== null ? [envXml] : []),
+            ...this.activeCelebrations.map(c => {
+                const age = c.turningAge;
+                const mod100 = age % 100;
+                const suffix = mod100 >= 11 && mod100 <= 13
+                    ? "th"
+                    : (["st", "nd", "rd"][(age % 10) - 1] || "th");
+
+                return [
+                    `  <active_celebration type="birthday" member="${enc(c.id)}" name="${enc(c.name)}" turning_age="${age}">`,
+                    `    Today is ${enc(c.name)}'s ${age}${suffix} birthday! The characters should congratulate them, plan surprises, or joke about getting older.`,
+                    `  </active_celebration>`
+                ].join("\n");
+            }),
             scheduleXml
         ].join("\n");
     }

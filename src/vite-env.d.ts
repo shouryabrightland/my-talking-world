@@ -109,6 +109,8 @@ interface Error {
     status?: number;
     /** Retry-After header value from 429/503 responses. */
     retryAfter?: string | null;
+    /** Exact server-specified rate-limit reset delay in ms (x-ratelimit-reset-*). */
+    rateLimitResetMs?: number | null;
     /** Circuit breaker error code (e.g., "CIRCUIT_OPEN"). */
     code?: string;
     /** The last error message from the circuit breaker. */

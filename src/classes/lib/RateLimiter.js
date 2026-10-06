@@ -24,6 +24,27 @@ export default class RateLimiter {
         /** @private @type {number[]} */ this._timestamps = [];
         /** @private @type {number} */ this._inflight = 0;
         /** @private @type {Promise<void>} */ this._mutex = Promise.resolve();
+
+        /**
+         * Absolute ms timestamp until which the SERVER says no requests may be
+         * sent (derived from real x-ratelimit-reset-* / retry-after headers).
+         * @private @type {number}
+         */
+        this._serverPauseUntil = 0;
+    }
+
+    /**
+     * Applies a REAL rate-limit window reported by the provider so acquire()
+     * pauses for the exact server-specified duration instead of blindly
+     * guessing cooldowns.
+     *
+     * @param {number} untilMs Absolute epoch-ms timestamp when the window resets.
+     * @returns {void}
+     */
+    syncServerLimit(untilMs) {
+        if (Number.isFinite(untilMs) && untilMs > this._serverPauseUntil) {
+            this._serverPauseUntil = untilMs;
+        }
     }
 
     /**
@@ -37,6 +58,15 @@ export default class RateLimiter {
         return new Promise((resolve, reject) => {
             this._mutex = this._mutex.then(async () => {
                 try {
+                    // 0. Honor the provider's real rate-limit reset window
+                    while (this._serverPauseUntil > Date.now()) {
+                        const remaining = this._serverPauseUntil - Date.now();
+                        if (logger) {
+                            logger(`Server rate-limit window active. Waiting ${Math.round(remaining / 100) / 10}s for exact reset...`);
+                        }
+                        await sleep(Math.min(1_000, remaining));
+                    }
+
                     // 1. Wait if at max concurrent
                     while (this._inflight >= this.maxConcurrent) {
                         await sleep(100);

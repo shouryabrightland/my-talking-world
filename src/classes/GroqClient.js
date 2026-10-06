@@ -7,8 +7,9 @@
  * Responsibilities:
  * - Streams chat completions via SSE with real-time token emission.
  * - Executes non-streaming REST text generation with prompt logging.
- * - Implements model fallback chain (primary → fallback1 → fallback2).
- * - Enforces shared rate limiting across all instances (10 req/min, 2.5s spacing).
+ * - Implements a dynamic model fallback chain backed by GroqModelPool
+ *   (discovered from GET /models; static chain only as last-resort seed).
+ * - Enforces shared rate limiting guided by real x-ratelimit-* headers.
  * - Circuit breaker protection prevents cascading failures.
  * - Handles HTTP 429/503 with Retry-After header respect.
  * - Extracts `<think>` reasoning chains from model responses.
@@ -31,6 +32,7 @@ import PromptLogger from "./lib/PromptLogger";
 import ProtocolCodec from "./ProtocolCodec";
 import RateLimiter from "./lib/RateLimiter";
 import CircuitBreaker from "./lib/CircuitBreaker";
+import GroqModelPool, { parseGroqDurationMs } from "./lib/GroqModelPool";
 
 /**
  * Event identifiers emitted by GroqClient during streaming.
@@ -99,11 +101,13 @@ export default class GroqClient {
      * @param {Logger} options.logger Root parent logger.
      * @param {string} [options.defaultModel=DEFAULT_CHAT_MODEL] Preferred primary model.
      * @param {string|null} [options.apiKey=null] Optional explicit API key override.
+     * @param {GroqModelPool|null} [options.modelPool=null] Dynamic model pool (created when omitted).
      */
     constructor({
         logger,
         defaultModel = DEFAULT_CHAT_MODEL,
-        apiKey = null
+        apiKey = null,
+        modelPool = null
     }) {
         if (!logger) throw new TypeError("GroqClient requires a Logger instance.");
 
@@ -112,6 +116,9 @@ export default class GroqClient {
         /** @readonly @type {string} */ this.defaultModel = defaultModel;
         /** @private @type {string|null} */ this._customApiKey = apiKey;
 
+        /** @readonly @type {GroqModelPool} Dynamic, self-healing fallback pool. */
+        this.modelPool = modelPool || new GroqModelPool(this.logger);
+
         /** @type {AbortController|null} */ this.abortController = null;
         /** @type {boolean} */ this.isStreaming = false;
     }
@@ -119,6 +126,15 @@ export default class GroqClient {
     /** Dynamically resolves the API key on every request. @returns {string} */
     get apiKey() {
         return this._customApiKey || getApiKey();
+    }
+
+    /**
+     * Most recently resolved active dialogue model from the dynamic pool,
+     * falling back to the configured default before the first discovery round.
+     * @returns {string}
+     */
+    get activeModel() {
+        return this.modelPool.activeModelId || this.defaultModel;
     }
 
     /** @returns {string} */
@@ -267,7 +283,7 @@ export default class GroqClient {
      * @returns {Promise<string>}
      */
     async #streamWithFallback(messages, { temperature, maxTokens, model, activeKey, startTime, promptType, maxRetries }) {
-        const candidateModels = this.#uniqueModels(model);
+        const candidateModels = await this.#resolveCandidateModels(model);
         let lastError = null;
 
         for (const targetModel of candidateModels) {
@@ -285,6 +301,8 @@ export default class GroqClient {
                     const streamResult = await this.#executeStream(targetModel, messages, temperature, maxTokens, activeKey);
                     this.isStreaming = false;
 
+                    this.modelPool.reportSuccess(targetModel);
+
                     const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(streamResult.text);
 
                     PromptLogger.record({
@@ -296,6 +314,7 @@ export default class GroqClient {
                         finishReason: streamResult.finishReason
                     });
 
+                    this.modelPool.reportSuccess(targetModel);
                     this.events.emit(GroqClientEvents.DONE, cleanText);
                     return cleanText;
                 } catch (err) {
@@ -308,6 +327,14 @@ export default class GroqClient {
                         this.isStreaming = false;
                         throw castErr;
                     }
+
+                    // Feed REAL server reset timings into the dynamic pool so
+                    // 429/503 cool down for the exact window Groq specified.
+                    this.modelPool.reportFailure(
+                        targetModel,
+                        typeof castErr.status === "number" ? castErr.status : null,
+                        typeof castErr.rateLimitResetMs === "number" ? castErr.rateLimitResetMs : null
+                    );
 
                     // Handle 429/503 with Retry-After
                     const retryMs = this.#getRetryDelay(castErr, attempts);
@@ -353,7 +380,7 @@ export default class GroqClient {
      * @returns {Promise<GroqResultText>}
      */
     async #generateWithFallback(messages, { temperature, maxTokens, model, jsonMode, activeKey, startTime, promptType, maxRetries }) {
-        const candidateModels = this.#uniqueModels(model);
+        const candidateModels = await this.#resolveCandidateModels(model);
         let lastError = null;
 
         for (const targetModel of candidateModels) {
@@ -401,8 +428,13 @@ export default class GroqClient {
                         const msg = errPayload?.error?.message || `HTTP ${response.status} ${response.statusText}`;
                         const error = new Error(msg);
                         error.status = response.status;
+                        error.rateLimitResetMs = this.#exactRateLimitResetMs(response);
                         throw error;
                     }
+
+                    const rateInfo = this.#parseRateLimitHeaders(response);
+                    const resetMs = this.modelPool.observeRateLimit(targetModel, rateInfo);
+                    if (resetMs) sharedRateLimiter.syncServerLimit(Date.now() + resetMs);
 
                     const data = await response.json();
                     const rawText = data?.choices?.[0]?.message?.content ?? "";
@@ -416,9 +448,16 @@ export default class GroqClient {
 
                     return { text: cleanText, model: targetModel, thinking, usage: data?.usage };
                 } catch (err) {
-                    const castErr = /** @type {Error & {status?: number, message: string}} */ (err);
+                    const castErr = /** @type {Error & {status?: number, rateLimitResetMs?: number|null, message: string}} */ (err);
                     lastError = castErr;
                     if (castErr instanceof DOMException && castErr.name === "AbortError") throw castErr;
+
+                    // Feed REAL server reset timings into the dynamic pool.
+                    this.modelPool.reportFailure(
+                        targetModel,
+                        typeof castErr.status === "number" ? castErr.status : null,
+                        typeof castErr.rateLimitResetMs === "number" ? castErr.rateLimitResetMs : null
+                    );
 
                     // Handle retryable errors
                     const retryMs = this.#getRetryDelay(castErr, attempts);
@@ -470,11 +509,14 @@ export default class GroqClient {
             })
         });
 
-        // Handle 429/503 by throwing a typed error with status
+        // Handle 429/503 by throwing a typed error carrying the EXACT server
+        // reset timing from the real rate-limit headers.
         if (response.status === 429 || response.status === 503) {
+            const rateInfo = this.#parseRateLimitHeaders(response);
             const error = new Error(`HTTP ${response.status} ${response.statusText}`);
             error.status = response.status;
-            error.retryAfter = response.headers.get("Retry-After");
+            error.retryAfter = rateInfo.retryAfter;
+            error.rateLimitResetMs = this.#exactRateLimitResetMs(response);
             throw error;
         }
 
@@ -482,7 +524,15 @@ export default class GroqClient {
             const errPayload = await response.json().catch(() => ({}));
             const error = new Error(errPayload?.error?.message || `HTTP ${response.status} ${response.statusText}`);
             error.status = response.status;
+            error.rateLimitResetMs = this.#exactRateLimitResetMs(response);
             throw error;
+        }
+
+        // Track the live rate-limit window so pauses use exact server timings.
+        {
+            const rateInfo = this.#parseRateLimitHeaders(response);
+            const resetMs = this.modelPool.observeRateLimit(model, rateInfo);
+            if (resetMs) sharedRateLimiter.syncServerLimit(Date.now() + resetMs);
         }
 
         if (!response.body) {
@@ -550,6 +600,12 @@ export default class GroqClient {
      * @returns {number|null} Delay in ms, or null if no retry.
      */
     #getRetryDelay(err, attempt) {
+        // Exact server reset timing from the real rate-limit headers
+        // (x-ratelimit-reset-requests / x-ratelimit-reset-tokens / retry-after).
+        if (typeof err.rateLimitResetMs === "number" && err.rateLimitResetMs > 0) {
+            return err.rateLimitResetMs;
+        }
+
         // Check for Retry-After header (set during fetch)
         if (err.retryAfter) {
             const parsed = Number(err.retryAfter);
@@ -590,12 +646,10 @@ export default class GroqClient {
      * @returns {number|null}
      */
     #getRetryFromResponse(response, attempt) {
-        const retryAfter = response.headers.get("Retry-After");
-        if (retryAfter) {
-            const parsed = Number(retryAfter);
-            if (!Number.isNaN(parsed) && parsed > 0) {
-                return parsed * 1000;
-            }
+        // Prefer the EXACT server-specified reset window over blind backoff.
+        const exact = this.#exactRateLimitResetMs(response);
+        if (exact !== null && exact > 0) {
+            return exact;
         }
 
         if (response.status === 429) {
@@ -606,6 +660,37 @@ export default class GroqClient {
         }
 
         return null;
+    }
+
+    /**
+     * Extracts Groq's real rate-limit headers from a response.
+     * @param {Response} response
+     * @returns {{ remainingRequests: string|null, resetRequests: string|null, remainingTokens: string|null, resetTokens: string|null, retryAfter: string|null }}
+     */
+    #parseRateLimitHeaders(response) {
+        const headers = response.headers;
+        return {
+            remainingRequests: headers.get("x-ratelimit-remaining-requests"),
+            resetRequests: headers.get("x-ratelimit-reset-requests"),
+            remainingTokens: headers.get("x-ratelimit-remaining-tokens"),
+            resetTokens: headers.get("x-ratelimit-reset-tokens"),
+            retryAfter: headers.get("retry-after")
+        };
+    }
+
+    /**
+     * Computes the exact server-specified reset delay in ms.
+     * Priority: retry-after → x-ratelimit-reset-requests → x-ratelimit-reset-tokens.
+     * @param {Response} response
+     * @returns {number|null} Delay in ms, or null when the server sent no usable timing.
+     */
+    #exactRateLimitResetMs(response) {
+        const info = this.#parseRateLimitHeaders(response);
+        return (
+            parseGroqDurationMs(info.retryAfter) ??
+            parseGroqDurationMs(info.resetRequests) ??
+            parseGroqDurationMs(info.resetTokens)
+        );
     }
 
     /**
@@ -626,12 +711,30 @@ export default class GroqClient {
     // =========================================================================
 
     /**
-     * Returns unique model candidates.
-     * @param {string} primary
-     * @returns {string[]}
+     * Resolves unique model candidates for a request: the explicit primary
+     * first, then the dynamic GroqModelPool ladder (discovered, filtered, and
+     * tier-ranked from GET /models). The static CHAT_MODEL_FALLBACK_CHAIN is
+     * only used as a last-resort seed when discovery yields nothing.
+     *
+     * @param {string} primary Preferred primary model.
+     * @returns {Promise<string[]>}
      */
-    #uniqueModels(primary) {
-        return [primary, ...CHAT_MODEL_FALLBACK_CHAIN].filter((m, i, arr) => arr.indexOf(m) === i);
+    async #resolveCandidateModels(primary) {
+        /** @type {string[]} */
+        let poolIds = [];
+
+        try {
+            const candidates = await this.modelPool.getCandidates();
+            poolIds = candidates.map(c => c.id);
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Groq model pool discovery failed:", err);
+        }
+
+        const seed = poolIds.length > 0 ? poolIds : [...CHAT_MODEL_FALLBACK_CHAIN];
+        const chain = [primary, ...seed].filter((m, i, arr) => arr.indexOf(m) === i);
+
+        // Session-permanently-ejected models (400/404) must never be retried.
+        return chain.filter(id => !this.modelPool.isEjected(id));
     }
 
     /**

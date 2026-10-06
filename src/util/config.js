@@ -18,7 +18,11 @@ export const GROQ_CONSOLE_KEYS_URL = "https://console.groq.com/keys";
 /** @readonly @type {string} */
 export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b";
 
-/** @readonly @type {readonly string[]} */
+/**
+ * Static last-resort seed used ONLY when dynamic Groq model discovery fails
+ * (GroqModelPool filters, ranks, and serves live models otherwise).
+ * @readonly @type {readonly string[]}
+ */
 export const CHAT_MODEL_FALLBACK_CHAIN = Object.freeze([
     "openai/gpt-oss-120b",
     "llama-3.3-70b-versatile",

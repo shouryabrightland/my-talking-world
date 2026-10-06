@@ -35,7 +35,10 @@ vi.mock("../../src/classes/GeminiClient.js", () => ({
         constructor() { this.events = { on() { return () => {}; }, emit() {} }; }
         async streamGenerate() { return { text: "", model: "mock" }; }
         async generateText() { return { text: "", model: "mock" }; }
-    }
+    },
+    GOOGLE_SEARCH_TOOL: [{ googleSearch: {} }],
+    DEEP_THINKING_BUDGET: 1024,
+    STABILIZER_THINKING_BUDGET: 128
 }));
 
 vi.mock("../../src/classes/GroqClient.js", () => ({
@@ -46,12 +49,20 @@ vi.mock("../../src/classes/GroqClient.js", () => ({
     }
 }));
 
+const promptCapture = vi.hoisted(() => ({
+    systems: /** @type {Array<() => unknown>} */ ([]),
+    users: /** @type {Array<() => unknown>} */ ([])
+}));
+
 vi.mock("../../src/classes/PromptBuilder.js", () => ({
     default: class MockPromptBuilder {
-        constructor() {}
+        constructor() {
+            promptCapture.systems = [];
+            promptCapture.users = [];
+        }
         async build() { return { messages: [] }; }
-        useSystem() {}
-        useUser() {}
+        useSystem(fn) { promptCapture.systems.push(fn); }
+        useUser(fn) { promptCapture.users.push(fn); }
         part(text) { return text; }
     }
 }));
@@ -314,5 +325,50 @@ describe("WorldSetter — Reorder Blocks", () => {
         expect(ws.schedule[0].startHour).toBe(10);
         // Blocks remain contiguous — no gap between them either.
         expect(ws.schedule[1].startHour).toBe(ws.schedule[0].endHour);
+    });
+});
+
+describe("WorldSetter — birthday celebration context", () => {
+    /** @type {ReturnType<typeof makeMockWorld>} */
+    let world;
+    /** @type {WorldSetter} */
+    let ws;
+
+    beforeEach(() => {
+        world = makeMockWorld();
+        ws = new WorldSetter({ logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }, world });
+    });
+
+    /** @returns {string} Joined system prompt parts captured from prompt thunks. */
+    function capturedSystemText() {
+        return promptCapture.systems
+            .map(fn => fn())
+            .filter(t => typeof t === "string")
+            .join("\n");
+    }
+
+    it("adds an <active_celebration> system part when a birthday is active", async () => {
+        world.activeCelebrations = [{
+            type: "birthday",
+            member: { id: "tom" },
+            id: "tom",
+            name: "Tom",
+            turningAge: 20
+        }];
+
+        await ws.planHorizon(new Date(2026, 9, 6, 14, 0));
+
+        const text = capturedSystemText();
+        expect(text).toContain("<active_celebration>");
+        expect(text).toContain('member="tom"');
+        expect(text).toContain('name="Tom"');
+        expect(text).toContain('turning_age="20"');
+        expect(text).toContain("birthday surprises");
+    });
+
+    it("omits the celebration part when no birthday is active", async () => {
+        await ws.planHorizon(new Date(2026, 9, 6, 14, 0));
+
+        expect(capturedSystemText()).not.toContain("<active_celebration>");
     });
 });

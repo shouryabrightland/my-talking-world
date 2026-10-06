@@ -410,7 +410,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         🎉 Sitcom
                                     </button>
                                     <button onClick={() => handleApplyAmbientPreset("coffee")} className={styles.vibePresetBtn}>
-                                        ☕ Afternoon Chai
+                                        ☕ Cozy Lounge
                                     </button>
                                     <button onClick={() => handleApplyAmbientPreset("sleep")} className={styles.vibePresetBtn}>
                                         🌙 Sleep

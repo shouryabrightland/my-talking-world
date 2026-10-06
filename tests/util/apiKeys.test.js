@@ -7,8 +7,8 @@
  * - Gemini key verification via a single GET /models discovery request
  *   (ZERO generateContent probes — the old 429 self-DoS is gone)
  * - Dual-key enforcement (both keys required)
- * - Dynamic text-model filtering + tiered priority sorting (Flash →
- *   Flash-Lite → Pro → Gemma) used by GeminiModelPool
+ * - Dynamic text-model filtering + tiered priority sorting (Flash-Lite →
+ *   Flash → Pro → Gemma) used by GeminiModelPool
  * - GeminiModelPool cooldown / self-healing behaviour
  * - Model blocking via localStorage
  */
@@ -221,7 +221,7 @@ describe("filterTextGenerationModels", () => {
 });
 
 // =========================================================================
-// DYNAMIC PRIORITY SORTING (Flash → Flash-Lite → Pro → Gemma)
+// DYNAMIC PRIORITY SORTING (Flash-Lite → Flash → Pro → Gemma)
 // =========================================================================
 
 describe("Gemini model pool — dynamic tiered priority", () => {
@@ -236,9 +236,9 @@ describe("Gemini model pool — dynamic tiered priority", () => {
         { name: "models/text-embedding-004", supportedGenerationMethods: ["embedContent"] }
     ];
 
-    it("assigns tiers: Flash=1, Flash-Lite=2, Pro=3, Gemma=4, other=5", () => {
-        expect(tierOf("gemini-2.5-flash")).toBe(1);
-        expect(tierOf("gemini-2.5-flash-lite")).toBe(2);
+    it("assigns tiers: Flash-Lite=1, Flash=2, Pro=3, Gemma=4, other=5", () => {
+        expect(tierOf("gemini-2.5-flash-lite")).toBe(1);
+        expect(tierOf("gemini-2.5-flash")).toBe(2);
         expect(tierOf("gemini-3.1-pro")).toBe(3);
         expect(tierOf("gemma-3-27b-it")).toBe(4);
         expect(tierOf("some-unknown-model")).toBe(5);
@@ -250,15 +250,15 @@ describe("Gemini model pool — dynamic tiered priority", () => {
         expect(versionOf("gemma-3-27b-it")).toBe(3);
     });
 
-    it("orders Flash → Flash-Lite → Pro → Gemma and sorts versions descending", () => {
+    it("orders Flash-Lite → Flash → Pro → Gemma and sorts versions descending", () => {
         const ranked = prioritizeGeminiModels(normalizeGeminiModels(RAW)).map(m => m.id);
 
         expect(ranked).toEqual([
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash-lite",
             "gemini-3.7-flash",
             "gemini-2.5-flash",
             "gemini-1.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-2.0-flash-lite",
             "gemini-3.1-pro",
             "gemma-3-27b-it"
         ]);

@@ -102,7 +102,7 @@ export const Ben = createMember(
     "ben",
     "Ben",
     "Analytical technical inventor with courteous, polite manners. " +
-    "Builds complex electronic devices and gadgets, highly protective of his workspace, tools, and tea.",
+    "Builds complex electronic devices and gadgets, highly protective of his workspace, tools, experimental circuits, and robotics hardware.",
     "2004-04-10", // Age 22 in 2026
     "/char/ben.png",
     {
@@ -143,7 +143,7 @@ export const Ginger = createMember(
 export const Hank = createMember(
     "hank",
     "Hank",
-    "Easygoing, relaxed character who appreciates good food, tea, and entertainment. " +
+    "Easygoing, relaxed character who appreciates good food, retro cinema, trivia, video games, and relaxing comedy. " +
     "Moves at a calm pace and occasionally offers thoughtful, philosophical observations.",
     "2002-09-25", // Age 23-24 in 2026
     "/char/hank.png",

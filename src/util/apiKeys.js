@@ -30,6 +30,22 @@ import {
  */
 export const NON_TEXT_MODEL_MARKERS = Object.freeze(["embedding", "imagen", "veo", "tts", "audio"]);
 
+/**
+ * Substrings marking Groq models that are NOT text chat models. Safeguard /
+ * prompt-guard models and audio (whisper / orpheus / tts) models crash chat
+ * completions with HTTP 400, so GroqModelPool filters them out at discovery.
+ * @readonly @type {readonly string[]}
+ */
+export const GROQ_NON_CHAT_MODEL_MARKERS = Object.freeze([
+    "guard",
+    "safeguard",
+    "whisper",
+    "orpheus",
+    "tts",
+    "embedding",
+    "vision"
+]);
+
 // =========================================================================
 // TYPE DEFINITIONS
 // =========================================================================

@@ -105,7 +105,7 @@ Characters remember everything — and forget nothing they shouldn't:
 A procedural Web Audio soundscape:
 
 - **Three-Channel Mixer** — Melody (BPM-synced theme), Brown Noise (room air), Lofi Drone (chord pad)
-- **Three Presets** — Sitcom (upbeat), Garage Chai (cozy), Sleep (ambient)
+- **Three Presets** — Sitcom (upbeat), Cozy Lounge (cozy), Sleep (ambient)
 - **Real-Time Controls** — Master volume, per-channel levels, and BPM adjustment via sliders
 - **Character Voice Blips** — Unique oscillator signatures per character (Tom = triangle, Angela = sine, Ben = sawtooth, etc.)
 - **Message Pop SFX** — Subtle sine-wave pop when messages arrive

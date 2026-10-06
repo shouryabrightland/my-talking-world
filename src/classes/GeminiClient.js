@@ -2,21 +2,7 @@
 
 /**
  * @file GeminiClient.js
- * Lightweight, Stateless Gemini 2.5 Flash REST Client.
- *
- * Responsibilities:
- * - Streams text generation via Gemini's streamGenerateContent REST API.
- * - Executes non-streaming REST text generation with 65K output token capacity.
- * - Circuit breaker protection prevents cascading failures.
- * - Handles HTTP 429/503 with Retry-After header respect.
- * - Extracts `<think>` reasoning chains from model responses.
- * - Converts standard ChatMessage[] to Gemini REST schema.
- *
- * @typedef {Object} GeminiClientOptions
- * @property {Logger} logger Root parent logger.
- * @property {string} [defaultModel] Last-resort Gemini model when the pool has no candidates.
- * @property {string|null} [apiKey] Optional explicit API key override.
- * @property {GeminiModelPool|null} [modelPool] Dynamic model pool used to resolve the active model.
+ * Lightweight, Stateless Gemini REST Client with dynamic model capability adaptation.
  */
 
 /** @typedef {import("./lib/Logger").default} Logger */
@@ -35,11 +21,6 @@ import PromptLogger from "./lib/PromptLogger";
 import ProtocolCodec from "./ProtocolCodec";
 import CircuitBreaker from "./lib/CircuitBreaker";
 
-/**
- * Event identifiers emitted by GeminiClient during streaming.
- * @readonly
- * @enum {string}
- */
 export const GeminiClientEvents = {
     TEXT: "text",
     DONE: "done",
@@ -47,45 +28,43 @@ export const GeminiClientEvents = {
 };
 
 /**
+ * @typedef {Object} GroundingMetadata
+ * @property {string[]} [webSearchQueries] Search queries issued by the model.
+ * @property {Array<Record<string, any>>} [groundingChunks] Source chunks with URIs/titles.
+ * @property {Array<Record<string, any>>} [groundingSupports] Segment-to-chunk citation supports.
+ */
+
+/**
  * @typedef {Object} GeminiResultText
  * @property {string} text Full generated text response.
  * @property {string} model Model ID used for the response.
  * @property {string|null} thinking Extracted thinking chain if present.
  * @property {Record<string, any>} [usage] Usage metadata metrics.
+ * @property {GroundingMetadata|null} [groundingMetadata] Captured Google Search grounding metadata.
  */
 
-/**
- * Hidden-reasoning budget for planner generations. Keeps hybrid thinking
- * models responsive (first XML token in ~3–6s) instead of stalling for 60–90s.
- * @readonly @type {number}
- */
 export const PLANNER_THINKING_BUDGET = 512;
+export const DEEP_THINKING_BUDGET = 1024;
+export const STABILIZER_THINKING_BUDGET = 128;
+export const GOOGLE_SEARCH_TOOL = [{ googleSearch: {} }];
 
-/**
- * Shared circuit breaker across all GeminiClient instances.
- * @type {CircuitBreaker}
- */
 const sharedCircuitBreaker = new CircuitBreaker({
-    failureThreshold: 3,
+    failureThreshold: 5,
     resetTimeoutMs: 45_000,
     successThreshold: 1,
     onStateChange: (newState, oldState) => {
-        console.log(`[GeminiClient] Circuit breaker: ${oldState} → ${newState}`);
+        console.log(`[GeminiClient] Provider Circuit breaker: ${oldState} → ${newState}`);
     }
 });
 
-/**
- * Gemini 2.5 Flash REST Client with:
- * - Streaming SSE support via streamGenerateContent
- * - Thinking chain capture for debugging
- * - Circuit breaker for failure protection
- * - Retry-After header handling for 429/503
- * - Full 65K output token capacity
- */
 export default class GeminiClient {
 
     /**
-     * @param {GeminiClientOptions} options
+     * @param {Object} options
+     * @param {Logger} options.logger Root parent logger.
+     * @param {string} [options.defaultModel] Last-resort Gemini model.
+     * @param {string|null} [options.apiKey] Optional explicit API key override.
+     * @param {GeminiModelPool|null} [options.modelPool] Dynamic model pool.
      */
     constructor({
         logger,
@@ -104,54 +83,37 @@ export default class GeminiClient {
         /** @type {AbortController|null} */ this.abortController = null;
     }
 
-    /** Dynamically resolves the active Gemini key. @returns {string} */
     get apiKey() {
         return this._customApiKey || getGeminiApiKey();
     }
 
-    /**
-     * Resolves the current best model from the dynamic GeminiModelPool.
-     * Falls back to the statically configured default only when the pool has
-     * no candidates at all (discovery failed / no key yet).
-     *
-     * @returns {Promise<string>}
-     */
     async resolveModel() {
         if (this.modelPool) {
             try {
                 const active = await this.modelPool.getActiveModel();
                 if (active) return active;
-            } catch (/** @type {unknown} */ err) {
+            } catch (err) {
                 this.logger.warn("Gemini model pool resolution failed:", err);
             }
         }
         return this.defaultModel;
     }
 
-    /** @returns {string} */
     get circuitState() {
         return sharedCircuitBreaker.state;
     }
 
     /**
      * Streams text generation via Gemini's streamGenerateContent REST API.
-     * Returns a full accumulated response with thinking chain extraction.
-     *
-     * @param {ChatMessage[]} messages Array of standard role/content messages.
-     * @param {Object} [options]
-     * @param {number} [options.temperature=0.7]
-     * @param {number} [options.maxOutputTokens=GEMINI_MAX_OUTPUT_TOKENS]
-     * @param {string|null} [options.model=null] Target model. Resolved from the pool when omitted.
-     * @param {PromptType} [options.promptType="scheduler"]
-     * @param {number} [options.maxRetries=2]
-     * @returns {Promise<GeminiResultText>}
      */
     async streamGenerate(messages, {
         temperature = 0.7,
         maxOutputTokens = GEMINI_MAX_OUTPUT_TOKENS,
         model = null,
         promptType = "scheduler",
-        maxRetries = 2
+        maxRetries = 2,
+        tools = null,
+        thinkingBudget = PLANNER_THINKING_BUDGET
     } = {}) {
         this.abort();
         this.abortController = new AbortController();
@@ -169,7 +131,7 @@ export default class GeminiClient {
             throw error;
         }
 
-        const requestBody = this.#buildRequestBody(messages, temperature, maxOutputTokens);
+        const requestBody = this.#buildRequestBody(messages, temperature, maxOutputTokens, { thinkingBudget, tools }, targetModel);
 
         try {
             return await sharedCircuitBreaker.execute(async () => {
@@ -182,23 +144,15 @@ export default class GeminiClient {
 
     /**
      * Executes non-streaming REST text generation with 65K max output token capacity.
-     * Used as fallback if streaming is unavailable.
-     *
-     * @param {ChatMessage[]} messages Array of standard role/content messages.
-     * @param {Object} [options]
-     * @param {number} [options.temperature=0.7]
-     * @param {number} [options.maxOutputTokens=GEMINI_MAX_OUTPUT_TOKENS]
-     * @param {string|null} [options.model=null] Target model. Resolved from the pool when omitted.
-     * @param {PromptType} [options.promptType="scheduler"]
-     * @param {number} [options.maxRetries=2]
-     * @returns {Promise<GeminiResultText>}
      */
     async generateText(messages, {
         temperature = 0.7,
         maxOutputTokens = GEMINI_MAX_OUTPUT_TOKENS,
         model = null,
         promptType = "scheduler",
-        maxRetries = 2
+        maxRetries = 2,
+        tools = null,
+        thinkingBudget = PLANNER_THINKING_BUDGET
     } = {}) {
         this.abort();
         this.abortController = new AbortController();
@@ -216,7 +170,7 @@ export default class GeminiClient {
             throw error;
         }
 
-        const requestBody = this.#buildRequestBody(messages, temperature, maxOutputTokens);
+        const requestBody = this.#buildRequestBody(messages, temperature, maxOutputTokens, { thinkingBudget, tools }, targetModel);
 
         try {
             return await sharedCircuitBreaker.execute(async () => {
@@ -228,31 +182,22 @@ export default class GeminiClient {
     }
 
     // =========================================================================
-    // PRIVATE: Streaming with retry
+    // PRIVATE: Streaming with retry & self-healing
     // =========================================================================
 
-    /**
-     * @param {Record<string, unknown>} requestBody
-     * @param {string} model
-     * @param {string} key
-     * @param {number} startTime
-     * @param {ChatMessage[]} messages
-     * @param {PromptType} promptType
-     * @param {number} maxRetries
-     * @returns {Promise<GeminiResultText>}
-     */
     async #streamWithRetry(requestBody, model, key, startTime, messages, promptType, maxRetries) {
         let lastError = null;
         let attempts = 0;
         const maxAttempts = 1 + maxRetries;
+        const cleanModelId = String(model || "").replace(/^models\//, "");
 
         while (attempts < maxAttempts) {
             attempts++;
 
             try {
-                this.logger.debug(`Executing Gemini stream call on "${model}" (attempt ${attempts}/${maxAttempts})...`);
+                this.logger.debug(`Executing Gemini stream call on "${cleanModelId}" (attempt ${attempts}/${maxAttempts})...`);
 
-                const url = `${GEMINI_API_BASE_URL}/models/${model}:streamGenerateContent?alt=sse&key=${key}`;
+                const url = `${GEMINI_API_BASE_URL}/models/${cleanModelId}:streamGenerateContent?alt=sse&key=${key}`;
 
                 const response = await fetch(url, {
                     method: "POST",
@@ -261,50 +206,68 @@ export default class GeminiClient {
                     body: JSON.stringify(requestBody)
                 });
 
-                // NOTE: No backoff sleep on 429/503 here. Planner streams
-                // fast-fail so WorldSetter can rotate to the next pool model
-                // immediately (0 seconds of sleep delay).
-
                 if (!response.ok) {
                     const errPayload = await response.json().catch(() => ({}));
                     const msg = errPayload?.error?.message || `HTTP ${response.status} ${response.statusText}`;
-                    const error = new Error(msg);
+
+                    // Self-healing: if the model rejected thinkingConfig or tools with HTTP 400, retry once without them
+                    if (response.status === 400) {
+                        const bodyGen = /** @type {Record<string, any>} */ (requestBody.generationConfig || {});
+                        if (bodyGen.thinkingConfig && /thinking/i.test(msg)) {
+                            this.logger.warn(`Model "${cleanModelId}" does not support thinkingConfig. Stripping and retrying...`);
+                            delete bodyGen.thinkingConfig;
+                            continue;
+                        }
+                        if (requestBody.tools && /tool|search|grounding/i.test(msg)) {
+                            this.logger.warn(`Model "${cleanModelId}" does not support search tools. Stripping and retrying...`);
+                            delete requestBody.tools;
+                            continue;
+                        }
+                    }
+
+                    const error = /** @type {any} */ (new Error(msg));
                     error.status = response.status;
+                    // Model-level 400, 404, or 429 are handled by the GeminiModelPool and MUST NOT trip the provider breaker.
+                    if (response.status === 400 || response.status === 404 || response.status === 429) {
+                        error.noCircuitTrip = true;
+                    }
                     throw error;
                 }
 
                 if (!response.body) {
-                    // Fallback to non-streaming
                     this.logger.warn("Gemini stream response has no body. Falling back to non-streaming...");
-                    return await this.#generateWithRetry(requestBody, model, key, startTime, messages, promptType, 0);
+                    return await this.#generateWithRetry(requestBody, cleanModelId, key, startTime, messages, promptType, 0);
                 }
 
-                const rawText = await this.#readSSEStream(response.body);
+                const { text: rawText, groundingMetadata } = await this.#readSSEStream(response.body);
                 const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(rawText);
 
                 PromptLogger.record({
-                    type: promptType, model, startTime, requestMessages: messages,
-                    rawResponse: rawText, thinkingChain: thinking, status: "success"
+                    type: promptType, model: cleanModelId, startTime, requestMessages: messages,
+                    rawResponse: rawText, thinkingChain: thinking, groundingMetadata, status: "success"
                 });
 
-                return { text: cleanText, model, thinking };
+                return { text: cleanText, model: cleanModelId, thinking, groundingMetadata };
 
             } catch (err) {
-                const castErr = /** @type {Error & {status?: number, message: string}} */ (err);
+                const castErr = /** @type {any} */ (err);
                 lastError = castErr;
                 if (castErr instanceof DOMException && castErr.name === "AbortError") throw castErr;
 
-                // Fast-failover: never sleep on 429/503/404 during planner
-                // streams — throw immediately so WorldSetter rotates to the
-                // next pool model with zero backoff delay.
-                if (castErr.status === 429 || castErr.status === 503 || castErr.status === 404) {
-                    this.logger.warn(`Fast-failover: HTTP ${castErr.status} on "${model}". Throwing immediately with no backoff.`);
+                // Mark model-level errors so they do not trip the global breaker
+                if (castErr.status === 400 || castErr.status === 404 || castErr.status === 429) {
+                    castErr.noCircuitTrip = true;
+                }
+
+                // Fast-failover: throw immediately on model-level errors to rotate to the next candidate
+                if (castErr.status === 429 || castErr.status === 503 || castErr.status === 404 || castErr.status === 400) {
+                    this.logger.warn(`Fast-failover: HTTP ${castErr.status} on "${cleanModelId}". Advancing to next pool model.`);
                     break;
                 }
 
                 const retryMs = this.#getRetryDelay(castErr, attempts);
                 if (retryMs !== null && attempts < maxAttempts) {
-                    this.logger.warn(`Retryable error on "${model}". Retrying in ${Math.round(retryMs / 1000)}s...`);
+                    this.logger.warn(`Retryable error on "${cleanModelId}". Retrying in ${Math.round(retryMs / 1000)}s...`);
                     await this.#sleep(retryMs);
                     continue;
                 }
@@ -314,40 +277,31 @@ export default class GeminiClient {
         }
 
         PromptLogger.record({
-            type: promptType, model, startTime, requestMessages: messages,
+            type: promptType, model: cleanModelId, startTime, requestMessages: messages,
             rawResponse: "", status: "error", error: lastError?.message || "Gemini generation failed"
         });
 
-        this.logger.error(`Gemini stream generation failed on "${model}":`, lastError?.message || lastError);
+        this.logger.error(`Gemini stream generation failed on "${cleanModelId}":`, lastError?.message || lastError);
         throw lastError;
     }
 
     // =========================================================================
-    // PRIVATE: Non-streaming with retry
+    // PRIVATE: Non-streaming with retry & self-healing
     // =========================================================================
 
-    /**
-     * @param {Record<string, unknown>} requestBody
-     * @param {string} model
-     * @param {string} key
-     * @param {number} startTime
-     * @param {ChatMessage[]} messages
-     * @param {PromptType} promptType
-     * @param {number} maxRetries
-     * @returns {Promise<GeminiResultText>}
-     */
     async #generateWithRetry(requestBody, model, key, startTime, messages, promptType, maxRetries) {
         let lastError = null;
         let attempts = 0;
         const maxAttempts = 1 + maxRetries;
+        const cleanModelId = String(model || "").replace(/^models\//, "");
 
         while (attempts < maxAttempts) {
             attempts++;
 
             try {
-                this.logger.debug(`Executing Gemini REST call on "${model}" (attempt ${attempts}/${maxAttempts})...`);
+                this.logger.debug(`Executing Gemini REST call on "${cleanModelId}" (attempt ${attempts}/${maxAttempts})...`);
 
-                const url = `${GEMINI_API_BASE_URL}/models/${model}:generateContent?key=${key}`;
+                const url = `${GEMINI_API_BASE_URL}/models/${cleanModelId}:generateContent?key=${key}`;
 
                 const response = await fetch(url, {
                     method: "POST",
@@ -356,11 +310,10 @@ export default class GeminiClient {
                     body: JSON.stringify(requestBody)
                 });
 
-                // Handle 429/503 with Retry-After
                 if (response.status === 429 || response.status === 503) {
                     const retryMs = this.#getRetryFromResponse(response, attempts);
                     if (retryMs !== null && attempts < maxAttempts) {
-                        this.logger.warn(`HTTP ${response.status} on "${model}". Retrying in ${Math.round(retryMs / 1000)}s...`);
+                        this.logger.warn(`HTTP ${response.status} on "${cleanModelId}". Retrying in ${Math.round(retryMs / 1000)}s...`);
                         await this.#sleep(retryMs);
                         continue;
                     }
@@ -369,14 +322,33 @@ export default class GeminiClient {
                 if (!response.ok) {
                     const errPayload = await response.json().catch(() => ({}));
                     const msg = errPayload?.error?.message || `HTTP ${response.status} ${response.statusText}`;
-                    const error = new Error(msg);
+
+                    if (response.status === 400) {
+                        const bodyGen = /** @type {Record<string, any>} */ (requestBody.generationConfig || {});
+                        if (bodyGen.thinkingConfig && /thinking/i.test(msg)) {
+                            this.logger.warn(`Model "${cleanModelId}" does not support thinkingConfig. Stripping and retrying...`);
+                            delete bodyGen.thinkingConfig;
+                            continue;
+                        }
+                        if (requestBody.tools && /tool|search|grounding/i.test(msg)) {
+                            this.logger.warn(`Model "${cleanModelId}" does not support search tools. Stripping and retrying...`);
+                            delete requestBody.tools;
+                            continue;
+                        }
+                    }
+
+                    const error = /** @type {any} */ (new Error(msg));
                     error.status = response.status;
+                    if (response.status === 400 || response.status === 404 || response.status === 429) {
+                        error.noCircuitTrip = true;
+                    }
                     throw error;
                 }
 
                 const data = await response.json();
                 const candidates = data?.candidates || [];
                 const parts = candidates[0]?.content?.parts || [];
+                const groundingMetadata = candidates[0]?.groundingMetadata || null;
 
                 let rawText = "";
                 for (const part of parts) {
@@ -386,20 +358,24 @@ export default class GeminiClient {
                 const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(rawText);
 
                 PromptLogger.record({
-                    type: promptType, model, startTime, requestMessages: messages,
-                    rawResponse: rawText, thinkingChain: thinking, status: "success"
+                    type: promptType, model: cleanModelId, startTime, requestMessages: messages,
+                    rawResponse: rawText, thinkingChain: thinking, groundingMetadata, status: "success"
                 });
 
-                return { text: cleanText, model, thinking, usage: data?.usageMetadata };
+                return { text: cleanText, model: cleanModelId, thinking, usage: data?.usageMetadata, groundingMetadata };
 
             } catch (err) {
-                const castErr = /** @type {Error & {status?: number, message: string}} */ (err);
+                const castErr = /** @type {any} */ (err);
                 lastError = castErr;
                 if (castErr instanceof DOMException && castErr.name === "AbortError") throw castErr;
 
+                if (castErr.status === 400 || castErr.status === 404 || castErr.status === 429) {
+                    castErr.noCircuitTrip = true;
+                }
+
                 const retryMs = this.#getRetryDelay(castErr, attempts);
                 if (retryMs !== null && attempts < maxAttempts) {
-                    this.logger.warn(`Retryable error on "${model}". Retrying in ${Math.round(retryMs / 1000)}s...`);
+                    this.logger.warn(`Retryable error on "${cleanModelId}". Retrying in ${Math.round(retryMs / 1000)}s...`);
                     await this.#sleep(retryMs);
                     continue;
                 }
@@ -409,28 +385,21 @@ export default class GeminiClient {
         }
 
         PromptLogger.record({
-            type: promptType, model, startTime, requestMessages: messages,
+            type: promptType, model: cleanModelId, startTime, requestMessages: messages,
             rawResponse: "", status: "error", error: lastError?.message || "Gemini generation failed"
         });
 
-        this.logger.error(`Gemini REST generation failed on "${model}":`, lastError?.message || lastError);
+        this.logger.error(`Gemini REST generation failed on "${cleanModelId}":`, lastError?.message || lastError);
         throw lastError;
     }
 
-    // =========================================================================
-    // PRIVATE: SSE Stream reader
-    // =========================================================================
-
-    /**
-     * Reads a Gemini SSE stream and accumulates the full text response.
-     * @param {ReadableStream} body
-     * @returns {Promise<string>}
-     */
     async #readSSEStream(body) {
         const reader = body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
         let fullText = "";
+        /** @type {GroundingMetadata|null} */
+        let groundingMetadata = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -445,7 +414,7 @@ export default class GeminiClient {
                 if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) continue;
 
                 const payload = trimmed.replace(/^data:\s*/, "");
-                if (payload === "[DONE]") return fullText;
+                if (payload === "[DONE]") return { text: fullText, groundingMetadata };
 
                 try {
                     const parsed = JSON.parse(payload);
@@ -457,32 +426,35 @@ export default class GeminiClient {
                             this.events.emit(GeminiClientEvents.TEXT, part.text);
                         }
                     }
+                    if (candidates[0]?.groundingMetadata) {
+                        groundingMetadata = candidates[0].groundingMetadata;
+                    }
                 } catch {
                     // Ignore non-JSON heartbeat lines
                 }
             }
         }
 
-        return fullText;
+        return { text: fullText, groundingMetadata };
     }
 
-    // =========================================================================
-    // PRIVATE: Request body builder
-    // =========================================================================
-
-    /**
-     * Converts standard ChatMessage[] to Gemini REST schema.
-     * Includes a bounded `thinkingBudget` so hybrid reasoning models start
-     * emitting XML within seconds instead of burning 2–5K hidden reasoning
-     * tokens first.
-     * @param {ChatMessage[]} messages
-     * @param {number} temperature
-     * @param {number} maxOutputTokens
-     * @returns {Record<string, unknown>}
-     */
-    #buildRequestBody(messages, temperature, maxOutputTokens) {
+    #buildRequestBody(messages, temperature, maxOutputTokens, { thinkingBudget = PLANNER_THINKING_BUDGET, tools = null } = {}, model = "") {
         const systemMessage = messages.find(m => m.role === "system");
         const conversationMessages = messages.filter(m => m.role !== "system");
+
+        const cleanModel = String(model || "").replace(/^models\//, "").toLowerCase();
+        // Only attach thinkingConfig if the model supports it (Gemini 2.5/3.x, excluding Gemma and older checkpoints)
+        const supportsThinking = /gemini-(?:2\.5|3\.)/i.test(cleanModel) && !/gemma/i.test(cleanModel);
+
+        /** @type {Record<string, any>} */
+        const generationConfig = {
+            temperature,
+            maxOutputTokens
+        };
+
+        if (supportsThinking && typeof thinkingBudget === "number" && thinkingBudget >= 0) {
+            generationConfig.thinkingConfig = { thinkingBudget };
+        }
 
         /** @type {Record<string, any>} */
         const body = {
@@ -490,12 +462,13 @@ export default class GeminiClient {
                 role: msg.role === "assistant" ? "model" : "user",
                 parts: [{ text: msg.content }]
             })),
-            generationConfig: {
-                temperature,
-                maxOutputTokens,
-                thinkingConfig: { thinkingBudget: PLANNER_THINKING_BUDGET }
-            }
+            generationConfig
         };
+
+        // Only attach tools if provided and the model is not Gemma (Gemma returns 400 on tools)
+        if (Array.isArray(tools) && tools.length > 0 && !/gemma/i.test(cleanModel)) {
+            body.tools = tools;
+        }
 
         if (systemMessage && systemMessage.content) {
             body.systemInstruction = {
@@ -506,15 +479,6 @@ export default class GeminiClient {
         return body;
     }
 
-    // =========================================================================
-    // PRIVATE: Retry helpers (identical logic to GroqClient)
-    // =========================================================================
-
-    /**
-     * @param {Error & {status?: number, retryAfter?: string|null}} err
-     * @param {number} attempt
-     * @returns {number|null}
-     */
     #getRetryDelay(err, attempt) {
         if (err.retryAfter) {
             const parsed = Number(err.retryAfter);
@@ -531,11 +495,6 @@ export default class GeminiClient {
         return null;
     }
 
-    /**
-     * @param {Response} response
-     * @param {number} attempt
-     * @returns {number|null}
-     */
     #getRetryFromResponse(response, attempt) {
         const retryAfter = response.headers.get("Retry-After");
         if (retryAfter) {
@@ -549,30 +508,16 @@ export default class GeminiClient {
         return null;
     }
 
-    /**
-     * @param {number} attempt
-     * @param {number} baseMs
-     * @param {number} maxMs
-     * @returns {number}
-     */
     #exponentialBackoff(attempt, baseMs, maxMs) {
         const exponential = baseMs * Math.pow(2, attempt - 1);
         const jitter = Math.random() * baseMs * 0.5;
         return Math.min(maxMs, exponential + jitter);
     }
 
-    /**
-     * @param {number} ms
-     * @returns {Promise<void>}
-     */
     #sleep(ms) {
         return new Promise(r => setTimeout(r, ms));
     }
 
-    /**
-     * Aborts in-flight REST network fetch operations cleanly.
-     * @returns {void}
-     */
     abort() {
         if (this.abortController !== null) {
             this.logger.debug("Aborting in-flight Gemini REST request.");

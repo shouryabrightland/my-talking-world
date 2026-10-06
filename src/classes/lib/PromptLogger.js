@@ -30,6 +30,7 @@
  * @property {string} rawResponse Full unparsed text returned by model.
  * @property {string|null} thinkingChain Extracted <think>...</think> reasoning chain.
  * @property {string|null} error Error description if request failed.
+ * @property {Record<string, any>|null} groundingMetadata Google Search grounding metadata (queries, chunks, citations).
  * @property {number|null} tokensIn Prompt tokens consumed (usage.prompt_tokens).
  * @property {number|null} tokensOut Completion tokens generated (usage.completion_tokens).
  * @property {string|null} finishReason Final finish reason (e.g. "stop", "length").
@@ -74,6 +75,7 @@ export default class PromptLogger {
      * @param {Array<{ role: string, content: string }>} options.requestMessages
      * @param {string} options.rawResponse
      * @param {string|null} [options.thinkingChain=null]
+     * @param {Record<string, any>|null} [options.groundingMetadata=null] Google Search grounding metadata.
      * @param {"success" | "error"} [options.status="success"]
      * @param {string|null} [options.error=null]
      * @param {number|null} [options.tokensIn=null] Prompt token count.
@@ -88,6 +90,7 @@ export default class PromptLogger {
         requestMessages,
         rawResponse,
         thinkingChain = null,
+        groundingMetadata = null,
         status = "success",
         error = null,
         tokensIn = null,
@@ -109,6 +112,7 @@ export default class PromptLogger {
             requestMessages,
             rawResponse,
             thinkingChain,
+            groundingMetadata,
             error,
             tokensIn,
             tokensOut,
