@@ -11,6 +11,7 @@
  * @typedef {import("./types/World.types").DemandResolutionResult} DemandResolutionResult
  * @typedef {import("./types/World.types").ScheduleProposal} ScheduleProposal
  * @typedef {import("./types/World.types").ProposedChange} ProposedChange
+ * @typedef {import("./types/World.types").DemandReport} DemandReport
  * @typedef {import("./lib/PromptLogger").PromptType} PromptType
  */
 
@@ -75,6 +76,11 @@ export default class WorldSetter {
 
     #streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
 
+    /**
+     * @param {{ messages: import("./PromptBuilder").ChatMessage[] }} promptPayload
+     * @param {PromptType} promptType
+     * @returns {Promise<string>}
+     */
     async #generatePlannerXml(promptPayload, promptType) {
         /** @type {Set<Function>} */ 
         const cleanups = new Set();
@@ -181,6 +187,11 @@ export default class WorldSetter {
         this.#streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
     }
 
+    /**
+     * @param {string} accumulated
+     * @param {string} [chunk]
+     * @param {boolean} [force]
+     */
     #emitStreamProgress(accumulated, chunk = "", force = false) {
         const now = Date.now();
         const closedBlockArrived = /<\/\s*block\s*>/i.test(chunk);
@@ -295,6 +306,10 @@ export default class WorldSetter {
         return this.schedule;
     }
 
+    /**
+     * @param {Date} date
+     * @returns {Promise<ScheduleRecord[]>}
+     */
     async planHorizon(date) {
         if (this.isPlanning) return this.schedule;
 
@@ -395,6 +410,10 @@ export default class WorldSetter {
         }
     }
 
+    /**
+     * @param {string} demandText
+     * @returns {Promise<DemandResolutionResult>}
+     */
     async applyUserDemand(demandText) {
         const cleanDemand = demandText.trim();
         if (!cleanDemand) throw new Error("Demand text cannot be empty.");
@@ -496,7 +515,7 @@ export default class WorldSetter {
         this.isDirty = true;
         this.world.tick(this.world.now);
 
-        return { line1, line2, schedule: this.schedule };
+        return { line1, line2, schedule: this.schedule, report };
     }
 
     async acceptProposal() {
@@ -534,6 +553,11 @@ export default class WorldSetter {
         return this.schedule;
     }
 
+    /**
+     * @param {ScheduleRecord[]} current
+     * @param {ScheduleRecord[]} proposed
+     * @returns {ScheduleProposal}
+     */
     #computeProposal(current, proposed) {
         /** @type {ProposedChange[]} */
         const changes = [];
@@ -646,6 +670,10 @@ export default class WorldSetter {
         }
     }
 
+    /**
+     * @param {ScheduleRecord[]} blocks
+     * @returns {string[]}
+     */
     #validateStabilizedSchedule(blocks) {
         /** @type {string[]} */
         const errors = [];
@@ -705,6 +733,10 @@ export default class WorldSetter {
         return [...this.schedule];
     }
 
+    /**
+     * @param {Partial<ScheduleRecord>} recordData
+     * @returns {Promise<ScheduleRecord>}
+     */
     async createRecord(recordData) {
         const sHour = Math.max(0, Math.min(23.5, Number(recordData.startHour)));
         const eHour = Math.max(sHour + 0.5, Math.min(24, Number(recordData.endHour)));
@@ -736,6 +768,11 @@ export default class WorldSetter {
         return newRecord;
     }
 
+    /**
+     * @param {string} id
+     * @param {Partial<ScheduleRecord>} updates
+     * @returns {Promise<ScheduleRecord|null>}
+     */
     async updateRecord(id, updates) {
         const record = this.schedule.find(r => r.id === id);
         if (!record) return null;
@@ -763,6 +800,10 @@ export default class WorldSetter {
         return record;
     }
 
+    /**
+     * @param {string} id
+     * @returns {Promise<boolean>}
+     */
     async deleteRecord(id) {
         const initialLen = this.schedule.length;
         this.schedule = this.schedule.filter(r => r.id !== id);
@@ -775,6 +816,12 @@ export default class WorldSetter {
         return true;
     }
 
+    /**
+     * @param {string} rawResponse
+     * @param {number} startHour
+     * @param {string} [fallbackTopic]
+     * @returns {ScheduleRecord[]}
+     */
     #parseXmlScheduleResponse(rawResponse, startHour, fallbackTopic = "") {
         const { cleanText } = ProtocolCodec.extractThinkingChain(rawResponse);
 
@@ -874,6 +921,10 @@ export default class WorldSetter {
         return records;
     }
 
+    /**
+     * @param {string} rawResponse
+     * @returns {DemandReport}
+     */
     #parseNarrativeReport(rawResponse) {
         const { cleanText } = ProtocolCodec.extractThinkingChain(rawResponse);
 
@@ -919,6 +970,11 @@ export default class WorldSetter {
         };
     }
 
+    /**
+     * @param {ScheduleRecord[]} existing
+     * @param {ScheduleRecord[]} modified
+     * @returns {ScheduleRecord[]}
+     */
     #mergeDemandSchedule(existing, modified) {
         if (!Array.isArray(modified) || modified.length === 0) return existing;
         if (!Array.isArray(existing) || existing.length === 0) return this.#sanitizeAndSortSchedule(modified);
@@ -939,6 +995,10 @@ export default class WorldSetter {
         return this.#sanitizeAndSortSchedule(merged);
     }
 
+    /**
+     * @param {ScheduleRecord[]} records
+     * @returns {ScheduleRecord[]}
+     */
     #sanitizeAndSortSchedule(records) {
         if (!Array.isArray(records) || records.length === 0) return [];
 
@@ -963,6 +1023,11 @@ export default class WorldSetter {
         return sanitized;
     }
 
+    /**
+     * @param {number} start
+     * @param {number} end
+     * @returns {string}
+     */
     #formatDecimalRange(start, end) {
         const fmt = (/** @type {number} */ val) => {
             const h = Math.floor(val);
@@ -972,6 +1037,10 @@ export default class WorldSetter {
         return `${fmt(start)} - ${fmt(end)}`;
     }
 
+    /**
+     * @param {number} h
+     * @returns {number}
+     */
     #clampHour(h) {
         if (!Number.isFinite(h)) return 0;
         let clamped = h % 24;
@@ -980,6 +1049,10 @@ export default class WorldSetter {
         return Math.max(0, Math.min(24, clamped));
     }
 
+    /**
+     * @param {number} startHour
+     * @returns {ScheduleRecord[]}
+     */
     #buildFallbackSchedule(startHour) {
         const topics = [
             { topic: "Creative project discussion", mainGoal: "Brainstorm new concepts", facts: ["Fresh notebook and markers on the table"] },
@@ -1015,6 +1088,11 @@ export default class WorldSetter {
         return records;
     }
 
+    /**
+     * @param {number} index
+     * @param {'up'|'down'} direction
+     * @returns {ScheduleRecord[]}
+     */
     reorderBlocks(index, direction) {
         if (index < 0 || index >= this.schedule.length) return this.schedule;
 
@@ -1046,6 +1124,10 @@ export default class WorldSetter {
         return this.schedule;
     }
 
+    /**
+     * @param {unknown} record
+     * @returns {boolean}
+     */
     #isValidRecord(record) {
         const r = /** @type {Record<string, unknown>} */ (record);
         return (

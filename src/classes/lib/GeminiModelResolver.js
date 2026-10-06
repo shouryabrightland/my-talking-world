@@ -30,6 +30,10 @@ const COOLDOWN_STATUSES = Object.freeze([429, 503]);
 export const PERMANENT_EJECT_STATUSES = Object.freeze([400, 404]);
 const NON_TEXT_MARKERS = Object.freeze(["embedding", "imagen", "veo", "tts", "audio"]);
 
+/**
+ * @param {string} id
+ * @returns {number}
+ */
 export function tierOf(id) {
     const n = String(id || "").toLowerCase();
     if (n.includes("flash-lite") || n.includes("flashlite")) return 1;
@@ -39,11 +43,20 @@ export function tierOf(id) {
     return 5;
 }
 
+/**
+ * @param {string} id
+ * @returns {number}
+ */
 export function versionOf(id) {
     const match = String(id || "").match(/(\d+(?:\.\d+)?)/);
     return match ? parseFloat(match[1]) : 0;
 }
 
+/**
+ * @param {any[]} rawModels
+ * @param {string[]} [blockedIds]
+ * @returns {GeminiModelEntry[]}
+ */
 export function normalizeGeminiModels(rawModels, blockedIds = []) {
     if (!Array.isArray(rawModels)) return [];
 
@@ -82,6 +95,10 @@ export function normalizeGeminiModels(rawModels, blockedIds = []) {
     return entries;
 }
 
+/**
+ * @param {GeminiModelEntry[]} entries
+ * @returns {GeminiModelEntry[]}
+ */
 export function prioritizeGeminiModels(entries) {
     return [...entries].sort((a, b) => {
         if (a.tier !== b.tier) return a.tier - b.tier;
@@ -96,10 +113,12 @@ export default class GeminiModelPool {
     /** @readonly @type {Storage} */ storage;
 
     #entries = new Map();
+    /** @type {string[]} */
     #stack = [];
     #cooldownMap = new Map();
     #ejected = new Set();
     #fetchedAt = 0;
+    /** @type {Promise<void>|null} */
     #pending = null;
 
     /** @param {Logger} logger Logger instance. */
@@ -128,6 +147,11 @@ export default class GeminiModelPool {
         return candidates.length > 0 ? candidates[0].id : null;
     }
 
+    /**
+     * @param {string} modelId
+     * @param {number|null} [status]
+     * @returns {boolean}
+     */
     reportFailure(modelId, status = null) {
         const cleanId = String(modelId || "").replace(/^models\//, "");
         if (!cleanId || !this.#entries.has(cleanId)) return false;
@@ -151,6 +175,9 @@ export default class GeminiModelPool {
         return true;
     }
 
+    /**
+     * @param {string} modelId
+     */
     reportSuccess(modelId) {
         const cleanId = String(modelId || "").replace(/^models\//, "");
         if (!cleanId) return;
@@ -161,6 +188,10 @@ export default class GeminiModelPool {
         }
     }
 
+    /**
+     * @param {string} modelId
+     * @returns {number|null}
+     */
     cooldownRemaining(modelId) {
         const cleanId = String(modelId || "").replace(/^models\//, "");
         const until = this.#cooldownMap.get(cleanId);
@@ -236,6 +267,9 @@ export default class GeminiModelPool {
         if (this.#stack.length === 0) await this.#loadFromCache();
     }
 
+    /**
+     * @param {string} apiKey
+     */
     async #fetchAndCache(apiKey) {
         try {
             const response = await fetch(`${GEMINI_API_BASE_URL}/models?key=${apiKey}`);

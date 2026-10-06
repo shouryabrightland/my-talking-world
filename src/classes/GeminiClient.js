@@ -105,6 +105,16 @@ export default class GeminiClient {
 
     /**
      * Streams text generation via Gemini's streamGenerateContent REST API.
+     *
+     * @param {ChatMessage[]} messages
+     * @param {Object} [options]
+     * @param {number} [options.temperature]
+     * @param {number} [options.maxOutputTokens]
+     * @param {string|null} [options.model]
+     * @param {PromptType} [options.promptType]
+     * @param {number} [options.maxRetries]
+     * @param {any[]|null} [options.tools]
+     * @param {number} [options.thinkingBudget]
      */
     async streamGenerate(messages, {
         temperature = 0.7,
@@ -144,6 +154,16 @@ export default class GeminiClient {
 
     /**
      * Executes non-streaming REST text generation with 65K max output token capacity.
+     *
+     * @param {ChatMessage[]} messages
+     * @param {Object} [options]
+     * @param {number} [options.temperature]
+     * @param {number} [options.maxOutputTokens]
+     * @param {string|null} [options.model]
+     * @param {PromptType} [options.promptType]
+     * @param {number} [options.maxRetries]
+     * @param {any[]|null} [options.tools]
+     * @param {number} [options.thinkingBudget]
      */
     async generateText(messages, {
         temperature = 0.7,
@@ -185,6 +205,16 @@ export default class GeminiClient {
     // PRIVATE: Streaming with retry & self-healing
     // =========================================================================
 
+    /**
+     * @param {Record<string, any>} requestBody
+     * @param {string|null} model
+     * @param {string} key
+     * @param {number} startTime
+     * @param {ChatMessage[]} messages
+     * @param {PromptType} promptType
+     * @param {number} maxRetries
+     * @returns {Promise<GeminiResultText>}
+     */
     async #streamWithRetry(requestBody, model, key, startTime, messages, promptType, maxRetries) {
         let lastError = null;
         let attempts = 0;
@@ -289,6 +319,16 @@ export default class GeminiClient {
     // PRIVATE: Non-streaming with retry & self-healing
     // =========================================================================
 
+    /**
+     * @param {Record<string, any>} requestBody
+     * @param {string|null} model
+     * @param {string} key
+     * @param {number} startTime
+     * @param {ChatMessage[]} messages
+     * @param {PromptType} promptType
+     * @param {number} maxRetries
+     * @returns {Promise<GeminiResultText>}
+     */
     async #generateWithRetry(requestBody, model, key, startTime, messages, promptType, maxRetries) {
         let lastError = null;
         let attempts = 0;
@@ -393,6 +433,10 @@ export default class GeminiClient {
         throw lastError;
     }
 
+    /**
+     * @param {ReadableStream<Uint8Array>} body
+     * @returns {Promise<{ text: string, groundingMetadata: GroundingMetadata|null }>}
+     */
     async #readSSEStream(body) {
         const reader = body.getReader();
         const decoder = new TextDecoder("utf-8");
@@ -438,6 +482,14 @@ export default class GeminiClient {
         return { text: fullText, groundingMetadata };
     }
 
+    /**
+     * @param {ChatMessage[]} messages
+     * @param {number} temperature
+     * @param {number} maxOutputTokens
+     * @param {{ thinkingBudget?: number, tools?: any[]|null }} [options]
+     * @param {string} [model]
+     * @returns {Record<string, any>}
+     */
     #buildRequestBody(messages, temperature, maxOutputTokens, { thinkingBudget = PLANNER_THINKING_BUDGET, tools = null } = {}, model = "") {
         const systemMessage = messages.find(m => m.role === "system");
         const conversationMessages = messages.filter(m => m.role !== "system");
@@ -479,6 +531,11 @@ export default class GeminiClient {
         return body;
     }
 
+    /**
+     * @param {any} err
+     * @param {number} attempt
+     * @returns {number|null}
+     */
     #getRetryDelay(err, attempt) {
         if (err.retryAfter) {
             const parsed = Number(err.retryAfter);
@@ -495,6 +552,11 @@ export default class GeminiClient {
         return null;
     }
 
+    /**
+     * @param {Response} response
+     * @param {number} attempt
+     * @returns {number|null}
+     */
     #getRetryFromResponse(response, attempt) {
         const retryAfter = response.headers.get("Retry-After");
         if (retryAfter) {
@@ -508,12 +570,22 @@ export default class GeminiClient {
         return null;
     }
 
+    /**
+     * @param {number} attempt
+     * @param {number} baseMs
+     * @param {number} maxMs
+     * @returns {number}
+     */
     #exponentialBackoff(attempt, baseMs, maxMs) {
         const exponential = baseMs * Math.pow(2, attempt - 1);
         const jitter = Math.random() * baseMs * 0.5;
         return Math.min(maxMs, exponential + jitter);
     }
 
+    /**
+     * @param {number} ms
+     * @returns {Promise<void>}
+     */
     #sleep(ms) {
         return new Promise(r => setTimeout(r, ms));
     }

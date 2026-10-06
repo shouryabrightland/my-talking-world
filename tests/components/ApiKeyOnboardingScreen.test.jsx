@@ -10,7 +10,7 @@
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
 vi.mock("../../src/util/Constants", () => ({
     setApiKey: vi.fn(),
@@ -27,7 +27,11 @@ import { verifyAndProbeDualKeys, setApiKey, setGeminiApiKey } from "../../src/ut
 async function fillAndSubmit(/** @type {string} */ groq = "gsk_test_key_12345", /** @type {string} */ gemini = "AIzaSyTestValidKey123") {
     fireEvent.change(screen.getByPlaceholderText("Paste Groq Key (gsk_...)"), { target: { value: groq } });
     fireEvent.change(screen.getByPlaceholderText("Paste Google AI Studio Key (AIzaSy...)"), { target: { value: gemini } });
-    fireEvent.click(screen.getByRole("button", { name: /Verify & Enter Studio/u }));
+    // The verification promise resolves in a microtask after the click; flush it
+    // inside act() so the resulting state updates are not flagged as un-wrapped.
+    await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Verify & Enter Studio/u }));
+    });
 }
 
 describe("ApiKeyOnboardingScreen — Lightweight Verification", () => {

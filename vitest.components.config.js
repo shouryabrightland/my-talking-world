@@ -5,6 +5,7 @@ export default defineConfig({
         globals: true,
         environment: "jsdom",
         include: ["tests/components/**/*.test.jsx", "tests/components/**/*.test.js"],
+        setupFiles: ["./tests/setup.js"],
         pool: "forks",
         testTimeout: 15000,
     }

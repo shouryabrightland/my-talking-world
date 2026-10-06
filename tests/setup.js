@@ -7,6 +7,9 @@
  */
 
 import { server } from "../src/mocks/server.js";
+// jsdom has no IndexedDB — polyfill it so Storage/Memory persistence works
+// instead of throwing "indexedDB is not defined" on every ChatMember boot.
+import "fake-indexeddb/auto";
 
 // Live-API mode: bypass MSW entirely so requests hit the real network endpoints.
 // Set via `cross-env TEST_LIVE_API=true` (see `npm run test:live:keys`).

@@ -68,6 +68,27 @@ let cachedEnvironment = {
 const CACHE_TTL_MS = 20 * 60 * 1000;
 
 /**
+ * Per-request timeout for external grounding APIs. Without this, a hung
+ * request blocks getEnvironmentSnapshot() forever and stalls app boot on the
+ * splash screen instead of falling back to default values.
+ * @readonly
+ */
+const ENV_FETCH_TIMEOUT_MS = 6_000;
+
+/**
+ * fetch() with a hard timeout so a stalled request rejects (and the caller's
+ * fallback kicks in) instead of hanging indefinitely.
+ *
+ * @param {string} url
+ * @returns {Promise<Response>}
+ */
+function fetchWithTimeout(url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ENV_FETCH_TIMEOUT_MS);
+    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+/**
  * Fetches real-time temperature and weather conditions via Open-Meteo API using centralized coordinates.
  *
  * @returns {Promise<{ temperature: string, weather: string, humidity: string }>}
@@ -76,7 +97,7 @@ async function fetchCityWeather() {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${SIMULATION_LATITUDE}&longitude=${SIMULATION_LONGITUDE}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=${encodeURIComponent(SIMULATION_TIMEZONE)}`;
 
     try {
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
         if (!response.ok) throw new Error(`Weather API returned HTTP ${response.status}`);
 
         const data = await response.json();
@@ -122,7 +143,7 @@ async function fetchCalendarBharatFestivals(date) {
     const upcomingFestivals = [];
 
     try {
-        const response = await fetch(url);
+        const response = await fetchWithTimeout(url);
         if (!response.ok) throw new Error(`Calendar Bharat returned HTTP ${response.status}`);
 
         /** @type {Record<string, any>} */
@@ -167,7 +188,7 @@ async function fetchGoogleNewsHeadlines() {
     const gatewayUrl = `https://api.rss2json.com/v1/api.json?rss_url=${rssFeedUrl}`;
 
     try {
-        const response = await fetch(gatewayUrl);
+        const response = await fetchWithTimeout(gatewayUrl);
         if (!response.ok) throw new Error(`RSS Gateway returned HTTP ${response.status}`);
 
         const data = await response.json();
