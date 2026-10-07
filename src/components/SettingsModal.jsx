@@ -693,8 +693,12 @@ export default function SettingsModal({ isOpen, onClose }) {
                                             value={memberForm.about}
                                             onChange={(e) => setMemberForm(prev => ({ ...prev, about: e.target.value }))}
                                             rows={3}
+                                            maxLength={50}
                                             className={styles.formTextarea}
                                         />
+                                        <span style={{ display: "block", textAlign: "right", fontSize: "11px", opacity: 0.7 }}>
+                                            {memberForm.about.length}/50
+                                        </span>
 
                                         {activeSelectedMember.isAI && (
                                             <>

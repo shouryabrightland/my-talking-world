@@ -14,10 +14,10 @@ describe("PresentationView — 3D Scrollytelling Presentation", () => {
         expect(screen.getByText(/CBSE HACKATHON 2026/)).toBeTruthy();
     });
 
-    it("advances acts when clicking next act button", () => {
+    it("advances scenes when clicking next scene button", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
-        const nextBtn = screen.getByRole("button", { name: /Next Act →/ });
+        const nextBtn = screen.getByRole("button", { name: /Next Scene →/ });
         fireEvent.click(nextBtn);
 
         expect(screen.getByText("AI GROUNDED IN")).toBeTruthy();
@@ -38,9 +38,9 @@ describe("PresentationView — 3D Scrollytelling Presentation", () => {
         const onFinish = vi.fn();
         render(<PresentationView onFinish={onFinish} />);
 
-        // Advance to Act 5
+        // Advance to the final scene
         for (let i = 0; i < 5; i++) {
-            const nextBtn = screen.getByRole("button", { name: /Next Act →/ });
+            const nextBtn = screen.getByRole("button", { name: /Next Scene →/ });
             fireEvent.click(nextBtn);
         }
 

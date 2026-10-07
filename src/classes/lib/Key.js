@@ -259,28 +259,24 @@ export class Key {
 
     /**
      * Determines if the key is current and usable.
+     * Compares raw epoch milliseconds so timezone/DST offsets can never skew
+     * the expiry boundary. Non-Date inputs fall back to the current system
+     * time instead of silently marking every key unusable.
      *
      * @param {Date} [date=new Date()]
      * @returns {boolean}
      */
     isUsable(date = new Date()) {
-        if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+        if (this.#value === null || this.#expiry === null) {
             return false;
-        }
-
-        if (this.#value === null) {
-            return false;
-        }
-
-        if (this.#expiry === null) {
-            return false; // Unset expiries are treated as uninitialized
         }
 
         if (this.#expiry === -1) {
             return true; // Permanent keys never expire
         }
 
-        return this.#expiry.getTime() > date.getTime();
+        const checkTime = date instanceof Date ? date.getTime() : Date.now();
+        return this.#expiry.getTime() > checkTime;
     }
 
     /**

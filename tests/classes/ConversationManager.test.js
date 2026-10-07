@@ -737,3 +737,197 @@ describe("ConversationManager — birthday celebration context injection", () =>
         expect(contextPart).toContain("20th birthday");
     });
 });
+
+// ─── Prompt compression / bio cap / memory clock / history window ───
+
+/**
+ * Builds every registered system part for the given manager.
+ * @param {ConversationManager} manager
+ * @returns {string[]}
+ */
+function buildSystemParts(manager) {
+    return manager.promptBuilder.systems
+        .map(fn => fn())
+        .filter(t => typeof t === "string");
+}
+
+/**
+ * Adds a plain character stub to the mock world's member map.
+ * @param {ConversationManager} manager
+ * @param {{ id: string, name: string, age?: number, about?: string, memory?: { values: () => unknown[] } }} spec
+ */
+function addWorldMember(manager, spec) {
+    manager.world.members.set(spec.id, {
+        id: spec.id,
+        name: spec.name,
+        age: spec.age ?? 20,
+        about: spec.about ?? "",
+        isAI: true,
+        memory: spec.memory ?? { values: () => [] }
+    });
+}
+
+describe("ConversationManager — unified <system_directive> (prompt compression)", () => {
+    it("emits ONE consolidated directive and none of the legacy redundant blocks", () => {
+        const { manager } = createManager();
+        const joined = buildSystemParts(manager).join("\n");
+
+        expect(joined).toContain("<system_directive>");
+        expect(joined).toContain("Turn-Taking: Emit ONLY 1 to 3 character replies per turn");
+        expect(joined).toContain("Anti-Parroting");
+        expect(joined).toContain("Zero Devanagari");
+
+        // The former <task>, <language_mandate>, <location_diversity_mandate>
+        // and 13 <rule> tags are all consolidated away.
+        expect(joined).not.toContain("<task>");
+        expect(joined).not.toContain("<language_mandate>");
+        expect(joined).not.toContain("<location_diversity_mandate>");
+        expect(joined).not.toContain("<dialogue_protocol>");
+        expect(joined).not.toContain("<rule>");
+    });
+
+    it("preserves custom bios up to 50 chars and truncates longer ones", () => {
+        const { manager } = createManager();
+        const longAbout = "A really long custom biography that definitely exceeds the fifty character budget";
+        const shortAbout = "Chill Gujarati lad from Lucknow";
+        addWorldMember(manager, { id: "tom", name: "Tom", age: 21, about: longAbout });
+        addWorldMember(manager, { id: "angela", name: "Angela", age: 20, about: shortAbout });
+
+        const chars = buildSystemParts(manager).find(t => t.includes("<characters>"));
+
+        expect(chars).toBeDefined();
+        // Custom description is KEPT (not stripped): first 47 chars + "...".
+        expect(chars).toContain(`>${longAbout.slice(0, 47)}...<`);
+        // Short custom descriptions pass through untouched.
+        expect(chars).toContain(`>${shortAbout}<`);
+        // The full long bio never reaches the prompt.
+        expect(chars).not.toContain(longAbout);
+        expect(chars).toContain('id="tom"');
+        expect(chars).toContain('age="21"');
+    });
+});
+
+describe("ConversationManager — memory TTL validated against world.now", () => {
+    it("drops memories already expired on the active simulation clock", () => {
+        const { manager } = createManager();
+        manager.world.now = new Date();
+
+        const memory = new Memory(new Logger("Test"), "tom");
+        memory.set("Mood", "excited about the trip", new Date(Date.now() + 900_000));
+        memory.set("Stale Gossip", "already forgotten", new Date(Date.now() - 1_000));
+        addWorldMember(manager, { id: "tom", name: "Tom", memory });
+
+        const part = buildSystemParts(manager).find(t => t.includes("<saved_memories>"));
+
+        expect(part).toBeDefined();
+        expect(part).toContain('key="Mood"');
+        // Expired memory must NOT be injected.
+        expect(part).not.toContain("Stale Gossip");
+    });
+
+    it("passes this.world.now (not wall-clock) into every isUsable() check", () => {
+        const { manager } = createManager();
+        // Sim clock frozen one hour in the past: a memory that expired 10
+        // minutes ago in REAL time is still valid on the simulation clock.
+        manager.world.now = new Date(Date.now() - 3_600_000);
+
+        const memory = new Memory(new Logger("Test"), "tom");
+        memory.set("Recent Fact", "just happened", new Date(Date.now() - 600_000));
+        addWorldMember(manager, { id: "tom", name: "Tom", memory });
+
+        const part = buildSystemParts(manager).find(t => t.includes("<saved_memories>"));
+
+        expect(part).toBeDefined();
+        expect(part).toContain('key="Recent Fact"');
+    });
+});
+
+describe("ConversationManager — dialogue history window (7 committed / 8 merged)", () => {
+    it("requests exactly 7 messages from getHistory and caps the merged result at 8", () => {
+        const { manager } = createManager();
+
+        const history = Array.from({ length: 12 }, (_, i) => ({
+            id: `m${i}`,
+            sender: { id: "tom", isAI: true },
+            text: `msg ${i}`
+        }));
+
+        /** @type {number[]} */
+        const requested = [];
+        manager.chat.getHistory = (/** @type {number} */ n) => {
+            requested.push(n);
+            return history.slice(-n);
+        };
+        manager.chat.getMembers = () => [
+            {
+                scheduler: {
+                    getTimeline: () => [{ type: "message", message: { id: "pending-1", sender: { id: "angela" }, text: "queued" } }]
+                }
+            }
+        ];
+
+        const recent = manager.getRecentMessages();
+
+        expect(requested).toEqual([7]);
+        expect(recent).toHaveLength(8); // 7 committed + 1 pending, slice(-8)
+        expect(recent[0].id).toBe("m5");
+        expect(recent[7].id).toBe("pending-1");
+    });
+});
+
+describe("ConversationManager — per-turn prompt token budget", () => {
+    it("stays under ~1,000 tokens for the system prompt with a full house", () => {
+        const { manager } = createManager();
+        manager.world.now = new Date();
+        manager.world._worldContext = [
+            "<current_time>Tuesday, October 7, 2026 at 10:42 AM</current_time>",
+            '<active_schedule time_range="10:00 - 11:00" start="10" end="11" phase="core">',
+            "  <topic>Morning chai & project planning on the rooftop</topic>",
+            "  <goals><main>Plan the weekend outing together</main></goals>",
+            "  <facts><fact>Rain expected tonight</fact><fact>Math exam tomorrow</fact></facts>",
+            "</active_schedule>",
+            '<environment city="Lucknow">',
+            "  <weather temperature=\"31\" humidity=\"60\">Partly cloudy</weather>",
+            "  <occasion>Normal day</occasion>",
+            "  <upcoming_festivals>Diwali</upcoming_festivals>",
+            "  <headlines><headline>Traffic diversions announced</headline><headline>New cafe opens in Gomti Nagar</headline></headlines>",
+            "</environment>"
+        ].join("\n");
+
+        const bios = [
+            "Chill lad who cracks jokes all day long",
+            "Sharp topper obsessed with gadgets",
+            "Foodie planning outings around snacks",
+            "Fitness freak dragging everyone on runs",
+            "Quiet artist sketching the whole group",
+            "Beloved human friend and director"
+        ];
+        bios.forEach((about, i) => {
+            const memory = new Memory(new Logger("Test"), `member${i}`);
+            memory.set("Mood", "excited about the weekend trip plans", new Date(Date.now() + 900_000));
+            memory.set("Active Goal", "finish the group project before Friday", new Date(Date.now() + 3_600_000));
+            memory.set("Opinion on User", "finds the user genuinely funny", -1);
+            addWorldMember(manager, { id: `member${i}`, name: `Member ${i}`, age: 20 + i, about, memory });
+        });
+
+        const systemParts = buildSystemParts(manager);
+        const systemText = systemParts.join("\n");
+        const tokens = (/** @type {string} */ s) => Math.ceil(s.length / 4);
+
+        const systemTokens = tokens(systemText);
+        console.log(
+            `[prompt-budget] system prompt ≈ ${systemTokens} tokens ` +
+            `(${systemParts.length} parts, ${systemText.length} chars) · ` +
+            `directive ≈ ${tokens(systemParts[0])} · characters ≈ ${tokens(systemParts.find(p => p.includes("<characters>")) ?? "")}`
+        );
+
+        // Gate: total system overhead below ~1,000 tokens per turn.
+        expect(systemTokens).toBeLessThan(1_000);
+
+        // Every custom bio is still present (capped at 50 chars).
+        for (const about of bios) {
+            const expected = about.length > 50 ? `${about.slice(0, 47)}...` : about;
+            expect(systemText).toContain(expected);
+        }
+    });
+});

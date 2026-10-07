@@ -7,119 +7,155 @@ import Avatar from "../Avatar";
 import { Tom, Angela, Ben, Ginger, Hank, Becca } from "../../util/member";
 import { Sound } from "../../util/sound";
 
-export const PRESENTATION_ACTS = [
+export const PRESENTATION_SCENES = [
     {
         id: 0,
         act: "ACT 0 • THE BREAKTHROUGH",
-        tag: "CBSE HACKATHON 2026 • CREATIVE AI SHOWCASE",
         headlineMain: "CHATBOTS ARE DEAD.",
         headlineGradient: "WE BUILT A LIVING SITCOM.",
         punchline: "Transforming kids from passive reel-scrolling digital zombies into active story directors.",
         metrics: [
             { icon: "🚫", label: "Zero Prompts", desc: "Autonomous Banter" },
-            { icon: "🎭", label: "6 AI Friends", desc: "Lucknow Garage" },
-            { icon: "🎬", label: "You Direct", desc: "Total Agency" }
+            { icon: "🎭", label: "6 AI Friends", desc: "Lucknow Garage Studio" },
+            { icon: "🎬", label: "You Direct", desc: "Complete Creative Agency" }
         ],
-        layerTag: "LIVING STUDIO CHASSIS"
+        cameraTarget: "hero",
+        mockMessage: {
+            member: Tom,
+            emotion: "Laughing",
+            sender: "Tom",
+            text: "Arre yaar! Lucknow garage mein swagat hai. Aaj kuch toofani create karte hain!",
+            thought: "Main chahta hoon sab dekhein ki hum kitne cool hain."
+        }
     },
     {
         id: 1,
         act: "ACT I • REALITY ANCHOR",
         headlineMain: "AI GROUNDED IN",
         headlineGradient: "TODAY'S REAL WORLD.",
-        punchline: "Never hallucinates in a vacuum. Characters sync with live Lucknow weather, Indian festivals, and news.",
+        punchline: "Never hallucinates in a void. Environmental engine syncs live Lucknow weather, Indian festivals, and news.",
         metrics: [
-            { icon: "🌤️", label: "Open-Meteo", desc: "Live 32°C Lucknow" },
-            { icon: "🎉", label: "Calendar Bharat", desc: "National Festivals" },
-            { icon: "📰", label: "Google News", desc: "Live RSS Feeds" }
+            { icon: "🌤️", label: "Open-Meteo", desc: "Live 32°C Lucknow Weather" },
+            { icon: "🎉", label: "Calendar Bharat", desc: "Indian Festival Sync" },
+            { icon: "📰", label: "Google News", desc: "Live Regional RSS Feeds" }
         ],
-        layerTag: "EXPLODED LAYER: SCENE HORIZON BAR"
+        cameraTarget: "scenebar",
+        mockMessage: {
+            member: Angela,
+            emotion: "Happy",
+            sender: "Angela",
+            text: "Uff, Lucknow mein 32°C garmi hai aaj! Shaam ko Gomti Nagar riverfront pe cold coffee peete hain.",
+            thought: "Riverfront pe photo shoot ke liye lighting bohot achi hogi."
+        }
     },
     {
         id: 2,
         act: "ACT II • COGNITIVE TRANSPARENCY",
         headlineMain: "THEY THINK",
         headlineGradient: "BEFORE THEY SPEAK.",
-        punchline: "Authentic Lucknow Roman Hinglish with inspectable inner monologues and realistic typing cadence.",
+        punchline: "Natural Lucknow Roman Hinglish banter with peekable inner monologues and human typing delays.",
         metrics: [
-            { icon: "💭", label: "Thought Peels", desc: "Unspoken Motives" },
-            { icon: "🗣️", label: "Roman Hinglish", desc: "Natural Slang" },
-            { icon: "⚡", label: "Sub-Second", desc: "Groq LPU Engine" }
+            { icon: "💭", label: "Thought Peels", desc: "Inspect Unspoken Motives" },
+            { icon: "🗣️", label: "Roman Hinglish", desc: "Authentic Local Slang" },
+            { icon: "⚡", label: "Sub-Second", desc: "Groq LPU Dialogue Core" }
         ],
-        layerTag: "EXPLODED LAYER: REASONING & SPEECH BALLOON"
+        cameraTarget: "message",
+        mockMessage: {
+            member: Ben,
+            emotion: "Thinking",
+            sender: "Ben",
+            text: "Maine garage ka naya solar circuit test kiya hai. Tom, tumhare drone ko direct charge kar sakte hain!",
+            thought: "Umeed hai Tom battery polarity ulti connect nahi karega."
+        }
     },
     {
         id: 3,
-        act: "ACT III • PERSISTENT MEMORY & PRIVACY",
+        act: "ACT III • ON-DEVICE PRIVACY",
         headlineMain: "100% PRIVATE.",
         headlineGradient: "ZERO SERVER LEAKS.",
-        punchline: "Self-healing IndexedDB runs locally on the browser. Memories, secrets, and birthdays never leave your device.",
+        punchline: "All memories and chat logs persist locally in browser IndexedDB. Zero private data touches any remote server.",
         metrics: [
-            { icon: "🔒", label: "Local Database", desc: "Zero Server Logs" },
-            { icon: "🧠", label: "Dual Memory", desc: "15m TTL & Permanent" },
-            { icon: "🎂", label: "Dynamic Ages", desc: "Living Calendar" }
+            { icon: "🔒", label: "Local IndexedDB", desc: "Zero External Server Storage" },
+            { icon: "🧠", label: "Dual Memory", desc: "15m Postures vs Permanent Secrets" },
+            { icon: "🛡️", label: "Self-Healing", desc: "Local Corruption Recovery" }
         ],
-        layerTag: "EXPLODED LAYER: RELATIONAL CAST LOUNGE"
+        cameraTarget: "architecture",
+        mockMessage: {
+            member: Ginger,
+            emotion: "Laughing",
+            sender: "Ginger",
+            text: "Maine Ben ki spare battery chupa di hai garage mein, kisi ko mat batana!",
+            thought: "Ab Ben gusse mein pura garage dhoondhega!"
+        }
     },
     {
         id: 4,
         act: "ACT IV • DIRECTOR GOD-MODE",
         headlineMain: "YOU ARE NOT JUST A USER.",
         headlineGradient: "YOU ARE THE DIRECTOR.",
-        punchline: "Inject plot twists anytime. The 24-hour macro planner recalculates story arcs with visual proposal diffs.",
+        punchline: "Guide the 24-hour narrative arc. The AI macro planner recalculates timeline blocks with visual diffs.",
         metrics: [
-            { icon: "🎬", label: "200+ Cues", desc: "Instant Sitcom Twists" },
-            { icon: "📅", label: "24h Arc", desc: "Gemini 65K Normalizer" },
-            { icon: "⚖️", label: "Visual Diffs", desc: "+Add / −Remove" }
+            { icon: "🎬", label: "200+ Cues", desc: "Instant Sitcom Plot Twists" },
+            { icon: "📅", label: "24h Continuity", desc: "Gemini 65K Normalizer" },
+            { icon: "⚖️", label: "Visual Diffs", desc: "+Proposed / −Removed Diffs" }
         ],
-        layerTag: "EXPLODED LAYER: 24H STORYLINE PLANNER"
+        cameraTarget: "planner",
+        mockMessage: {
+            member: Hank,
+            emotion: "Default",
+            sender: "Hank",
+            text: "Director ne plot twist de diya! 5 baje stray puppy aa raha hai garage mein!",
+            thought: ""
+        }
     },
     {
         id: 5,
         act: "FINALE • TAKE THE WHEEL",
         headlineMain: "DON'T TAKE OUR WORD.",
         headlineGradient: "EXPERIENCE IT LIVE.",
-        punchline: "All 3D layers snap magnetically into the live app. Chat, direct, or inspect character minds right now.",
+        punchline: "3D components lock together seamlessly. Step inside the studio to chat or direct right now.",
         metrics: [
-            { icon: "🚀", label: "Zero Reload", desc: "Instant Boot" },
-            { icon: "⚡", label: "Dual AI Core", desc: "Groq + Gemini" },
-            { icon: "🎵", label: "Web Audio", desc: "Procedural Synth" }
+            { icon: "🚀", label: "Zero Reload", desc: "Instant Seamless Boot" },
+            { icon: "⚡", label: "Dual AI Core", desc: "Groq Banter + Gemini Planning" },
+            { icon: "🎵", label: "Web Audio", desc: "Procedural 3-Ch Synth" }
         ],
-        layerTag: "MAGNETIC REASSEMBLY: LIVE STUDIO LOBBY"
+        cameraTarget: "finale",
+        mockMessage: {
+            member: Becca,
+            emotion: "Default",
+            sender: "Becca",
+            text: "Sab ready hain? Chalo jury ko live studio demo dikhate hain!",
+            thought: ""
+        }
     }
 ];
 
-/**
- * Full-screen pitch tour shown before entering the Studio.
- *
- * @param {Object} props
- * @param {() => void} [props.onFinish] Called when the tour should close.
- * @returns {React.JSX.Element}
- */
 export default function PresentationView({ onFinish }) {
     const [activeAct, setActiveAct] = useState(0);
     const [mouseTilt, setMouseTilt] = useState({ x: 0, y: 0 });
     const isScrollingRef = useRef(false);
 
-    const goToAct = useCallback((/** @type {number} */ newIdx) => {
-        const clamped = Math.max(0, Math.min(PRESENTATION_ACTS.length - 1, newIdx));
+    const goToAct = useCallback((newIdx) => {
+        const clamped = Math.max(0, Math.min(PRESENTATION_SCENES.length - 1, newIdx));
         setActiveAct(clamped);
         try { Sound.playMessagePop(); } catch {}
     }, []);
 
-    const handleMouseMove = useCallback((/** @type {React.MouseEvent<HTMLDivElement>} */ e) => {
+    // Interactive hover parallax
+    const handleMouseMove = useCallback((e) => {
         if (activeAct === 5) {
             setMouseTilt({ x: 0, y: 0 });
             return;
         }
         const { innerWidth, innerHeight } = window;
-        const x = (e.clientX / innerWidth - 0.5) * 10;
-        const y = (e.clientY / innerHeight - 0.5) * -10;
+        const x = (e.clientX / innerWidth - 0.5) * 6;
+        const y = (e.clientY / innerHeight - 0.5) * -6;
         setMouseTilt({ x, y });
     }, [activeAct]);
 
+    // Keyboard navigation
     useEffect(() => {
-        const handleKeyDown = (/** @type {KeyboardEvent} */ e) => {
+        const handleKeyDown = (e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
                 e.preventDefault();
                 goToAct(activeAct + 1);
@@ -134,7 +170,8 @@ export default function PresentationView({ onFinish }) {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [activeAct, goToAct, onFinish]);
 
-    const handleWheel = useCallback((/** @type {React.WheelEvent<HTMLDivElement>} */ e) => {
+    // Trackpad / Wheel navigation
+    const handleWheel = useCallback((e) => {
         if (isScrollingRef.current) return;
         if (Math.abs(e.deltaY) < 30) return;
 
@@ -148,66 +185,88 @@ export default function PresentationView({ onFinish }) {
         }
     }, [activeAct, goToAct]);
 
-    const currentAct = PRESENTATION_ACTS[activeAct];
+    const currentScene = PRESENTATION_SCENES[activeAct];
     const todayFormatted = new Date().toLocaleDateString("en-GB", {
         weekday: "short", day: "numeric", month: "short", year: "numeric"
     });
 
-    return (
-        <div className={styles.presentationViewport} onWheel={handleWheel} onMouseMove={handleMouseMove}>
-            {/* Ambient Animated Cybernetic Backlight */}
-            <div className={styles.ambientBackdropGlow} />
-            <div className={styles.ambientCyberGrid} />
+    // Viewport camera target transform (applied to cameraRig, NOT phoneChassis)
+    const getCameraTransform = () => {
+        if (activeAct === 5) {
+            return "rotateX(0deg) rotateY(0deg) rotateZ(0deg) translate3d(0, 0, 0) scale(1)";
+        }
 
-            {/* Top Navigation HUD Bar */}
-            <header className={styles.navBar}>
-                <div className={styles.brandGroup}>
-                    <span className={styles.pulseDot} />
+        const baseRotX = 12 + mouseTilt.y;
+        const baseRotY = -16 + mouseTilt.x;
+
+        switch (currentScene.cameraTarget) {
+            case "scenebar":
+                return `rotateX(${baseRotX - 1}deg) rotateY(${baseRotY}deg) translate3d(-10px, 50px, 40px) scale(1.15)`;
+            case "message":
+                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 10px, 45px) scale(1.18)`;
+            case "architecture":
+                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 15px, 40px) scale(1.14)`;
+            case "planner":
+                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -25px, 45px) scale(1.18)`;
+            case "hero":
+            default:
+                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(0, 0, 0) scale(0.95)`;
+        }
+    };
+
+    return (
+        <div className={styles.stageViewport} onWheel={handleWheel} onMouseMove={handleMouseMove}>
+            {/* Top Navigation Bar */}
+            <header className={styles.topHudBar}>
+                <div className={styles.brandCluster}>
+                    <span className={styles.pulseLiveDot} />
                     <span className={styles.brandTitle}>TOM & FRIENDS</span>
-                    <span className={styles.brandBadge}>CBSE HACKATHON 2026</span>
+                    <span className={styles.brandSub}>CBSE HACKATHON 2026</span>
                 </div>
 
-                <div className={styles.actPillRow}>
-                    {PRESENTATION_ACTS.map((act) => (
+                <div className={styles.stepperPillTrack}>
+                    {PRESENTATION_SCENES.map((scene) => (
                         <button
-                            key={act.id}
-                            onClick={() => goToAct(act.id)}
-                            className={activeAct === act.id ? styles.pillActive : styles.pillInactive}
+                            key={scene.id}
+                            onClick={() => goToAct(scene.id)}
+                            className={activeAct === scene.id ? styles.pillActive : styles.pillInactive}
+                            aria-label={`Jump to Act ${scene.id}`}
                         >
-                            <span>{act.id}</span>
+                            <span>{scene.id}</span>
                         </button>
                     ))}
                 </div>
 
-                <button onClick={onFinish} className={styles.skipStudioBtn}>
+                <button onClick={onFinish} className={styles.quickSkipBtn}>
                     Enter Live Studio ⏩
                 </button>
             </header>
 
-            {/* Integrated Stage Layout */}
-            <main className={styles.mainCanvas}>
-                {/* Left Floating Pitch HUD */}
-                <section className={styles.pitchHUD}>
-                    <div className={styles.hudCard} key={currentAct.id}>
-                        <div className={styles.hudHeaderRow}>
-                            <span className={styles.actBadge}>{currentAct.act}</span>
-                            <span className={styles.layerActiveIndicator}>{currentAct.layerTag}</span>
+            {/* Split Screen Stage */}
+            <div className={styles.presentationSplitCanvas}>
+                {/* =========================================================
+                   LEFT: Pitch Content HUD (Clean, High-Contrast)
+                   ========================================================= */}
+                <aside className={styles.pitchSideColumn}>
+                    <div className={styles.hudCard} key={currentScene.id}>
+                        <div className={styles.actTagRow}>
+                            <span className={styles.actTagBadge}>{currentScene.act}</span>
                         </div>
 
-                        <h1 className={styles.bigHeadline}>
-                            {currentAct.headlineMain}
-                            <span className={styles.gradientText}>{currentAct.headlineGradient}</span>
+                        <h1 className={styles.giantHeadline}>
+                            {currentScene.headlineMain}
+                            <span className={styles.gradientHighlight}>{currentScene.headlineGradient}</span>
                         </h1>
 
-                        <p className={styles.punchlineText}>{currentAct.punchline}</p>
+                        <p className={styles.punchlineSummary}>{currentScene.punchline}</p>
 
-                        {/* High-Impact Stat Chips */}
-                        <div className={styles.metricsGrid}>
-                            {currentAct.metrics.map((m, idx) => (
-                                <div key={idx} className={styles.metricCard}>
+                        {/* Minimal Metric Cards */}
+                        <div className={styles.metricsCluster}>
+                            {currentScene.metrics.map((m, idx) => (
+                                <div key={idx} className={styles.metricPill}>
                                     <span className={styles.metricIcon}>{m.icon}</span>
-                                    <div className={styles.metricDetails}>
-                                        <strong className={styles.metricLabel}>{m.label}</strong>
+                                    <div className={styles.metricTextGroup}>
+                                        <strong className={styles.metricTitle}>{m.label}</strong>
                                         <span className={styles.metricDesc}>{m.desc}</span>
                                     </div>
                                 </div>
@@ -215,217 +274,260 @@ export default function PresentationView({ onFinish }) {
                         </div>
 
                         {activeAct === 5 && (
-                            <button onClick={onFinish} className={styles.ctaEnterBtn}>
+                            <button onClick={onFinish} className={styles.ctaEnterStudioBtn}>
                                 🎭 Enter Live Studio Now 🚀
                             </button>
                         )}
 
-                        <div className={styles.stepperControls}>
+                        {/* Stepper Controls */}
+                        <div className={styles.stepperRow}>
                             <button
                                 onClick={() => goToAct(activeAct - 1)}
                                 disabled={activeAct === 0}
-                                className={styles.navBtn}
+                                className={styles.prevBtn}
                             >
                                 ← Prev
                             </button>
-                            <span className={styles.stepCounter}>{activeAct + 1} / {PRESENTATION_ACTS.length}</span>
+                            <span className={styles.stepperCounter}>{activeAct + 1} / {PRESENTATION_SCENES.length}</span>
                             <button
-                                onClick={() => activeAct === 5 ? onFinish?.() : goToAct(activeAct + 1)}
-                                className={styles.navBtnPrimary}
+                                onClick={() => activeAct === 5 ? onFinish() : goToAct(activeAct + 1)}
+                                className={styles.nextBtn}
                             >
-                                {activeAct === 5 ? "Launch Studio 🚀" : "Next Act →"}
+                                {activeAct === 5 ? "Launch Studio 🚀" : "Next Scene →"}
                             </button>
                         </div>
                     </div>
-                </section>
+                </aside>
 
-                {/* Right 3D True Depth Stage */}
-                <section className={styles.stage3DSection}>
-                    <div className={styles.perspectiveStage}>
-                        <div
-                            className={`${styles.studioChassis3D} ${activeAct === 5 ? styles.chassisFlat : ""}`}
-                            style={{
-                                transform: activeAct === 5
-                                    ? "rotateX(0deg) rotateY(0deg) rotateZ(0deg) translate3d(0, 0, 0) scale(1)"
-                                    : `rotateX(${14 + mouseTilt.y}deg) rotateY(${-22 + mouseTilt.x}deg) rotateZ(2deg) scale(0.92)`
-                            }}
-                            onClick={activeAct === 5 ? onFinish : undefined}
-                        >
-                            {/* Realistic 3D Physical Extrusion Depth Backplate */}
-                            <div className={styles.chassisDepthExtrusion} />
-                            <div className={styles.glassReflectionSheen} />
+                {/* =========================================================
+                   RIGHT: 3D Stage (Crystal-Clear Visibility)
+                   ========================================================= */}
+                <main className={styles.stage3DColumn}>
+                    <div className={styles.chassisBackdropHalo} />
 
-                            {/* Chassis Top Speaker Notch */}
-                            <div className={styles.chassisTopBar}>
-                                <span className={styles.statusBarClock}>14:30</span>
-                                <div className={styles.speakerGrill} />
-                                <span className={styles.statusBarSignals}>5G 🔋 98%</span>
-                            </div>
+                    <div className={styles.perspectiveChamber}>
+                        {/* Nested Camera Rig: Pans and zooms without breaking @keyframes floatingLevitate */}
+                        <div className={styles.cameraRig} style={{ transform: getCameraTransform() }}>
+                            <div className={`${styles.phoneChassis} ${activeAct === 5 ? styles.chassisAssembled : ""}`}>
+                                {/* Physical 3D Extrusion Depth Backplate */}
+                                <div className={styles.chassisExtrusionDepth} />
+                                <div className={styles.glassReflectionGlare} />
 
-                            {/* App Header Bar */}
-                            <div className={styles.appHeader}>
-                                <img src="/group.png" alt="Tom & Friends" width={32} height={32} className={styles.headerGroupIcon} />
-                                <div className={styles.headerTitles}>
-                                    <span className={styles.headerAppName}>Tom & Friends</span>
-                                    <span className={styles.headerRoomStatus}>
-                                        <span className={styles.livePulseDot} />
-                                        6 In Room • Lucknow Studio
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* 3D LAYER 1: SceneBar (Zooms in Act 1) */}
-                            <div className={`${styles.layerSceneBar} ${activeAct === 1 ? styles.zoomedSceneBar : ""}`}>
-                                <div className={styles.marqueeWrapper}>
-                                    <span className={styles.marqueeTicker}>
-                                        📍 Lucknow • 🌤️ 32°C, Warm • 🎯 Casual Banter • ⚡ Goal: Relax with samosas • 📰 India GDP accelerates
-                                    </span>
-                                </div>
-                                <div className={styles.audioBadge}>
-                                    <span className={styles.equalizerWave} />
-                                    <span className={styles.equalizerWave} />
-                                    <span className={styles.equalizerWave} />
-                                    <span>ON</span>
+                                {/* Speaker Notch Bar */}
+                                <div className={styles.phoneSpeakerBar}>
+                                    <span className={styles.notchClock}>14:30</span>
+                                    <div className={styles.speakerPill} />
+                                    <span className={styles.notchIcons}>5G 🔋 98%</span>
                                 </div>
 
-                                {activeAct === 1 && (
-                                    <div className={styles.floatingHUDExtractTag}>
-                                        🌤️ Live Open-Meteo Weather + Google News RSS
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* 3D LAYER 2: Chat Message + Circular Avatar (Zooms in Act 2) */}
-                            <div className={`${styles.layerMessageArea} ${activeAct === 2 ? styles.zoomedMessage : ""}`}>
-                                <div className={styles.messageRow}>
-                                    {/* Authentic Circular Sprite Avatar */}
-                                    <div className={styles.avatarCircle}>
-                                        <Avatar member={Tom} emotion="Laughing" glow={true} />
-                                    </div>
-
-                                    <div className={styles.speechBalloon}>
-                                        <div className={styles.balloonSender}>Tom</div>
-                                        <p className={styles.balloonBody}>
-                                            "Arre yaar, suno toh! Maine garage mein naya drone setup kiya hai. Aaj shaam ko terrace pe test karenge!"
-                                        </p>
-
-                                        {/* Dynamic Thought Peek */}
-                                        <div className={styles.thoughtPeekCard}>
-                                            <span className={styles.thoughtPeekTitle}>💭 INNER MONOLOGUE:</span>
-                                            <p className={styles.thoughtPeekBody}>
-                                                "Main Ben ko dikhana chahta hoon ki main bhi tech samajhta hoon, bhale hi drone crash ho jaye!"
-                                            </p>
+                                {/* =======================================================
+                                   Phone Display Screen (Strict overflow: hidden with curved corners)
+                                   ======================================================= */}
+                                <div className={styles.phoneDisplayScreen}>
+                                    {/* App Header */}
+                                    <div className={styles.appHeader}>
+                                        <img src="/group.png" alt="Tom & Friends" width={26} height={26} className={styles.groupAvatar} />
+                                        <div className={styles.headerInfo}>
+                                            <span className={styles.headerAppName}>Tom & Friends</span>
+                                            <span className={styles.headerRoomStatus}>
+                                                <span className={styles.greenDot} /> 6 In Room • Lucknow Studio
+                                            </span>
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* Angela Typing Dot Indicator Preview */}
-                                <div className={styles.typingPreviewRow}>
-                                    <div className={styles.avatarCircleMini}>
-                                        <Avatar member={Angela} emotion="Happy" glow={false} />
+                                    {/* SceneBar (Act 1 Focus) */}
+                                    <div className={`${styles.sceneBarContainer} ${currentScene.cameraTarget === "scenebar" ? styles.focusActiveBar : ""}`}>
+                                        <div className={styles.marqueeTrack}>
+                                            <span className={styles.marqueeText}>
+                                                📍 Lucknow • 🌤️ 32°C, Warm • 🎯 Casual Banter • ⚡ Goal: Relax with samosas • 📰 India GDP accelerates
+                                            </span>
+                                        </div>
+                                        <div className={styles.equalizerTag}>
+                                            <span className={styles.eqWave} />
+                                            <span className={styles.eqWave} />
+                                            <span className={styles.eqWave} />
+                                            <span>ON</span>
+                                        </div>
                                     </div>
-                                    <div className={styles.typingBouncingPill}>
-                                        <span className={styles.bouncingDot} />
-                                        <span className={styles.bouncingDot} />
-                                        <span className={styles.bouncingDot} />
-                                    </div>
-                                </div>
 
-                                {activeAct === 2 && (
-                                    <div className={styles.floatingHUDExtractTag}>
-                                        🧠 Unspoken Reasoning & Roman Hinglish Banter
-                                    </div>
-                                )}
-                            </div>
+                                    {/* Central Chat Feed */}
+                                    <div className={styles.chatFeedArea}>
+                                        {/* Act III: On-Device Class Architecture Flowchart */}
+                                        {currentScene.cameraTarget === "architecture" ? (
+                                            <div className={styles.architectureFlowchart}>
+                                                <div className={styles.flowchartBanner}>
+                                                    <span>🛡️ 100% ON-DEVICE RUNTIME • NO EXTERNAL SERVERS</span>
+                                                </div>
 
-                            {/* 3D LAYER 3: Cast Lounge & Memory (Zooms in Act 3) */}
-                            <div className={`${styles.layerCastLounge} ${activeAct === 3 ? styles.zoomedCastLounge : ""}`}>
-                                <div className={styles.loungeAvatarStrip}>
-                                    {[
-                                        { char: Tom, mood: "Excited", color: "#3b82f6" },
-                                        { char: Angela, mood: "Happy", color: "#db2777" },
-                                        { char: Ben, mood: "Thinking", color: "#ca8a04" },
-                                        { char: Ginger, mood: "Laughing", color: "#ea580c" },
-                                        { char: Hank, mood: "Default", color: "#7c3aed" },
-                                        { char: Becca, mood: "Default", color: "#059669" }
-                                    ].map((item) => (
-                                        <div key={item.char.id} className={styles.loungeCharItem} style={/** @type {React.CSSProperties} */ ({ "--brand-color": item.color })}>
-                                            <div className={styles.loungeAvatarFrame}>
-                                                <Avatar member={item.char} emotion={item.mood} glow={false} />
+                                                <div className={styles.flowchartPipeline}>
+                                                    {/* Row 1: Input to Turn Engine */}
+                                                    <div className={styles.pipelineRow}>
+                                                        <div className={styles.pipelineNode}>
+                                                            <span className={styles.nodeIcon}>👤</span>
+                                                            <strong className={styles.nodeTitle}>User Input</strong>
+                                                            <span className={styles.nodeFile}>me (ChatMember)</span>
+                                                        </div>
+                                                        <span className={styles.pipelineArrow}>➔</span>
+                                                        <div className={styles.pipelineNodeHighlight}>
+                                                            <span className={styles.nodeIcon}>🧠</span>
+                                                            <strong className={styles.nodeTitle}>Turn Engine</strong>
+                                                            <span className={styles.nodeFile}>ConversationManager.js</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className={styles.pipelineArrowDown}>↓</div>
+
+                                                    {/* Row 2: Codec to Pacing Queue */}
+                                                    <div className={styles.pipelineRow}>
+                                                        <div className={styles.pipelineNode}>
+                                                            <span className={styles.nodeIcon}>📜</span>
+                                                            <strong className={styles.nodeTitle}>Stream Codec</strong>
+                                                            <span className={styles.nodeFile}>ProtocolCodec.js</span>
+                                                        </div>
+                                                        <span className={styles.pipelineArrow}>➔</span>
+                                                        <div className={styles.pipelineNode}>
+                                                            <span className={styles.nodeIcon}>⏱️</span>
+                                                            <strong className={styles.nodeTitle}>Pacing Queue</strong>
+                                                            <span className={styles.nodeFile}>TimelineProcessor.js</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className={styles.pipelineArrowDown}>↓</div>
+
+                                                    {/* Row 3: Full-Width IndexedDB Storage Node */}
+                                                    <div className={styles.pipelineNodeStorage}>
+                                                        <div className={styles.storageTitleRow}>
+                                                            <span className={styles.nodeIcon}>💾</span>
+                                                            <strong className={styles.storageTitle}>Private IndexedDB (Storage.js)</strong>
+                                                        </div>
+                                                        <span className={styles.storageSubtitle}>
+                                                            100% Client-Side DB • Zero Cloud Server Storage
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <span className={styles.charMoodTag}>{item.mood}</span>
+                                        ) : (
+                                            /* Normal Chat Feed with dynamically generated message */
+                                            <div className={styles.chatBubblesColumn}>
+                                                <div className={`${styles.messageRow} ${currentScene.cameraTarget === "message" ? styles.focusActiveBubble : ""}`}>
+                                                    <div className={styles.circularAvatar}>
+                                                        <Avatar member={currentScene.mockMessage.member} emotion={currentScene.mockMessage.emotion} glow={true} />
+                                                    </div>
+
+                                                    <div className={styles.speechBubble}>
+                                                        <div className={styles.bubbleSender}>{currentScene.mockMessage.sender}</div>
+                                                        <p className={styles.bubbleText}>"{currentScene.mockMessage.text}"</p>
+
+                                                        {currentScene.mockMessage.thought && (
+                                                            <div className={styles.thoughtBox}>
+                                                                <span className={styles.thoughtHeader}>💭 INNER MONOLOGUE:</span>
+                                                                <p className={styles.thoughtContent}>"{currentScene.mockMessage.thought}"</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Angela typing indicator preview */}
+                                                <div className={styles.typingIndicatorRow}>
+                                                    <div className={styles.circularAvatarMini}>
+                                                        <Avatar member={Angela} emotion="Happy" glow={false} />
+                                                    </div>
+                                                    <div className={styles.typingBubble}>
+                                                        <span className={styles.bounceDot} />
+                                                        <span className={styles.bounceDot} />
+                                                        <span className={styles.bounceDot} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Act IV: Storyline Planner Drawer in Phone */}
+                                        {currentScene.cameraTarget === "planner" && (
+                                            <div className={`${styles.plannerDrawerOverlay} ${styles.focusActivePlanner}`}>
+                                                <div className={styles.plannerHeader}>
+                                                    <span>🎬 Director Demand Engine</span>
+                                                    <span className={styles.geminiBadge}>Gemini Flash 65K</span>
+                                                </div>
+
+                                                <div className={styles.demandBox}>
+                                                    <span>"A stray puppy enters the garage at 5 PM"</span>
+                                                    <span className={styles.stagedBadge}>⚡ Staged</span>
+                                                </div>
+
+                                                <div className={styles.diffCardProposed}>
+                                                    <span className={styles.diffAdd}>+ PROPOSED</span>
+                                                    <strong>17:00 - 18:30 • Rescue the Stray Puppy</strong>
+                                                </div>
+                                                <div className={styles.diffCardRemoved}>
+                                                    <span className={styles.diffSub}>− REMOVED</span>
+                                                    <del>17:00 - 18:30 • Casual Garage Gaming</del>
+                                                </div>
+
+                                                <div className={styles.diffActions}>
+                                                    <span className={styles.acceptBtn}>✓ Accept Twist</span>
+                                                    <span className={styles.denyBtn}>✕ Deny</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Footer with Character Track and Input Box */}
+                                    <footer className={styles.footerContainer}>
+                                        <div className={styles.charactersTrack}>
+                                            {[
+                                                { char: Tom, mood: "Excited" },
+                                                { char: Angela, mood: "Happy" },
+                                                { char: Ben, mood: "Thinking" },
+                                                { char: Ginger, mood: "Laughing" },
+                                                { char: Hank, mood: "Default" },
+                                                { char: Becca, mood: "Default" }
+                                            ].map((item) => (
+                                                <div key={item.char.id} className={styles.charItem}>
+                                                    <div className={styles.footerAvatarFrame}>
+                                                        <Avatar member={item.char} emotion={item.mood} glow={false} />
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
+
+                                        <div className={styles.inputHub}>
+                                            <div className={styles.inputForm}>
+                                                <input
+                                                    type="text"
+                                                    readOnly
+                                                    placeholder="Talk with Tom and the cast..."
+                                                    className={styles.inputField}
+                                                />
+                                                <button type="button" className={styles.expressionBtn}>🎭</button>
+                                                <button type="button" className={styles.sendBtn}>🚀</button>
+                                            </div>
+                                        </div>
+                                    </footer>
                                 </div>
 
-                                {activeAct === 3 && (
-                                    <div className={styles.memoryHUDPins}>
-                                        <div className={styles.hudMemoryPin}>📌 Tom: [Mood: Hyper-Excited (15m)]</div>
-                                        <div className={styles.hudMemoryPin}>📌 Ben: [Secret: Hidden battery pack (Permanent)]</div>
-                                        <div className={styles.hudMemoryPin}>📌 Hank: [Posture: Eating samosas]</div>
+                                {/* Act V: Magnetic Re-Assembly into Studio Lobby */}
+                                {currentScene.cameraTarget === "finale" && (
+                                    <div className={styles.lobbyReassembledOverlay}>
+                                        <div className={styles.lobbyBadge}>🎬 LIVING STUDIO LOBBY</div>
+                                        <div className={styles.lobbyAvatarGroup}>
+                                            <div className={styles.lobbyRingGlow} />
+                                            <img src="/group.png" alt="Tom & Friends Cast" className={styles.lobbyGroupAvatar} />
+                                        </div>
+                                        <h2 className={styles.lobbyTitle}>Tom & Friends</h2>
+                                        <p className={styles.lobbyDate}>📍 Lucknow Studio • {todayFormatted}</p>
+                                        <p className={styles.lobbyDesc}>
+                                            Tom, Angela, Ben, Ginger, Hank, and Becca are ready. Step inside to chat or direct the scene!
+                                        </p>
+                                        <button onClick={onFinish} className={styles.lobbyLoginBtn}>
+                                            🎭 Log In & Enter Studio
+                                        </button>
                                     </div>
                                 )}
                             </div>
-
-                            {/* 3D LAYER 4: Storyline Planner Drawer (Zooms in Act 4) */}
-                            <div className={`${styles.layerPlannerDrawer} ${activeAct === 4 ? styles.zoomedPlannerDrawer : ""}`}>
-                                <div className={styles.plannerDrawerHeader}>
-                                    <span>🎬 Director Demand Engine</span>
-                                    <span className={styles.geminiBadge}>Gemini Flash 65K</span>
-                                </div>
-
-                                <div className={styles.demandBoxPreview}>
-                                    <span>"I want to study physics at 5pm"</span>
-                                    <span className={styles.demandAppliedTag}>⚡ Staged</span>
-                                </div>
-
-                                <div className={styles.stagedProposalCard}>
-                                    <div className={styles.proposalTopRow}>
-                                        <span>🤖 AI Proposed Changes</span>
-                                        <div className={styles.proposalActions}>
-                                            <span className={styles.acceptTag}>✓ Accept</span>
-                                            <span className={styles.denyTag}>✕ Deny</span>
-                                        </div>
-                                    </div>
-                                    <div className={styles.diffProposed}>
-                                        <span className={styles.diffAddBadge}>+ PROPOSED</span>
-                                        <strong>17:00 - 18:30 • Physics Study & Rocket Science</strong>
-                                    </div>
-                                    <div className={styles.diffRemoved}>
-                                        <span className={styles.diffRemoveBadge}>− REMOVED</span>
-                                        <del>17:00 - 18:30 • Casual Garage Gaming</del>
-                                    </div>
-                                </div>
-
-                                {activeAct === 4 && (
-                                    <div className={styles.floatingHUDExtractTag}>
-                                        ⚖️ 24-Hour Non-Destructive Storyline Diffs
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* 3D LAYER 5: Finale Lobby Screen Reassembly */}
-                            {activeAct === 5 && (
-                                <div className={styles.lobbyFinaleCover}>
-                                    <div className={styles.lobbyBadge}>🎬 LIVING STUDIO LOBBY</div>
-                                    <div className={styles.lobbyGroupRing}>
-                                        <div className={styles.pulseAuraRing} />
-                                        <img src="/group.png" alt="Tom & Friends" className={styles.lobbyGroupAvatar} />
-                                    </div>
-                                    <h2 className={styles.lobbyTitle}>Tom & Friends</h2>
-                                    <p className={styles.lobbyDate}>📍 Lucknow Studio • {todayFormatted}</p>
-                                    <p className={styles.lobbyDescription}>
-                                        Tom, Angela, Ben, Ginger, Hank, and Becca are hanging out. Step into the studio to chat or direct today's scene!
-                                    </p>
-                                    <button onClick={onFinish} className={styles.lobbySubmitBtn}>
-                                        🎭 Log In & Enter Studio
-                                    </button>
-                                </div>
-                            )}
                         </div>
                     </div>
-                </section>
-            </main>
+                </main>
+            </div>
         </div>
     );
 }

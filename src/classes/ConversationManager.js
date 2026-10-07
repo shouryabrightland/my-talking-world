@@ -35,15 +35,7 @@ import XmlEncoder from "./lib/XmlEncoder";
 import MemoryExpiryParser from "./lib/MemoryExpiryParser";
 import UserInterruptHandler from "./lib/UserInterruptHandler";
 import { Members } from "../util/member";
-import {
-    DEFAULT_CHAT_MODEL,
-    PROMPT_DIALOGUE_TASK,
-    PROMPT_DIALOGUE_RULES,
-    PROMPT_LANGUAGE_MANDATE,
-    PROMPT_LOCATION_MANDATE,
-    PARTICIPANT_TYPE_CHARACTER,
-    PARTICIPANT_TYPE_HUMAN
-} from "../util/Constants";
+import { DEFAULT_CHAT_MODEL } from "../util/Constants";
 import { AmbientAudio } from "../util/sound";
 import Logger from "./lib/Logger";
 
@@ -665,12 +657,14 @@ export default class ConversationManager {
 
     /**
      * Merges committed chat messages with in-flight scheduler queues.
-     * Returns the last 20 messages for prompt context building.
-     * @returns {Message[]} Merged and deduplicated recent messages.
+     * Returns the last 7 committed messages (capped at 8 after the merge) for
+     * prompt context building — a tight window that keeps the dialogue history
+     * small enough for the per-turn token budget.
+     * @returns {Message[]} Merged, deduplicated and capped recent messages.
      */
     getRecentMessages() {
         /** @type {Message[]} */
-        const committed = this.chat.getHistory(15);
+        const committed = this.chat.getHistory(7);
         /** @type {Map<string, Message>} */
         const dedupeMap = new Map();
 
@@ -687,7 +681,7 @@ export default class ConversationManager {
             }
         }
 
-        return [...dedupeMap.values()].slice(-20);
+        return [...dedupeMap.values()].slice(-8);
     }
 
     /**
@@ -746,25 +740,25 @@ export default class ConversationManager {
      * @returns {void}
      */
     registerPrompt(builder) {
-        /** Task instruction for the dialogue generation */
+        /**
+         * SINGLE consolidated system directive (Task: prompt compression):
+         * replaces the former <task> + <language_mandate> +
+         * <location_diversity_mandate> + 13 <rule> tags with one tight block
+         * covering language, setting diversity, turn-taking, anti-parroting
+         * and the output format.
+         */
         builder.useSystem(() => builder.part(
-            `<task>${PROMPT_DIALOGUE_TASK}</task>`
+            `<system_directive>
+- Language: Authentic Lucknow Hinglish written strictly in Roman/Latin script. Zero Devanagari.
+- Setting: Pick varied real Lucknow settings (Gomti Nagar, Aliganj, university spots, home study, rooftops). Do not repeatedly set scenes in Hazratganj, Chowk, or the garage.
+- Turn-Taking: Emit ONLY 1 to 3 character replies per turn. NEVER force all characters to speak at once like a roll call.
+- Anti-Parroting: React directly to what was JUST said in recent dialogue. NEVER repeat, re-state, or re-ask goals or questions that were already discussed (e.g. food bills, trip confirmations). Progress the scene forward.
+- Output Format: Emit strictly valid XML records:
+  <record type="message" id="1" sender="tom" reaction="Default"><thought>brief internal intent</thought><text>dialogue line</text></record>
+  <record type="memory-set" member="tom" expiry="1h"><key>Mood</key><value>fact</value></record>
+  <record type="memory-remove" member="tom"><key>ObsoleteKey</key></record>
+</system_directive>`
         ));
-
-        /**
-         * SINGLE authoritative language mandate (Task 9): this is now the only
-         * place the Hinglish / Roman-script / no-Devanagari rules are stated —
-         * the redundant copies in <task> and <dialogue_protocol><rules> were
-         * removed to stop wasting the token budget.
-         */
-        builder.useSystem(() => builder.part(PROMPT_LANGUAGE_MANDATE));
-
-        /**
-         * Anti-Cliché & Location Diversity mandate (Task 9): explicitly blocks
-         * the Hazratganj / Chowk / garage pre-training bias and mandates varied
-         * Lucknow locations plus everyday domestic spaces.
-         */
-        builder.useSystem(() => builder.part(PROMPT_LOCATION_MANDATE));
 
         /** World context: current time, active schedule, and (throttled) heavy environment block */
         builder.useSystem(() => {
@@ -785,34 +779,36 @@ export default class ConversationManager {
             );
         });
 
-        /** Character definitions with bios, ages, and participant types */
+        /** Character definitions — bios preserved but truncated to 50 chars */
         builder.useSystem(() => {
             const chars = [...this.world.members.values()].map(m => {
-                const participantType = m.isAI ? PARTICIPANT_TYPE_CHARACTER : PARTICIPANT_TYPE_HUMAN;
-                return (
-                    `  <character id="${XmlEncoder.encode(m.id)}" name="${XmlEncoder.encode(m.name)}" age="${m.age}" participant_type="${participantType}">\n` +
-                    `    ${XmlEncoder.encode(m.about)}\n` +
-                    `  </character>`
-                );
+                const customAbout = (m.about || "").trim();
+                const shortBio = customAbout.length > 50 ? `${customAbout.slice(0, 47)}...` : customAbout;
+                return `  <character id="${XmlEncoder.encode(m.id)}" name="${XmlEncoder.encode(m.name)}" age="${m.age}">${XmlEncoder.encode(shortBio)}</character>`;
             }).join("\n");
 
             return builder.part("<characters>\n" + chars + "\n</characters>");
         });
 
-        /** Dynamic memories with TTL expiry for each member */
+        /** Dynamic memories with TTL expiry for each member (validated against the simulation clock) */
         builder.useSystem(() => {
             const memoryBlocks = [...this.world.members.values()]
                 .map(m => {
-                    const usableKeys = m.memory.values().filter(k => k.isUsable());
+                    const usableKeys = m.memory.values().filter(k => k.isUsable(this.world.now));
                     if (usableKeys.length === 0) return null;
 
+                    // Flat 2-space layout: expiry markers are dropped entirely —
+                    // the isUsable(world.now) filter above already guarantees
+                    // every injected memory is currently valid, so rendering
+                    // timestamps/permanence flags is generation-irrelevant
+                    // token overhead. The member NAME is omitted because the
+                    // <characters> block already maps id → name.
                     const keysXml = usableKeys.map(k => {
                         const val = Array.isArray(k.value) ? k.value.join(", ") : String(k.value);
-                        const expStr = k.isForever() ? ' expiry="forever"' : (k.expiry instanceof Date ? ` expiry="${k.expiry.toISOString()}"` : "");
-                        return `    <memory key="${XmlEncoder.encode(k.name)}"${expStr}>${XmlEncoder.encode(val)}</memory>`;
+                        return `  <memory key="${XmlEncoder.encode(k.name)}">${XmlEncoder.encode(val)}</memory>`;
                     }).join("\n");
 
-                    return `  <memories member="${XmlEncoder.encode(m.id)}" name="${XmlEncoder.encode(m.name)}">\n${keysXml}\n  </memories>`;
+                    return `<memories member="${XmlEncoder.encode(m.id)}">\n${keysXml}\n</memories>`;
                 })
                 .filter(Boolean);
 
@@ -821,34 +817,6 @@ export default class ConversationManager {
             }
             return null;
         });
-
-        /** Dialogue protocol rules and output format specification */
-        builder.useSystem(() => builder.part(
-            "<dialogue_protocol>\n" +
-            "  <rules>\n" +
-            PROMPT_DIALOGUE_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
-            "  </rules>\n" +
-            "  <output_format>\n" +
-            "    <![CDATA[\n" +
-            "    Output strictly valid <record> XML tags:\n\n" +
-            "    [1. Message Tag]:\n" +
-            '    <record type="message" id="1" reply="null" sender="tom" reaction="Laughing">\n' +
-            "      <thought>Internal unspoken reasoning</thought>\n" +
-            "      <text>Spoken dialogue text</text>\n" +
-            "    </record>\n\n" +
-            "    [2. Dynamic Memory Set Tag (Short-term or Permanent)]:\n" +
-            '    <record type="memory-set" member="tom" expiry="30m">\n' +
-            "      <key>Dynamic Memory Key (e.g. Mood, Active Goal, Opinion on User, Secret)</key>\n" +
-            "      <value>Memory description</value>\n" +
-            "    </record>\n\n" +
-            "    [3. Dynamic Memory Remove Tag]:\n" +
-            '    <record type="memory-remove" member="tom">\n' +
-            "      <key>Obsolete Key Name</key>\n" +
-            "    </record>\n" +
-            "    ]]>\n" +
-            "  </output_format>\n" +
-            "</dialogue_protocol>"
-        ));
 
         /** Director override: injects plot twists as stage directives */
         builder.useUser(() => {

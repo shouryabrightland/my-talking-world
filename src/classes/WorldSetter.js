@@ -783,6 +783,15 @@ export default class WorldSetter {
         return this.schedule;
     }
 
+    /**
+     * Resolves the block covering the given moment. When no block matches
+     * (e.g. 06:30 AM with only night blocks left in the horizon), returns a
+     * dynamic ad-hoc block for the CURRENT hour instead of falling back to
+     * `schedule[0]` — which could hand a morning scene a 21:00 night block.
+     *
+     * @param {Date} [date=new Date()]
+     * @returns {ScheduleRecord|null}
+     */
     getActiveRecord(date = new Date()) {
         const decimalHour = date.getHours() + (date.getMinutes() / 60);
         for (const record of this.schedule) {
@@ -790,7 +799,24 @@ export default class WorldSetter {
                 return record;
             }
         }
-        return this.schedule[0] || null;
+
+        // Dynamic ad-hoc block matching the current hour instead of a mismatched block
+        const startH = Math.floor(decimalHour);
+        const endH = startH + 1;
+        return {
+            id: "ad-hoc-current",
+            startHour: startH,
+            endHour: endH,
+            timeRange: `${String(startH).padStart(2, "0")}:00 - ${String(endH).padStart(2, "0")}:00`,
+            topic: startH < 12 ? "Morning routine & start of day" : "Casual hangout & conversations",
+            mainGoal: "Chat naturally",
+            characterGoals: [],
+            facts: [],
+            prePlot: "",
+            postPlot: "",
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        };
     }
 
     getRecords() {
