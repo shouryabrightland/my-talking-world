@@ -158,7 +158,7 @@ export default function PlannerDrawer() {
                 streamModelRef.current = model;
                 setIsStreaming(true);
                 setStreamingBlocks([]);
-                setStreamPhase(model ? `⚡ [${model}] Thinking & structuring scene...` : "Connecting to AI model...");
+                setStreamPhase(model ? `🧠 [${model}] Thinking & Structuring Scene...` : "🧠 Thinking & structuring scene...");
             },
             "PlannerDrawer: stream start"
         );
@@ -168,6 +168,8 @@ export default function PlannerDrawer() {
             (/** @type {string} */ text) => {
                 const model = streamModelRef.current;
                 const prefix = model ? `⚡ [${model}] ` : "⚡ ";
+                // `text` is reasoning-stripped output — block detection can only
+                // fire on real <schedule> XML, never on a thought preamble.
                 const hasSchedule = text.includes("<schedule");
                 const blockCount = (text.match(/<\s*block\b/gi) || []).length;
                 if (hasSchedule && blockCount > 0) {
@@ -175,10 +177,19 @@ export default function PlannerDrawer() {
                 } else if (hasSchedule) {
                     setStreamPhase(`${prefix}Structuring schedule...`);
                 } else {
-                    setStreamPhase(`${prefix}Thinking & structuring scene...`);
+                    setStreamPhase(model ? `🧠 [${model}] Thinking & Structuring Scene...` : "🧠 Thinking & Structuring Scene...");
                 }
             },
             "PlannerDrawer: stream text"
+        );
+
+        const offThinking = world.events.on(
+            PlannerStreamEvents.THINKING,
+            () => {
+                const model = streamModelRef.current;
+                setStreamPhase(model ? `🧠 [${model}] Thinking & Structuring Scene...` : "🧠 Thinking & Structuring Scene...");
+            },
+            "PlannerDrawer: stream thinking"
         );
 
         const offFailover = world.events.on(
@@ -236,6 +247,7 @@ export default function PlannerDrawer() {
         return () => {
             offStart();
             offText();
+            offThinking();
             offFailover();
             offBlock();
             offDone();

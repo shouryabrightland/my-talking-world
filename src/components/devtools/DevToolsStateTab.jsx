@@ -1,10 +1,21 @@
 // @ts-check
 
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import styles from "../DevToolsDrawer.module.css";
+import { useDevTools } from "../../contexts/DevToolsContext";
 
 /** @typedef {import("../../contexts/DevToolsContext").DevToolsSystemState} DevToolsSystemState */
+/** @typedef {import("../../contexts/DevToolsContext").ModelPoolEntry} ModelPoolEntry */
+/** @typedef {import("../../util/apiKeys").ModelVerifyResult} ModelVerifyResult */
 /** @typedef {import("../../classes/types/World.types").CharacterGoalRecord} CharacterGoalRecord */
+
+/**
+ * Inline verification probe state for a single model.
+ * @typedef {Object} ProbeState
+ * @property {boolean} busy
+ * @property {string} label Inline feedback ("✓ 182ms" / "✕ HTTP 429").
+ * @property {boolean} ok
+ */
 
 /**
  * Type guard checking if system state payload is initialized.
@@ -36,9 +47,45 @@ export default function DevToolsStateTab({
     handleCopyState,
     copied
 }) {
+    const { verifyModel } = useDevTools();
+
+    /** @type {[Record<string, ProbeState>, React.Dispatch<React.SetStateAction<Record<string, ProbeState>>>]} */
+    const [probeResults, setProbeResults] = useState(/** @type {Record<string, ProbeState>} */ ({}));
+
     const validState = useMemo(() => {
         return isSystemState(liveState) ? liveState : null;
     }, [liveState]);
+
+    /**
+     * Sends a 1-token probe to one specific model, measures latency and shows
+     * immediate inline feedback. The probe outcome is also reported back into
+     * the owning pool (reportSuccess / reportFailure).
+     *
+     * @returns {Promise<void>}
+     */
+    const handleVerify = useCallback(async (
+        /** @type {"groq"|"gemini"} */ provider,
+        /** @type {string} */ modelId
+    ) => {
+        setProbeResults(prev => ({
+            ...prev,
+            [modelId]: { busy: true, label: "⏳ Probing…", ok: false }
+        }));
+
+        /** @type {ModelVerifyResult} */
+        let result;
+        try {
+            result = await verifyModel(provider, modelId);
+        } catch (/** @type {unknown} */ err) {
+            const message = err instanceof Error ? err.message : String(err);
+            result = { ok: false, ms: 0, label: `✕ ${message}`, status: null, error: message };
+        }
+
+        setProbeResults(prev => ({
+            ...prev,
+            [modelId]: { busy: false, label: result.label, ok: result.ok }
+        }));
+    }, [verifyModel]);
 
     return (
         <div className={styles.tabContainer}>
@@ -199,7 +246,27 @@ export default function DevToolsStateTab({
                             </div>
                         </div>
 
-                        {/* Card 4: Cast Real-Time States & Dynamic Memories */}
+                        {/* Card 4: Groq Live Chat Model Pool */}
+                        <ModelPoolCard
+                            title="⚡ Groq Chat Model Pool"
+                            provider="groq"
+                            activeModel={validState.groqModelPool?.activeModel || null}
+                            models={validState.groqModelPool?.models || []}
+                            probeResults={probeResults}
+                            onVerify={handleVerify}
+                        />
+
+                        {/* Card 5: Gemini Storyline Model Pool */}
+                        <ModelPoolCard
+                            title="✨ Gemini Storyline Model Pool"
+                            provider="gemini"
+                            activeModel={validState.geminiModelPool?.activeModel || null}
+                            models={validState.geminiModelPool?.models || []}
+                            probeResults={probeResults}
+                            onVerify={handleVerify}
+                        />
+
+                        {/* Card 6: Cast Real-Time States & Dynamic Memories */}
                         <div className={styles.stateCardWide}>
                             <div className={styles.stateCardHeader}>
                                 <h4 className={styles.stateCardTitle}>👥 Cast States & Dynamic Memories</h4>
@@ -264,6 +331,99 @@ export default function DevToolsStateTab({
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+/**
+ * Color-coded health badge for a pool model.
+ * 🟢 Healthy • 🟡 Cooling Down [Xs left] • 🔴 Ejected
+ *
+ * @param {{ model: ModelPoolEntry }} props
+ * @returns {React.JSX.Element}
+ */
+function HealthBadge({ model }) {
+    if (model.status === "ejected") {
+        return <span className={styles.badgeEjected}>🔴 Ejected</span>;
+    }
+
+    if (model.status === "cooling") {
+        const seconds = Math.max(1, Math.ceil((model.cooldownRemainingMs || 0) / 1000));
+        return <span className={styles.badgeCooling}>🟡 Cooling Down [{seconds}s left]</span>;
+    }
+
+    return <span className={styles.badgeHealthy}>🟢 Healthy</span>;
+}
+
+/**
+ * Dedicated model-pool card with per-model tier/health badges and a Verify
+ * button that fires a minimal 1-token probe at that exact model.
+ *
+ * @param {Object} props
+ * @param {string} props.title Card heading.
+ * @param {"groq"|"gemini"} props.provider Owning pool.
+ * @param {string|null} [props.activeModel] Currently active model id, if any.
+ * @param {ModelPoolEntry[]} props.models Pool snapshot.
+ * @param {Record<string, ProbeState>} props.probeResults Inline probe states.
+ * @param {(provider: "groq"|"gemini", modelId: string) => Promise<void>} props.onVerify Verify callback.
+ * @returns {React.JSX.Element}
+ */
+function ModelPoolCard({ title, provider, activeModel, models, probeResults, onVerify }) {
+    return (
+        <div className={styles.stateCard}>
+            <div className={styles.stateCardHeader}>
+                <h4 className={styles.stateCardTitle}>{title}</h4>
+                <span className={styles.badgeSecondary}>
+                    {activeModel ? `Active: ${activeModel.split("/").pop()} · ` : ""}
+                    {models.length} Model{models.length === 1 ? "" : "s"}
+                </span>
+            </div>
+
+            {models.length === 0 ? (
+                <span className={styles.emptyNote}>
+                    No models discovered yet — add an API key or trigger discovery.
+                </span>
+            ) : (
+                <div className={styles.modelList}>
+                    {models.map((model) => {
+                        const probe = probeResults[model.id];
+                        return (
+                            <div key={model.id} className={styles.modelRow}>
+                                <div className={styles.modelRowTop}>
+                                    <span className={styles.modelName} title={model.id}>
+                                        {model.displayName}
+                                    </span>
+                                    <span className={styles.tierBadge}>
+                                        Tier {model.tier} · v{model.version}
+                                    </span>
+                                    <HealthBadge model={model} />
+                                </div>
+
+                                <div className={styles.modelRowActions}>
+                                    <code className={styles.modelCode}>{model.id}</code>
+                                    <button
+                                        type="button"
+                                        className={styles.verifyBtn}
+                                        disabled={Boolean(probe?.busy)}
+                                        onClick={() => onVerify(provider, model.id)}
+                                        title={`Send a 1-token probe to ${model.id}`}
+                                    >
+                                        {probe?.busy ? "Probing…" : "Verify"}
+                                    </button>
+                                    {probe && (
+                                        <span
+                                            className={probe.ok ? styles.probeOk : styles.probeErr}
+                                            role="status"
+                                        >
+                                            {probe.label}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 }

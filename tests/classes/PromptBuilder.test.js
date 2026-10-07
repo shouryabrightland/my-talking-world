@@ -23,7 +23,9 @@ vi.mock("../../src/classes/lib/Logger.js", () => ({
 import PromptBuilder from "../../src/classes/PromptBuilder.js";
 import {
     PROMPT_DIALOGUE_TASK,
-    PROMPT_DIALOGUE_RULES
+    PROMPT_DIALOGUE_RULES,
+    PROMPT_LANGUAGE_MANDATE,
+    PROMPT_LOCATION_MANDATE
 } from "../../src/util/prompts.js";
 
 // ─── Devanagari Unicode range: \u0900–\u097F ───
@@ -32,21 +34,23 @@ const DEVANAGARI_REGEX = /[\u0900-\u097F]/;
 describe("Prompt Templates — Hinglish Language Mandate", () => {
 
     describe("PROMPT_DIALOGUE_TASK", () => {
-        it("contains 'Hinglish' directive", () => {
-            expect(PROMPT_DIALOGUE_TASK).toContain("Hinglish");
+        it("delegates language rules to the single <language_mandate> block", () => {
+            expect(PROMPT_DIALOGUE_TASK).toContain("<language_mandate>");
+            expect(PROMPT_DIALOGUE_TASK).toContain("never restate");
         });
 
-        it("contains 'Roman/Latin script' instruction", () => {
-            expect(PROMPT_DIALOGUE_TASK).toContain("Roman/Latin script");
+        it("does NOT restate the language mandate itself (de-duplicated)", () => {
+            expect(PROMPT_DIALOGUE_TASK).not.toContain("Hinglish");
+            expect(PROMPT_DIALOGUE_TASK.toLowerCase()).not.toContain("devanagari");
         });
 
-        it("contains Devanagari prohibition", () => {
-            expect(PROMPT_DIALOGUE_TASK.toLowerCase()).toContain("no devanagari");
-        });
-
-        it("contains example Hinglish phrases", () => {
-            expect(PROMPT_DIALOGUE_TASK).toContain("Arre");
-            expect(PROMPT_DIALOGUE_TASK).toContain("kab tak");
+        it("the authoritative mandate keeps every original language rule", () => {
+            expect(PROMPT_LANGUAGE_MANDATE).toContain("Hinglish");
+            expect(PROMPT_LANGUAGE_MANDATE).toContain("Roman/Latin script");
+            expect(PROMPT_LANGUAGE_MANDATE.toLowerCase()).toContain("no devanagari");
+            expect(PROMPT_LANGUAGE_MANDATE).toContain("Arre");
+            expect(PROMPT_LANGUAGE_MANDATE).toContain("kab tak");
+            expect(DEVANAGARI_REGEX.test(PROMPT_LANGUAGE_MANDATE)).toBe(false);
         });
 
         it("does NOT contain any Devanagari characters", () => {
@@ -60,14 +64,15 @@ describe("Prompt Templates — Hinglish Language Mandate", () => {
     });
 
     describe("PROMPT_DIALOGUE_RULES", () => {
-        it("contains a Hinglish language rule", () => {
-            const hinglishRule = PROMPT_DIALOGUE_RULES.find(r => r.includes("Hinglish"));
-            expect(hinglishRule).toBeDefined();
+        it("contains a pointer to the single <language_mandate> (de-duplicated)", () => {
+            const pointerRule = PROMPT_DIALOGUE_RULES.find(r => r.includes("<language_mandate>"));
+            expect(pointerRule).toBeDefined();
+            expect(pointerRule).toContain("Hinglish");
         });
 
-        it("contains a Devanagari prohibition rule", () => {
-            const devanagariRule = PROMPT_DIALOGUE_RULES.find(r => r.includes("Devanagari"));
-            expect(devanagariRule).toBeDefined();
+        it("does NOT restate the Devanagari prohibition (mandate owns it)", () => {
+            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("Devanagari"))).toBe(false);
+            expect(PROMPT_LANGUAGE_MANDATE.toLowerCase()).toContain("devanagari");
         });
 
         it("contains Lucknow/Indian banter preference", () => {
@@ -92,10 +97,18 @@ describe("Prompt Templates — Hinglish Language Mandate", () => {
             }
         });
 
-        it("contains Hinglish example phrases in rules", () => {
-            const hinglishRule = PROMPT_DIALOGUE_RULES.find(r => r.includes("Hinglish"));
-            expect(hinglishRule).toContain("Arre");
-            expect(hinglishRule).toContain("Chal");
+        it("example phrases live only in the mandate, not in the rules", () => {
+            expect(PROMPT_LANGUAGE_MANDATE).toContain("Arre");
+            expect(PROMPT_LANGUAGE_MANDATE).toContain("Chal");
+            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("Example patterns"))).toBe(false);
+        });
+
+        it("contains the anti-cliché location diversity rule", () => {
+            const rule = PROMPT_DIALOGUE_RULES.find(r => r.includes("ANTI-CLICHÉ"));
+            expect(rule).toBeDefined();
+            expect(rule).toContain("Hazratganj");
+            expect(rule).toContain("Chowk");
+            expect(rule).toContain("Lucknow");
         });
 
         it("does NOT contain any Devanagari characters across all rules", () => {

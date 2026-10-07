@@ -48,6 +48,17 @@ export default class RateLimiter {
     }
 
     /**
+     * Ms remaining until the provider's real rate-limit window resets.
+     * 0 when no server-imposed pause is active — lets the UI surface an
+     * "exhausted rate limit" countdown instead of appearing frozen.
+     *
+     * @returns {number}
+     */
+    get serverPauseRemaining() {
+        return Math.max(0, this._serverPauseUntil - Date.now());
+    }
+
+    /**
      * Waits until a rate limit slot is available, then returns a release function.
      * Call the release function when the request completes to decrement the concurrent counter.
      *

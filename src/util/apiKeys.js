@@ -443,3 +443,139 @@ export function clearBlockedGeminiModels() {
     if (typeof window === "undefined") return;
     try { localStorage.removeItem(BLOCKED_MODELS_KEY); } catch {}
 }
+
+// =========================================================================
+// PER-MODEL HEALTH PROBES (DevTools "Verify" buttons — Task 4)
+// =========================================================================
+
+/**
+ * @typedef {Object} ModelVerifyResult
+ * @property {boolean} ok Whether the model answered the probe.
+ * @property {number} ms Wall-clock latency in milliseconds.
+ * @property {string} label Inline feedback (e.g. "✓ 182ms" / "✕ HTTP 429").
+ * @property {number|null} status HTTP status code (null for network errors).
+ * @property {string|null} error Human-readable failure reason.
+ */
+
+/**
+ * Optional pool interface used to feed probe outcomes back into health state.
+ * @typedef {Object} ModelPoolReporter
+ * @property {(modelId: string) => void} [reportSuccess]
+ * @property {(modelId: string, status?: number|null) => void} [reportFailure]
+ */
+
+/**
+ * Sends a minimal **1-token** probe to ONE specific Groq chat model and feeds
+ * the outcome back into the pool (`reportSuccess` / `reportFailure`).
+ * Latency is measured wall-clock around the single round trip.
+ *
+ * @param {string} modelId Target Groq model id.
+ * @param {ModelPoolReporter|null} [pool] Pool to update with the outcome.
+ * @returns {Promise<ModelVerifyResult>}
+ */
+export async function probeGroqModel(modelId, pool = null) {
+    const id = String(modelId || "").trim();
+    if (!id) {
+        return { ok: false, ms: 0, label: "✕ No model id", status: null, error: "Missing model id" };
+    }
+
+    const key = getApiKey();
+    if (!key) {
+        return { ok: false, ms: 0, label: "✕ No API key", status: null, error: "Groq API key is not configured." };
+    }
+
+    const startedAt = Date.now();
+    try {
+        const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${key}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: id,
+                messages: [{ role: "user", content: "hi" }],
+                max_tokens: 1,
+                temperature: 0,
+                stream: false
+            })
+        });
+
+        const ms = Date.now() - startedAt;
+
+        if (response.ok) {
+            if (pool && typeof pool.reportSuccess === "function") pool.reportSuccess(id);
+            return { ok: true, ms, label: `✓ ${ms}ms`, status: response.status, error: null };
+        }
+
+        if (pool && typeof pool.reportFailure === "function") pool.reportFailure(id, response.status);
+        return {
+            ok: false,
+            ms,
+            label: `✕ HTTP ${response.status}`,
+            status: response.status,
+            error: `HTTP ${response.status} ${response.statusText}`
+        };
+    } catch (err) {
+        const ms = Date.now() - startedAt;
+        const message = err instanceof Error ? err.message : String(err);
+        if (pool && typeof pool.reportFailure === "function") pool.reportFailure(id, null);
+        return { ok: false, ms, label: `✕ ${message}`, status: null, error: message };
+    }
+}
+
+/**
+ * Sends a minimal **1-token** probe to ONE specific Gemini model and feeds the
+ * outcome back into the pool (`reportSuccess` / `reportFailure`).
+ *
+ * @param {string} modelId Target Gemini model id (with or without `models/`).
+ * @param {ModelPoolReporter|null} [pool] Pool to update with the outcome.
+ * @returns {Promise<ModelVerifyResult>}
+ */
+export async function probeGeminiModel(modelId, pool = null) {
+    const id = String(modelId || "").trim().replace(/^models\//, "");
+    if (!id) {
+        return { ok: false, ms: 0, label: "✕ No model id", status: null, error: "Missing model id" };
+    }
+
+    const key = getGeminiApiKey();
+    if (!key) {
+        return { ok: false, ms: 0, label: "✕ No API key", status: null, error: "Gemini API key is not configured." };
+    }
+
+    const startedAt = Date.now();
+    try {
+        const response = await fetch(
+            `${GEMINI_API_BASE_URL}/models/${id}:generateContent?key=${encodeURIComponent(key)}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ role: "user", parts: [{ text: "hi" }] }],
+                    generationConfig: { maxOutputTokens: 1, temperature: 0 }
+                })
+            }
+        );
+
+        const ms = Date.now() - startedAt;
+
+        if (response.ok) {
+            if (pool && typeof pool.reportSuccess === "function") pool.reportSuccess(id);
+            return { ok: true, ms, label: `✓ ${ms}ms`, status: response.status, error: null };
+        }
+
+        if (pool && typeof pool.reportFailure === "function") pool.reportFailure(id, response.status);
+        return {
+            ok: false,
+            ms,
+            label: `✕ HTTP ${response.status}`,
+            status: response.status,
+            error: `HTTP ${response.status} ${response.statusText}`
+        };
+    } catch (err) {
+        const ms = Date.now() - startedAt;
+        const message = err instanceof Error ? err.message : String(err);
+        if (pool && typeof pool.reportFailure === "function") pool.reportFailure(id, null);
+        return { ok: false, ms, label: `✕ ${message}`, status: null, error: message };
+    }
+}

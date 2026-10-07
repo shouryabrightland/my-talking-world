@@ -44,7 +44,9 @@ export const GroqClientEvents = {
     TEXT: "text",
     THINKING: "thinking",
     DONE: "done",
-    ERROR: "error"
+    ERROR: "error",
+    /** Emitted with `{ remainingMs }` when every pool model is cooling down. */
+    COOLDOWN_ACTIVE: "cooldown_active"
 };
 
 /**
@@ -140,6 +142,23 @@ export default class GroqClient {
     /** @returns {string} */
     get circuitState() {
         return sharedCircuitBreaker.state;
+    }
+
+    /**
+     * Ms remaining until the provider's real rate-limit window resets
+     * (0 when the shared limiter is not server-paused).
+     * @returns {number}
+     */
+    get rateLimitPauseRemainingMs() {
+        return sharedRateLimiter.serverPauseRemaining;
+    }
+
+    /**
+     * Whether the shared circuit breaker is currently open (hard blocked).
+     * @returns {boolean}
+     */
+    get isCircuitOpen() {
+        return sharedCircuitBreaker.state === "open";
     }
 
     /**
@@ -335,6 +354,7 @@ export default class GroqClient {
                         typeof castErr.status === "number" ? castErr.status : null,
                         typeof castErr.rateLimitResetMs === "number" ? castErr.rateLimitResetMs : null
                     );
+                    this.#emitCooldownIfExhausted();
 
                     // Handle 429/503 with Retry-After
                     const retryMs = this.#getRetryDelay(castErr, attempts);
@@ -368,6 +388,28 @@ export default class GroqClient {
 
         this.events.emit(GroqClientEvents.ERROR, lastErr);
         throw new Error(`All streaming fallback attempts failed. Last error: ${lastErr?.message}`, { cause: lastErr });
+    }
+
+    /**
+     * Emits `GroqClientEvents.COOLDOWN_ACTIVE` with `{ remainingMs }` when a
+     * failure just left the pool with ZERO usable models (every discovered
+     * chat model cooling down / server-paused). Lets the UI explain an
+     * apparently frozen engine with a live countdown instead of a silent
+     * backoff (Task 3.2).
+     *
+     * @returns {void}
+     */
+    #emitCooldownIfExhausted() {
+        const pool = this.modelPool;
+        if (typeof pool?.allModelsCooling !== "function") return;
+        if (!pool.allModelsCooling()) return;
+
+        const remainingMs = typeof pool.minCooldownRemaining === "function"
+            ? pool.minCooldownRemaining()
+            : null;
+
+        this.logger.warn(`All Groq chat models are cooling down — next attempt in ${remainingMs ?? "?"}ms.`);
+        this.events.emit(GroqClientEvents.COOLDOWN_ACTIVE, { remainingMs });
     }
 
     // =========================================================================
@@ -458,6 +500,7 @@ export default class GroqClient {
                         typeof castErr.status === "number" ? castErr.status : null,
                         typeof castErr.rateLimitResetMs === "number" ? castErr.rateLimitResetMs : null
                     );
+                    this.#emitCooldownIfExhausted();
 
                     // Handle retryable errors
                     const retryMs = this.#getRetryDelay(castErr, attempts);

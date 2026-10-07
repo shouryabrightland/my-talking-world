@@ -23,6 +23,7 @@ import CircuitBreaker from "./lib/CircuitBreaker";
 
 export const GeminiClientEvents = {
     TEXT: "text",
+    THINKING: "thinking",
     DONE: "done",
     ERROR: "error"
 };
@@ -36,9 +37,10 @@ export const GeminiClientEvents = {
 
 /**
  * @typedef {Object} GeminiResultText
- * @property {string} text Full generated text response.
+ * @property {string} text Full generated text response (reasoning parts excluded).
  * @property {string} model Model ID used for the response.
  * @property {string|null} thinking Extracted thinking chain if present.
+ * @property {string} [thoughtText] Raw reasoning text streamed before the answer.
  * @property {Record<string, any>} [usage] Usage metadata metrics.
  * @property {GroundingMetadata|null} [groundingMetadata] Captured Google Search grounding metadata.
  */
@@ -269,15 +271,22 @@ export default class GeminiClient {
                     return await this.#generateWithRetry(requestBody, cleanModelId, key, startTime, messages, promptType, 0);
                 }
 
-                const { text: rawText, groundingMetadata } = await this.#readSSEStream(response.body);
-                const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(rawText);
+                const { text: rawText, thoughtText, groundingMetadata } = await this.#readSSEStream(response.body);
+                const { cleanText, thinking: inlineThinking } = ProtocolCodec.extractThinkingChain(rawText);
+
+                // Prefer reasoning captured from `part.thought === true` parts;
+                // fall back to inline <think>/<thought> spans in the output text.
+                const thinking = inlineThinking || (thoughtText ? thoughtText.trim() : null);
 
                 PromptLogger.record({
                     type: promptType, model: cleanModelId, startTime, requestMessages: messages,
                     rawResponse: rawText, thinkingChain: thinking, groundingMetadata, status: "success"
                 });
 
-                return { text: cleanText, model: cleanModelId, thinking, groundingMetadata };
+                return {
+                    text: cleanText, model: cleanModelId, thinking,
+                    thoughtText: thoughtText || "", groundingMetadata
+                };
 
             } catch (err) {
                 const castErr = /** @type {any} */ (err);
@@ -391,18 +400,29 @@ export default class GeminiClient {
                 const groundingMetadata = candidates[0]?.groundingMetadata || null;
 
                 let rawText = "";
+                let thoughtText = "";
                 for (const part of parts) {
-                    if (part.text) rawText += part.text;
+                    if (!part.text) continue;
+                    // Gemini 2.5 / 3.x reasoning parts carry `thought: true`.
+                    if (part.thought === true) {
+                        thoughtText += part.text;
+                        continue;
+                    }
+                    rawText += part.text;
                 }
 
-                const { cleanText, thinking } = ProtocolCodec.extractThinkingChain(rawText);
+                const { cleanText, thinking: inlineThinking } = ProtocolCodec.extractThinkingChain(rawText);
+                const thinking = inlineThinking || (thoughtText ? thoughtText.trim() : null);
 
                 PromptLogger.record({
                     type: promptType, model: cleanModelId, startTime, requestMessages: messages,
                     rawResponse: rawText, thinkingChain: thinking, groundingMetadata, status: "success"
                 });
 
-                return { text: cleanText, model: cleanModelId, thinking, usage: data?.usageMetadata, groundingMetadata };
+                return {
+                    text: cleanText, model: cleanModelId, thinking,
+                    thoughtText, usage: data?.usageMetadata, groundingMetadata
+                };
 
             } catch (err) {
                 const castErr = /** @type {any} */ (err);
@@ -434,14 +454,22 @@ export default class GeminiClient {
     }
 
     /**
+     * Reads the `streamGenerateContent?alt=sse` stream, separating reasoning
+     * (`part.thought === true`) parts from real output parts.
+     *
+     * Reasoning tokens are emitted via GeminiClientEvents.THINKING and are
+     * NEVER appended to the output text, so downstream `<schedule>`/`<block>`
+     * detection cannot fire on a model's preamble (Task 7).
+     *
      * @param {ReadableStream<Uint8Array>} body
-     * @returns {Promise<{ text: string, groundingMetadata: GroundingMetadata|null }>}
+     * @returns {Promise<{ text: string, thoughtText: string, groundingMetadata: GroundingMetadata|null }>}
      */
     async #readSSEStream(body) {
         const reader = body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
         let fullText = "";
+        let thoughtText = "";
         /** @type {GroundingMetadata|null} */
         let groundingMetadata = null;
 
@@ -458,17 +486,25 @@ export default class GeminiClient {
                 if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) continue;
 
                 const payload = trimmed.replace(/^data:\s*/, "");
-                if (payload === "[DONE]") return { text: fullText, groundingMetadata };
+                if (payload === "[DONE]") return { text: fullText, thoughtText, groundingMetadata };
 
                 try {
                     const parsed = JSON.parse(payload);
                     const candidates = parsed?.candidates || [];
                     const parts = candidates[0]?.content?.parts || [];
                     for (const part of parts) {
-                        if (part.text) {
-                            fullText += part.text;
-                            this.events.emit(GeminiClientEvents.TEXT, part.text);
+                        if (!part.text) continue;
+
+                        // Gemini 2.5 / 3.x reasoning: `thought: true` marks a
+                        // thought part. Keep it out of the output stream.
+                        if (part.thought === true) {
+                            thoughtText += part.text;
+                            this.events.emit(GeminiClientEvents.THINKING, part.text);
+                            continue;
                         }
+
+                        fullText += part.text;
+                        this.events.emit(GeminiClientEvents.TEXT, part.text);
                     }
                     if (candidates[0]?.groundingMetadata) {
                         groundingMetadata = candidates[0].groundingMetadata;
@@ -479,7 +515,7 @@ export default class GeminiClient {
             }
         }
 
-        return { text: fullText, groundingMetadata };
+        return { text: fullText, thoughtText, groundingMetadata };
     }
 
     /**

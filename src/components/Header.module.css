@@ -83,6 +83,61 @@
     font-weight: 700;
 }
 
+/* =====================================================================
+   LIVE TRI-STATE ENGINE STATUS DOT (Task 5)
+   🟢 idle • 🟡 busy (streaming/turn in flight) • 🔴 blocked
+   ===================================================================== */
+
+.statusDot {
+    display: inline-flex;
+    vertical-align: middle;
+    width: 8px;
+    height: 8px;
+    min-width: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    transition: background-color 0.35s ease, box-shadow 0.35s ease;
+}
+
+.statusDotIdle {
+    background-color: #10b981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+    animation: statusDotBreathe 2.4s ease-in-out infinite;
+}
+
+.statusDotBusy {
+    background-color: #f59e0b;
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.75);
+    animation: busyPulse 1.5s infinite;
+}
+
+.statusDotBlocked {
+    background-color: #ef4444;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+    animation: statusDotBreathe 0.8s ease-in-out infinite;
+}
+
+@keyframes statusDotBreathe {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+}
+
+/* Yellow = engine busy: gentle infinite pulse (Task 5). */
+@keyframes busyPulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.45;
+        transform: scale(0.82);
+    }
+}
+
 /* Right Section: Large 44x44px Touch Target */
 .rightSection {
     display: flex;
@@ -298,9 +353,10 @@
     .subtitleText {
         font-size: 10px;
     }
-    .onlineDot {
+    .statusDot {
         width: 6px;
         height: 6px;
+        min-width: 6px;
     }
     .rightSection {
         gap: 4px;

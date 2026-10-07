@@ -4,9 +4,63 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import styles from "./Header.module.css";
 import { useChat } from "../contexts/ChatContext";
 import { useInputBox } from "../contexts/InputBoxContext";
+import { useOffline } from "../contexts/OfflineContext";
 import { ChatEvents } from "../classes/Chat";
 import { ChatMemberEvents } from "../classes/ChatMember";
 import SettingsModal from "./SettingsModal";
+
+/**
+ * Live tri-state engine status surfaced as the header dot (Task 5).
+ * @typedef {"idle" | "busy" | "blocked"} EngineStatus
+ */
+
+/**
+ * Computes the tri-state engine status.
+ *
+ * - 🟢 idle    : online + ready + no turn generation or SSE stream in flight.
+ * - 🟡 busy    : a turn request is in flight or an SSE token stream is active.
+ * - 🔴 blocked : offline, circuit breaker open, every Groq chat model is
+ *                cooling down, or the engine is in consecutive-error backoff.
+ *
+ * @param {any} conv ConversationManager instance.
+ * @param {boolean} isOffline Browser/app offline flag.
+ * @returns {EngineStatus}
+ */
+export function computeEngineStatus(conv, isOffline) {
+    if (isOffline === true) return "blocked";
+
+    const client = conv?.client;
+    const pool = client?.modelPool;
+
+    const circuitOpen =
+        (typeof client?.isCircuitOpen === "boolean" && client.isCircuitOpen) ||
+        client?.circuitState === "open" ||
+        client?.circuitState === "CIRCUIT_OPEN";
+
+    const allModelsCooling =
+        (typeof pool?.allModelsCooling === "function" && pool.allModelsCooling() === true) ||
+        (typeof pool?.allModelsBlocked === "function" ? pool.allModelsBlocked() === true : false);
+
+    const inErrorBackoff = typeof conv?.consecutiveErrors === "number" && conv.consecutiveErrors > 0;
+
+    if (circuitOpen || allModelsCooling || inErrorBackoff) return "blocked";
+
+    const turnInFlight = conv?.requesting === true || client?.isStreaming === true;
+    if (turnInFlight) return "busy";
+
+    return "idle";
+}
+
+/**
+ * Accessible tooltip for each status state.
+ * @param {EngineStatus} status
+ * @returns {string}
+ */
+function statusLabel(status) {
+    if (status === "busy") return "Engine busy — generating a response…";
+    if (status === "blocked") return "Engine blocked — offline, rate-limited or cooling down";
+    return "Engine idle — ready to chat";
+}
 
 /**
  * Top Navigation Header Bar.
@@ -19,12 +73,27 @@ export default function Header({ title = "Tom & Friends" } = {}) {
     const conv = useChat();
     const { chat } = conv;
     const { mode, setMode, setIsPlannerOpen } = useInputBox();
+    const { isOffline } = useOffline();
+
+    /** @type {[EngineStatus, React.Dispatch<React.SetStateAction<EngineStatus>>]} */
+    const [engineStatus, setEngineStatus] = useState(/** @type {EngineStatus} */("idle"));
+
+    /**
+     * Poll engine health (cheap, synchronous field reads) so the dot reacts to
+     * streaming starts/stops, cooldowns, circuit trips and offline flips.
+     */
+    useEffect(() => {
+        const refresh = () => setEngineStatus(computeEngineStatus(conv, isOffline));
+        refresh();
+        const interval = setInterval(refresh, 500);
+        return () => clearInterval(interval);
+    }, [conv, isOffline]);
 
     /** @type {[number, React.Dispatch<React.SetStateAction<number>>]} */
     const [memberCount, setMemberCount] = useState(() => chat.getMembers().length);
 
     /** @type {[string[], React.Dispatch<React.SetStateAction<string[]>>]} */
-    const [typingMembers, setTypingMembers] = useState(/** @type {string[]} */ ([]));
+    const [typingMembers, setTypingMembers] = useState(/** @type {string[]} */([]));
 
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -100,7 +169,7 @@ export default function Header({ title = "Tom & Friends" } = {}) {
 
         /** @param {MouseEvent} event */
         const handleClickOutside = (event) => {
-            if (menuRef.current && !menuRef.current.contains(/** @type {Node} */ (event.target))) {
+            if (menuRef.current && !menuRef.current.contains(/** @type {Node} */(event.target))) {
                 setIsMenuOpen(false);
             }
         };
@@ -143,6 +212,16 @@ export default function Header({ title = "Tom & Friends" } = {}) {
                     <div className={styles.titleColumn}>
                         <h3 className={styles.title}>{title}</h3>
                         <p className={isTyping ? styles.subtitleTyping : styles.subtitleIdle}>
+                            <span
+                                className={`${styles.statusDot} ${engineStatus === "blocked" ? styles.statusDotBlocked
+                                        : engineStatus === "busy" ? styles.statusDotBusy
+                                            : styles.statusDotIdle
+                                    }`}
+                                data-status={engineStatus}
+                                role="status"
+                                aria-label={statusLabel(engineStatus)}
+                                title={statusLabel(engineStatus)}
+                            />
                             {subtitleText}
                         </p>
                     </div>
@@ -210,6 +289,18 @@ export default function Header({ title = "Tom & Friends" } = {}) {
                             >
                                 <span>⚙️ Settings & Mixer</span>
                                 <span className={styles.menuTag}>Config</span>
+                            </button>
+
+                            {/* Replay 3D Tour */}
+                            <button
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    window.dispatchEvent(new CustomEvent("tgf:open-presentation"));
+                                }}
+                                className={styles.menuItem}
+                            >
+                                <span>✨ 3D Pitch Tour</span>
+                                <span className={styles.menuTag}>Demo</span>
                             </button>
 
                             <div className={styles.menuDivider} />

@@ -1,0 +1,978 @@
+/* src/components/presentation/PresentationView.module.css */
+
+.presentationViewport {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+    height: 100svh;
+    max-height: 100svh;
+    background: #070a13;
+    color: #f8fafc;
+    overflow: hidden;
+    position: relative;
+    box-sizing: border-box;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Cybernetic Dynamic Background */
+.ambientBackdropGlow {
+    position: absolute;
+    width: 650px;
+    height: 650px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.22) 0%, rgba(139, 92, 246, 0.12) 40%, transparent 70%);
+    top: 50%;
+    right: 15%;
+    transform: translate(0, -50%);
+    pointer-events: none;
+    z-index: 1;
+    filter: blur(40px);
+}
+
+.ambientCyberGrid {
+    position: absolute;
+    inset: 0;
+    background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Navigation HUD */
+.navBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    padding: 0 clamp(16px, 3vw, 32px);
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    z-index: 50;
+    flex-shrink: 0;
+    gap: 12px;
+}
+
+.brandGroup {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pulseDot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background-color: #3b82f6;
+    box-shadow: 0 0 12px #3b82f6;
+    animation: pulseGlow 1.8s infinite ease-in-out;
+}
+
+@keyframes pulseGlow {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.2); }
+}
+
+.brandTitle {
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    color: #ffffff;
+}
+
+.brandBadge {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #60a5fa;
+    letter-spacing: 0.5px;
+}
+
+.actPillRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pillInactive, .pillActive {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pillInactive {
+    background: rgba(30, 41, 59, 0.8);
+    color: #94a3b8;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+.pillInactive:hover {
+    color: #ffffff;
+    border-color: #3b82f6;
+    transform: scale(1.08);
+}
+
+.pillActive {
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: #ffffff;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+    transform: scale(1.15);
+}
+
+.skipStudioBtn {
+    padding: 7px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(30, 41, 59, 0.6);
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.skipStudioBtn:hover {
+    color: #60a5fa;
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.15);
+    transform: translateY(-1px);
+}
+
+/* Canvas Split */
+.mainCanvas {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    position: relative;
+    z-index: 10;
+}
+
+/* Left Pitch HUD */
+.pitchHUD {
+    flex: 0 0 45%;
+    padding: clamp(20px, 4vw, 48px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow-y: auto;
+    z-index: 20;
+}
+
+.hudCard {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 500px;
+    animation: hudSlideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes hudSlideIn {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.hudHeaderRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.actBadge {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    padding: 3px 8px;
+    border-radius: 6px;
+    text-transform: uppercase;
+}
+
+.layerActiveIndicator {
+    font-size: 10.5px;
+    font-weight: 800;
+    color: #60a5fa;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.bigHeadline {
+    margin: 0;
+    font-size: clamp(26px, 3.2vw, 40px);
+    font-weight: 900;
+    letter-spacing: -0.8px;
+    line-height: 1.1;
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+}
+
+.gradientText {
+    background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #f472b6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 8px rgba(96, 165, 250, 0.3));
+}
+
+.punchlineText {
+    margin: 0;
+    font-size: clamp(14px, 1.5vw, 16px);
+    font-weight: 500;
+    color: #cbd5e1;
+    line-height: 1.45;
+}
+
+.metricsGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.metricCard {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(8px);
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.metricCard:hover {
+    transform: translateX(4px);
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+.metricIcon {
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.metricDetails {
+    display: flex;
+    flex-direction: column;
+}
+
+.metricLabel {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.metricDesc {
+    font-size: 11.5px;
+    color: #94a3b8;
+}
+
+.ctaEnterBtn {
+    padding: 15px 22px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 4px 25px rgba(59, 130, 246, 0.6);
+    transition: transform 0.15s ease;
+    margin-top: 6px;
+}
+.ctaEnterBtn:hover { transform: translateY(-2px) scale(1.02); }
+
+.stepperControls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.navBtn {
+    padding: 7px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(30, 41, 59, 0.8);
+    color: #f1f5f9;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.navBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.stepCounter {
+    font-size: 12px;
+    font-weight: 800;
+    color: #64748b;
+}
+
+.navBtnPrimary {
+    padding: 7px 18px;
+    border-radius: 10px;
+    border: none;
+    background: #3b82f6;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+}
+
+/* Right 3D Perspective Stage */
+.stage3DSection {
+    flex: 1 1 55%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.perspectiveStage {
+    perspective: 1600px;
+    perspective-origin: 50% 50%;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Physical 3D Extruded Studio Chassis */
+.studioChassis3D {
+    width: 360px;
+    height: 640px;
+    background: #0f172a;
+    border-radius: 40px;
+    border: 4px solid #334155;
+    outline: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 
+        -20px 35px 70px rgba(0, 0, 0, 0.9),
+        -40px 60px 100px rgba(0, 0, 0, 0.7),
+        0 0 60px rgba(59, 130, 246, 0.25);
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.75s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.75s ease, border-radius 0.75s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+}
+
+.chassisFlat {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 80px rgba(59, 130, 246, 0.4);
+}
+
+/* 3D Chassis Physical Depth Backplate */
+.chassisDepthExtrusion {
+    position: absolute;
+    inset: -3px;
+    border-radius: 42px;
+    background: linear-gradient(135deg, #1e293b, #020617);
+    transform: translateZ(-26px);
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+/* Glass Reflection Sheen */
+.glassReflectionSheen {
+    position: absolute;
+    inset: 0;
+    border-radius: 36px;
+    background: linear-gradient(125deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.02) 40%, transparent 60%);
+    pointer-events: none;
+    z-index: 45;
+}
+
+.chassisTopBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px 4px 20px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    z-index: 10;
+}
+
+.speakerGrill {
+    width: 54px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.appHeader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: #111827;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    z-index: 5;
+}
+
+.headerGroupIcon {
+    border-radius: 50%;
+    border: 1.5px solid #3b82f6;
+}
+
+.headerTitles {
+    display: flex;
+    flex-direction: column;
+}
+
+.headerAppName {
+    font-size: 13.5px;
+    font-weight: 800;
+}
+
+.headerRoomStatus {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: #94a3b8;
+}
+
+.livePulseDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+}
+
+/* 3D LAYER 1: SceneBar */
+.layerSceneBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 38px;
+    padding: 0 12px;
+    background: rgba(37, 99, 235, 0.15);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.65s ease;
+    transform: translate3d(0, 0, 0);
+    z-index: 10;
+}
+
+.zoomedSceneBar {
+    transform: translate3d(-15px, -18px, 280px) scale(1.18);
+    background: #1e293b;
+    border: 2px solid #3b82f6;
+    border-radius: 14px;
+    box-shadow: 0 25px 50px rgba(59, 130, 246, 0.5), 0 0 30px rgba(59, 130, 246, 0.35);
+    z-index: 50;
+}
+
+.marqueeWrapper {
+    overflow: hidden;
+    white-space: nowrap;
+    flex: 1 1 auto;
+    font-size: 11px;
+}
+
+.marqueeTicker {
+    display: inline-block;
+    color: #f1f5f9;
+}
+
+.audioBadge {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 9.5px;
+    font-weight: 800;
+}
+
+.equalizerWave {
+    width: 2.5px;
+    height: 9px;
+    background: #ffffff;
+    border-radius: 1px;
+    animation: waveBar 0.8s infinite alternate ease-in-out;
+}
+.equalizerWave:nth-child(2) { animation-delay: 0.2s; height: 12px; }
+.equalizerWave:nth-child(3) { animation-delay: 0.4s; height: 7px; }
+
+@keyframes waveBar {
+    from { transform: scaleY(0.3); }
+    to { transform: scaleY(1); }
+}
+
+.floatingHUDExtractTag {
+    position: absolute;
+    top: -34px;
+    left: 8px;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #ffffff;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 10.5px;
+    font-weight: 800;
+    box-shadow: 0 4px 18px rgba(37, 99, 235, 0.6);
+    white-space: nowrap;
+}
+
+/* 3D LAYER 2: Chat Message */
+.layerMessageArea {
+    flex: 1 1 auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+    transform: translate3d(0, 0, 0);
+    position: relative;
+    z-index: 10;
+}
+
+.zoomedMessage {
+    transform: translate3d(16px, -12px, 310px) scale(1.18);
+    z-index: 50;
+}
+
+.messageRow {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+/* Circular avatar container strictly following guardrail #2 */
+.avatarCircle {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2.5px solid #3b82f6;
+    box-shadow: 0 0 14px rgba(59, 130, 246, 0.5);
+    flex-shrink: 0;
+    background: #111827;
+}
+
+.speechBalloon {
+    background: #1f2937;
+    border-radius: 18px 18px 18px 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.12);
+    border-left: 4px solid #3b82f6;
+    padding: 10px 14px;
+    max-width: 82%;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.balloonSender {
+    font-size: 11.5px;
+    font-weight: 800;
+    color: #60a5fa;
+    margin-bottom: 2px;
+}
+
+.balloonBody {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: #f8fafc;
+}
+
+.thoughtPeekCard {
+    margin-top: 8px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: rgba(17, 24, 39, 0.95);
+    border: 1.5px dashed #f59e0b;
+}
+
+.thoughtPeekTitle {
+    font-size: 9.5px;
+    font-weight: 800;
+    color: #f59e0b;
+}
+
+.thoughtPeekBody {
+    margin: 2px 0 0 0;
+    font-size: 11.5px;
+    font-style: italic;
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+
+.typingPreviewRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.avatarCircleMini {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 1.5px solid #ec4899;
+}
+
+.typingBouncingPill {
+    display: flex;
+    align-items: center;
+    gap: 3.5px;
+    padding: 5px 10px;
+    border-radius: 14px;
+    background: #1f2937;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bouncingDot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #60a5fa;
+    animation: dotBounce 1.2s infinite ease-in-out;
+}
+.bouncingDot:nth-child(2) { animation-delay: 0.2s; }
+.bouncingDot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+    40% { transform: translateY(-5px); opacity: 1; }
+}
+
+/* 3D LAYER 3: Cast Lounge */
+.layerCastLounge {
+    background: #111827;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+    transform: translate3d(0, 0, 0);
+    position: relative;
+    z-index: 10;
+}
+
+.zoomedCastLounge {
+    transform: translate3d(0, -38px, 290px) scale(1.2);
+    background: #1e293b;
+    border: 2px solid #7c3aed;
+    border-radius: 18px;
+    box-shadow: 0 25px 60px rgba(124, 58, 237, 0.5);
+    z-index: 50;
+}
+
+.loungeAvatarStrip {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+
+.loungeCharItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.loungeAvatarFrame {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--brand-color, #3b82f6);
+    background: #0f172a;
+}
+
+.charMoodTag {
+    font-size: 9px;
+    font-weight: 800;
+    color: #cbd5e1;
+}
+
+.memoryHUDPins {
+    position: absolute;
+    top: -85px;
+    left: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.hudMemoryPin {
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid #7c3aed;
+    color: #c4b5fd;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    white-space: nowrap;
+}
+
+/* 3D LAYER 4: Storyline Planner Drawer */
+.layerPlannerDrawer {
+    position: absolute;
+    inset: 16px;
+    background: #111827;
+    border-radius: 24px;
+    border: 2px solid #f59e0b;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.65s ease;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(0, 40px, -40px);
+}
+
+.zoomedPlannerDrawer {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate3d(0, 0, 290px) scale(1.18);
+    box-shadow: 0 30px 60px rgba(245, 158, 11, 0.45);
+    z-index: 50;
+}
+
+.plannerDrawerHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12.5px;
+    font-weight: 900;
+    color: #f59e0b;
+}
+
+.geminiBadge {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+}
+
+.demandBoxPreview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    font-size: 11.5px;
+    color: #cbd5e1;
+}
+
+.demandAppliedTag {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: #f59e0b;
+    color: #ffffff;
+}
+
+.stagedProposalCard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 12px;
+}
+
+.proposalTopRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 800;
+    color: #f59e0b;
+}
+
+.proposalActions { display: flex; gap: 4px; }
+.acceptTag, .denyTag {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 5px;
+}
+.acceptTag { background: #16a34a; color: #ffffff; }
+.denyTag { background: #ef4444; color: #ffffff; }
+
+.diffProposed {
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: rgba(22, 163, 74, 0.14);
+    border-left: 3.5px solid #16a34a;
+    font-size: 11px;
+    color: #4ade80;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.diffAddBadge { font-size: 9px; font-weight: 900; color: #16a34a; }
+
+.diffRemoved {
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: rgba(239, 68, 68, 0.12);
+    border-left: 3.5px solid #ef4444;
+    font-size: 11px;
+    color: #f87171;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.diffRemoveBadge { font-size: 9px; font-weight: 900; color: #ef4444; }
+
+/* 3D LAYER 5: Finale Lobby Screen Reassembly */
+.lobbyFinaleCover {
+    position: absolute;
+    inset: 0;
+    background: #111827;
+    border-radius: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    z-index: 50;
+    animation: finaleFlash 0.5s ease-out;
+}
+
+@keyframes finaleFlash {
+    0% { opacity: 0; transform: scale(0.95); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+.lobbyBadge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.18);
+    color: #60a5fa;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    margin-bottom: 12px;
+}
+
+.lobbyGroupRing {
+    position: relative;
+    width: 86px;
+    height: 86px;
+    margin-bottom: 14px;
+}
+
+.pulseAuraRing {
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    opacity: 0.55;
+    animation: pulseRing 2s infinite ease-in-out;
+}
+
+@keyframes pulseRing {
+    0%, 100% { transform: scale(1); opacity: 0.45; }
+    50% { transform: scale(1.1); opacity: 0.85; }
+}
+
+.lobbyGroupAvatar {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #1e293b;
+}
+
+.lobbyTitle {
+    margin: 0 0 2px 0;
+    font-size: 24px;
+    font-weight: 900;
+    color: #f9fafb;
+}
+
+.lobbyDate {
+    margin: 0 0 10px 0;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: #f59e0b;
+}
+
+.lobbyDescription {
+    margin: 0 0 18px 0;
+    font-size: 12.5px;
+    color: #94a3af;
+    line-height: 1.45;
+    max-width: 270px;
+}
+
+.lobbySubmitBtn {
+    width: 100%;
+    max-width: 230px;
+    height: 44px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(37, 99, 235, 0.45);
+    transition: transform 0.15s ease;
+}
+.lobbySubmitBtn:hover { transform: scale(1.04); }
+
+/* Responsive Adaptations */
+@media (max-width: 950px) {
+    .mainCanvas {
+        flex-direction: column-reverse;
+        overflow-y: auto;
+    }
+    .pitchHUD {
+        flex: 1 1 auto;
+        padding: 24px;
+    }
+    .stage3DSection {
+        flex: 0 0 450px;
+        min-height: 450px;
+    }
+    .studioChassis3D {
+        transform: scale(0.85) !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .navBar { padding: 0 12px; }
+    .brandBadge { display: none; }
+    .stage3DSection { flex: 0 0 380px; min-height: 380px; }
+    .studioChassis3D { transform: scale(0.72) !important; }
+}

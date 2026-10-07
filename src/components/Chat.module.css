@@ -1,11 +1,15 @@
 /* =====================================================================
-   Master Grid Shell — Rigid 100dvh Lock
-   Grid rows: Header(auto) | SceneBar(auto) | DevToolsBar(auto) |
-              BackgroundBar(auto) | MessageArea(1fr) | Footer(auto)
+   Master Shell — Rigid 100dvh Lock (flex column)
+   Children: Header(auto) | SceneBar(auto) | DevToolsBar?(auto) |
+             BackgroundBar(auto) | MessageArea(flex 1) | Footer(auto)
+
+   Flex is used instead of hardcoded grid-row indices so mounting or
+   unmounting a conditional bar (DevToolsBar returning null, collapsed
+   BackgroundBar) can never desynchronize the rows or displace the footer.
    ===================================================================== */
 .chatShell {
-    display: grid;
-    grid-template-rows: auto auto auto auto 1fr auto;
+    display: flex;
+    flex-direction: column;
     height: 100vh;
     height: 100dvh;
     max-height: 100dvh;
@@ -16,21 +20,30 @@
     position: relative;
     overflow: hidden;
     transition: background 0.4s ease;
+    box-sizing: border-box;
 }
 
 /*
- * Pin the two rows that carry real content so a conditional child
- * (BackgroundBar / DevToolsBar rendering null) can never shift them.
+ * Bars and chrome keep their intrinsic height; only the message area is
+ * allowed to grow/shrink (see .messageListContainer / .emptyChat below).
  */
+.chatShell > * {
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+/* Docked footer: always pinned to the bottom of the shell. */
 .chatShell > footer {
-    grid-row: 6;
+    flex: 0 0 auto;
+    max-width: 100%;
+    min-width: 0;
 }
 
 /* =====================================================================
-   Message List Container — fills row 5 (1fr)
+   Message List Container — fills the remaining vertical space
    ===================================================================== */
 .messageListContainer {
-    grid-row: 5;
+    flex: 1 1 auto;
     min-height: 0;
     position: relative;
     width: 100%;
@@ -135,12 +148,14 @@
 }
 
 /* =====================================================================
-   Empty Chat Placeholder — fills the entire grid cell
+   Empty Chat Placeholder — fills the remaining vertical space
    ===================================================================== */
+.chatShell > .emptyChat {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .emptyChat {
-    grid-row: 5;
-    flex: 1;
-    min-height: 100%;
     display: flex;
     flex-direction: column;
     align-items: center;

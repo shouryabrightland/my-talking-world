@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import Logger from "../classes/lib/Logger";
 import PromptLogger from "../classes/lib/PromptLogger";
 import { useChat } from "./ChatContext";
+import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
 
 /** @typedef {import("../classes/lib/Logger").LogEntry} LogEntry */
 /** @typedef {import("../classes/lib/PromptLogger").PromptLogEntry} PromptLogEntry */
@@ -12,7 +13,26 @@ import { useChat } from "./ChatContext";
 /** @typedef {import("../classes/types/World.types").ScheduleRecord} ScheduleRecord */
 /** @typedef {import("../classes/types/World.types").CharacterGoalRecord} CharacterGoalRecord */
 /** @typedef {import("../classes/types/World.types").EnvironmentSnapshot} EnvironmentSnapshot */
+/** @typedef {import("../util/apiKeys").ModelVerifyResult} ModelVerifyResult */
 /** @typedef {"debug" | "info" | "warn" | "error" | "state" | "prompts"} DevToolsTab */
+/** @typedef {"healthy" | "cooling" | "ejected"} ModelHealthStatus */
+
+/**
+ * @typedef {Object} ModelPoolEntry
+ * @property {string} id Canonical model id.
+ * @property {string} displayName Human-readable label.
+ * @property {number} tier Priority tier.
+ * @property {number} version Parsed version.
+ * @property {ModelHealthStatus} status healthy / cooling / ejected.
+ * @property {number|null} cooldownRemainingMs Remaining cooldown (cooling only).
+ * @property {boolean} isActive Member of the live active stack.
+ */
+
+/**
+ * @typedef {Object} ModelPoolState
+ * @property {string|null} activeModel Currently active model id (null before discovery).
+ * @property {ModelPoolEntry[]} models Per-model health snapshot.
+ */
 
 /**
  * @typedef {Object} DevToolsActiveScheduleState
@@ -47,6 +67,8 @@ import { useChat } from "./ChatContext";
  *   pendingQueuesCount: number,
  *   activeModel: string
  * }} chatEngine Engine metrics.
+ * @property {ModelPoolState} groqModelPool Snapshot of conv.client.modelPool.
+ * @property {ModelPoolState} geminiModelPool Snapshot of conv.world.worldSetter.modelPool.
  */
 
 /**
@@ -62,6 +84,7 @@ import { useChat } from "./ChatContext";
  * @property {Record<PromptType, PromptLogEntry[]>} promptLogs Grouped prompt execution and thinking traces.
  * @property {() => void} clearPromptLogs Clears all buffered prompt logs.
  * @property {() => DevToolsSystemState | { status: string }} getSystemState Generates structured dashboard cards payload.
+ * @property {(provider: "groq" | "gemini", modelId: string) => Promise<ModelVerifyResult>} verifyModel Sends a 1-token probe to one specific model and reports health back into its pool.
  */
 
 const STORAGE_DEVTOOLS_ENABLED_KEY = "tgf:devtools:enabled";
@@ -79,6 +102,23 @@ function formatMemoryExpiry(expiry) {
         return minsLeft > 60 ? `${Math.round(minsLeft / 60)}h left` : `${minsLeft}m left`;
     }
     return "Permanent";
+}
+
+/**
+ * Reads a full per-model health snapshot from either pool, tolerating reduced
+ * test harnesses that mount DevTools without an engine.
+ *
+ * @param {any} pool GroqModelPool | GeminiModelPool | null | undefined
+ * @returns {ModelPoolEntry[]}
+ */
+function extractModelPool(pool) {
+    if (!pool || typeof pool.listModels !== "function") return [];
+    try {
+        const list = pool.listModels();
+        return Array.isArray(list) ? list : [];
+    } catch {
+        return [];
+    }
 }
 
 /**
@@ -148,6 +188,14 @@ function extractSystemState(conv) {
                 return acc + (Array.isArray(timeline) ? timeline.length : 0);
             }, 0),
             activeModel: conv.client?.activeModel || conv.client?.defaultModel || ""
+        },
+        groqModelPool: {
+            activeModel: conv.client?.activeModel || null,
+            models: extractModelPool(conv.client?.modelPool)
+        },
+        geminiModelPool: {
+            activeModel: conv.world?.worldSetter?.modelPool?.getActiveModelSync?.() || null,
+            models: extractModelPool(conv.world?.worldSetter?.modelPool)
         }
     };
 }
@@ -259,6 +307,25 @@ export function DevToolsProvider({ children }) {
         return extractSystemState(conv);
     }, [conv]);
 
+    /**
+     * Verifies ONE model with a minimal 1-token probe, measures latency and
+     * reports the outcome back into the owning pool.
+     *
+     * @returns {Promise<ModelVerifyResult>}
+     */
+    const verifyModel = useCallback(async (
+        /** @type {"groq" | "gemini"} */ provider,
+        /** @type {string} */ modelId
+    ) => {
+        if (provider === "gemini") {
+            const pool = conv?.world?.worldSetter?.modelPool ?? null;
+            return probeGeminiModel(modelId, pool);
+        }
+
+        const pool = conv?.client?.modelPool ?? null;
+        return probeGroqModel(modelId, pool);
+    }, [conv]);
+
     /** @type {DevToolsContextValue} */
     const value = useMemo(() => ({
         isDevToolsEnabled,
@@ -271,7 +338,8 @@ export function DevToolsProvider({ children }) {
         clearLogs,
         promptLogs,
         clearPromptLogs,
-        getSystemState
+        getSystemState,
+        verifyModel
     }), [
         isDevToolsEnabled,
         isDevToolsOpen,
@@ -281,7 +349,8 @@ export function DevToolsProvider({ children }) {
         setIsDevToolsEnabled,
         clearLogs,
         clearPromptLogs,
-        getSystemState
+        getSystemState,
+        verifyModel
     ]);
 
     return (

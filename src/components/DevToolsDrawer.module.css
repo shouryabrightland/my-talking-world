@@ -33,6 +33,8 @@
     transform: translate3d(0, 100%, 0);
     transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     overflow: hidden;
+    /* Task 8: clip + stacking boundary so tab scrollbars stay inside the curve. */
+    isolation: isolate;
     min-width: 0;
     box-sizing: border-box;
 }
@@ -141,6 +143,8 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* Task 8: reserve the gutter so the track never breaches the corner curve. */
+    scrollbar-gutter: stable;
     padding: 8px 12px;
     overscroll-behavior: contain;
 }
@@ -609,6 +613,155 @@
     flex-direction: column;
     gap: 6px;
     font-size: 11px;
+}
+
+/* =====================================================================
+   MODEL POOL CARDS (Task 4 — per-model health + Verify probe)
+   ===================================================================== */
+
+.modelList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    padding-right: 4px;
+    min-width: 0;
+}
+
+.modelRow {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--bg-root);
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.modelRowTop {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.modelName {
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.tierBadge {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background-color: var(--primary-light);
+    color: var(--primary);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.badgeHealthy {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.badgeCooling {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: rgba(245, 158, 11, 0.14);
+    color: var(--director-gold, #f59e0b);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.badgeEjected {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background-color: rgba(239, 68, 68, 0.14);
+    color: var(--danger);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.modelRowActions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.modelCode {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background-color: var(--bg-input);
+    border-radius: 4px;
+    padding: 2px 5px;
+}
+
+.verifyBtn {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--primary);
+    background-color: var(--primary-light);
+    color: var(--primary);
+    cursor: pointer;
+    transition: transform 0.1s ease, opacity 0.1s ease;
+}
+
+.verifyBtn:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.verifyBtn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.probeOk {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--success);
+    white-space: nowrap;
+}
+
+.probeErr {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--danger);
+    white-space: nowrap;
 }
 
 .metaField {

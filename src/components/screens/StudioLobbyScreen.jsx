@@ -37,6 +37,14 @@ export default function StudioLobbyScreen({ onLogin }) {
                 <button onClick={onLogin} className={styles.loginBtn}>
                     🎭 Log In & Enter Studio
                 </button>
+
+                {/* Quick Pitch Tour Button */}
+                <button
+                    onClick={() => window.dispatchEvent(new CustomEvent("tgf:open-presentation"))}
+                    className={styles.tourBtn}
+                >
+                    ✨ 3D Exploded Pitch Tour
+                </button>
             </div>
         </div>
     );

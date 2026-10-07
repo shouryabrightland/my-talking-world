@@ -389,6 +389,90 @@ export default class GroqModelPool {
     }
 
     /**
+     * Whether EVERY discovered chat model is currently unusable — i.e. the
+     * active stack is empty while at least one model is cooling down or
+     * server-paused. Lets the UI explain an apparently frozen engine.
+     *
+     * @returns {boolean} True when no model can serve a request right now.
+     */
+    allModelsBlocked() {
+        this.#restoreRecovered();
+        if (this.#coolingIds().length === 0) return false;
+        return this.#activeStack().length === 0;
+    }
+
+    /**
+     * Whether EVERY discovered chat model is literally in cooldown right now
+     * (429/503 cooldown map or server-pause map). Stricter than
+     * allModelsBlocked(): an empty or partially ejected pool does not count.
+     * Lets the UI surface "⚠️ All chat models cooling down" (Task 3.2).
+     *
+     * @returns {boolean} True when at least one model exists and all of them are cooling.
+     */
+    allModelsCooling() {
+        this.#restoreRecovered();
+        if (this.#entries.size === 0) return false;
+
+        for (const id of this.#entries.keys()) {
+            if (!this.#cooldownMap.has(id) && !this.#serverPauseMap.has(id)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Shortest remaining cooldown across all cooling models (permanently
+     * ejected models are excluded — they never recover).
+     *
+     * @returns {number|null} Remaining ms until the soonest recovery, or null
+     *                         when nothing is cooling down.
+     */
+    minCooldownRemaining() {
+        /** @type {number|null} */ let min = null;
+        for (const id of this.#coolingIds()) {
+            const remaining = this.cooldownRemaining(id);
+            if (remaining === null) continue;
+            min = min === null ? remaining : Math.min(min, remaining);
+        }
+        return min;
+    }
+
+    /**
+     * Ordered ids of every model currently cooling down / server-paused,
+     * excluding permanently ejected ones.
+     *
+     * @returns {string[]}
+     */
+    #coolingIds() {
+        /** @type {Set<string>} */ const cooling = new Set();
+        for (const id of this.#cooldownMap.keys()) cooling.add(id);
+        for (const id of this.#serverPauseMap.keys()) cooling.add(id);
+        return [...cooling].filter(id => !this.#ejected.has(id));
+    }
+
+    /**
+     * Full per-model health snapshot for the DevTools State tab.
+     *
+     * @returns {Array<{ id: string, displayName: string, tier: number, version: number, status: "healthy"|"cooling"|"ejected", cooldownRemainingMs: number|null, isActive: boolean }>}
+     */
+    listModels() {
+        this.#restoreRecovered();
+        const active = new Set(this.#activeStack());
+
+        return [...this.#entries.values()].map(entry => {
+            if (this.#ejected.has(entry.id)) {
+                return { ...entry, status: "ejected", cooldownRemainingMs: null, isActive: false };
+            }
+
+            const cooldownRemainingMs = this.cooldownRemaining(entry.id);
+            if (cooldownRemainingMs !== null) {
+                return { ...entry, status: "cooling", cooldownRemainingMs, isActive: false };
+            }
+
+            return { ...entry, status: "healthy", cooldownRemainingMs: null, isActive: active.has(entry.id) };
+        });
+    }
+
+    /**
      * Whether a model was permanently ejected this session (400/404).
      * @param {string} modelId Model to look up.
      * @returns {boolean}

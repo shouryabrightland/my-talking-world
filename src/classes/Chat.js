@@ -75,13 +75,15 @@ export default class Chat {
         this.protocolMessageMap = new Map();
 
         /** @readonly @type {MessageStore} */
-        this.messageStore = new MessageStore(this.logger);
+        this.messageStore = new MessageStore(this.logger);        /** @type {boolean} */ this.initialized = false;
 
-        /** @type {boolean} */
-        this.initialized = false;
+        /** @type {boolean} */ this.destroyed = false;
 
-        /** @type {boolean} */
-        this.destroyed = false;
+        /**
+         * Session-level pause flag (logout). Members and messages stay intact.
+         * @type {boolean}
+         */
+        this.paused = false;
     }
 
     /**
@@ -136,7 +138,37 @@ export default class Chat {
         }
 
         this.initialized = true;
+        this.paused = false;
         this.logger.info("Chat room initialization completed.");
+    }
+
+    /**
+     * Non-destructive session pause (logout / backgrounding).
+     * Keeps `members`, `messages` and every lookup map fully intact so a later
+     * resume() continues the SAME room context. Contrast with destroy(), which
+     * is reserved for permanent unmounting only.
+     *
+     * @returns {boolean} False when the room was already permanently destroyed.
+     */
+    pause() {
+        if (this.destroyed) return false;
+        this.paused = true;
+        this.logger.info("Chat room paused for session logout — members and history preserved.");
+        return true;
+    }
+
+    /**
+     * Resumes a paused room context. No-op for destroyed rooms.
+     *
+     * @returns {boolean} False when the room was already permanently destroyed.
+     */
+    resume() {
+        if (this.destroyed) return false;
+        if (this.paused) {
+            this.paused = false;
+            this.logger.info("Chat room resumed.");
+        }
+        return true;
     }
 
     /**
@@ -423,7 +455,12 @@ export default class Chat {
     }
 
     /**
-     * Destroys active chat dependencies, releasing all participants.
+     * Permanently destroys active chat dependencies, releasing all participants
+     * and wiping members + message history from RAM.
+     *
+     * RESERVED for final unmounting only — a session logout MUST call pause()
+     * instead, otherwise re-login throws
+     * "Cannot boot a destroyed Chat room context." and loses the room state.
      */
     destroy() {
         if (this.destroyed) return;

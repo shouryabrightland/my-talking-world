@@ -39,6 +39,8 @@ import {
     DEFAULT_CHAT_MODEL,
     PROMPT_DIALOGUE_TASK,
     PROMPT_DIALOGUE_RULES,
+    PROMPT_LANGUAGE_MANDATE,
+    PROMPT_LOCATION_MANDATE,
     PARTICIPANT_TYPE_CHARACTER,
     PARTICIPANT_TYPE_HUMAN
 } from "../util/Constants";
@@ -128,36 +130,52 @@ export default class ConversationManager {
     /** Whether DIRECTOR_RESPONSE_START was already emitted for this turn. @type {boolean} */ #directorResponseStarted = false;
     /** Monotonic prompt-build counter driving alternating environment injection. @type {number} */ #promptTurnIndex = 0;
     /** Set when the human user speaks so the very next prompt carries full environment grounding. @type {boolean} */ #envRefreshRequested = false;
+    /** One-shot subscription waiting for the human typing cadence to settle. @type {Function|null} */ #typingSettleUnsub = null;
+    /** Safety-net timer for a typing settle that never resolves. @type {ReturnType<typeof setTimeout>|null} */ #typingSettleTimer = null;
+    /** Single-flight boot: concurrent init() calls share ONE boot. @type {Promise<void>|null} */ #initPromise = null;
 
     /**
      * Closes the active simulation session cleanly on user logout.
-     * Aborts pending requests, clears all timers, and resets member states.
+     * Aborts pending requests, clears all timers, halts the World heartbeat and
+     * resets transient member states — **without destroying the engine**.
+     *
+     * The World/Chat context (members + message history) is only PAUSED so the
+     * Studio can be re-entered later; `world.destroy()` / `chat.destroy()` are
+     * reserved for permanent unmounting and would wipe the room to 0 members.
      *
      * @returns {void}
      */
     logout() {
         this.logger.info("User initiated logout. Closing conversation engine...");
 
+        // 1. Abort any in-flight AI request (SSE stream / REST call).
         this.client.abort();
 
-        // Stop the 30s World heartbeat so it cannot leak in the background.
-        this.world.destroy();
+        // 2. Halt the 30s World heartbeat so it cannot tick in the background.
+        //    NOTE: pause() — never destroy() — keeps the Chat room context alive.
+        this.world.pause();
 
+        // 3. Clear pending turn timers, backoff timers and interrupt handlers.
         if (this.#scheduleNextRequest_TimeOut) {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
             this.#scheduleNextRequest_TimeOut = null;
         }
         this.#interruptHandler.destroy();
+        this.#clearTypingSettle();
 
         AmbientAudio.stop();
 
+        // 4. Pause (never destroy) the Chat room: members & messages survive.
+        this.chat.pause();
+
+        // 5. Drain character scheduler queues and reset transient visual states.
         for (const member of this.chat.getMembers()) {
             member.scheduler.clear();
+            member.setTransientState("isTyping", false, 0);
+            member.setTransientState("isReading", false, 0);
+            member.setTransientState("isThinking", false, 0);
+            member.setTransientState("isActive", false, 0);
             if (member.isAI) {
-                member.setTransientState("isTyping", false, 0);
-                member.setTransientState("isReading", false, 0);
-                member.setTransientState("isThinking", false, 0);
-                member.setTransientState("isActive", false, 0);
                 member.events.emit(ChatMemberEvents.TYPING, false);
                 member.events.emit(ChatMemberEvents.READING, false);
                 member.events.emit(ChatMemberEvents.THINKING, false);
@@ -173,6 +191,8 @@ export default class ConversationManager {
         this.consecutiveErrors = 0;
         this.#promptTurnIndex = 0;
         this.#envRefreshRequested = false;
+        this.pendingDirectorPlot = null;
+        this.#directorResponseStarted = false;
 
         this.events.emit(ConversationEvents.LOGOUT);
     }
@@ -277,6 +297,9 @@ export default class ConversationManager {
     /**
      * Delegates to UserInterruptHandler for human interruption logic.
      * Cancels AI queues, waits for typing to settle, then requests a new turn.
+     * Human messages originate from an explicit Send / Enter submit, so the
+     * handler skips its artificial debounce (Task 3) while still honouring the
+     * 800ms typing-settle deferral (Task 6).
      * @returns {void}
      */
     #handleHumanInterruption() {
@@ -285,6 +308,7 @@ export default class ConversationManager {
             aiMembers: this.chat.getMembers(),
             aiAbortController: this.client,
             onRequestTurn: () => this.requestTurn(),
+            isExplicitSubmit: true,
             onCancelQueues: () => {
                 for (const member of this.chat.getMembers()) {
                     member.scheduler.clear();
@@ -305,6 +329,26 @@ export default class ConversationManager {
     async init() {
         if (this.initialized) return;
 
+        // Single-flight: a login click racing the reconnect effect (or a
+        // StrictMode double-mount) must share ONE boot promise instead of
+        // running world.init() twice concurrently.
+        if (this.#initPromise) return this.#initPromise;
+
+        this.#initPromise = this.#boot();
+        try {
+            await this.#initPromise;
+        } finally {
+            this.#initPromise = null;
+        }
+    }
+
+    /**
+     * Boots the World orchestrator and flips this manager READY.
+     * Only ever invoked through init()'s single-flight guard.
+     *
+     * @returns {Promise<void>}
+     */
+    async #boot() {
         this.logger.info("Booting ConversationManager and World orchestrator...");
         await this.world.init();
 
@@ -322,6 +366,10 @@ export default class ConversationManager {
      * Triggers a Groq turn generation via streaming SSE.
      * **Skipped entirely when offline** — local messages still work.
      *
+     * When the human user is mid-typing (follow-up message being composed),
+     * the turn is deferred until the 800ms typing cadence settles so the AI
+     * never answers while the next sentence is still being written.
+     *
      * @returns {Promise<void>}
      */
     async requestTurn() {
@@ -330,6 +378,13 @@ export default class ConversationManager {
         // Offline guard: Skip AI turn generation when offline
         if (!navigator.onLine) {
             this.logger.debug("requestTurn() skipped: App is offline.");
+            return;
+        }
+
+        // Typing guard (Task 6): never start a turn while the human user is
+        // actively typing — wait for the 800ms settle, then run it.
+        if (this.User.isTyping) {
+            this.#deferUntilTypingSettles();
             return;
         }
 
@@ -378,6 +433,61 @@ export default class ConversationManager {
         }
 
         this.scheduleNextRequest();
+    }
+
+    /**
+     * Defers the current turn until the human user's typing cadence settles
+     * (TYPING → false after the 800ms inactivity window), then re-issues it.
+     * A 3s safety net guarantees the engine is never stranded mid-deferral.
+     *
+     * @returns {void}
+     */
+    #deferUntilTypingSettles() {
+        if (this.#typingSettleUnsub) return; // already waiting
+
+        this.logger.debug("Turn deferred: human user is typing. Waiting for the 800ms settle...");
+
+        this.#typingSettleUnsub = this.User.events.on(
+            ChatMemberEvents.TYPING,
+            /** @param {boolean} isTyping */ (isTyping) => {
+                if (!isTyping) this.#resolveTypingSettle();
+            },
+            "ConversationManager: defer turn until typing settles"
+        );
+
+        this.#typingSettleTimer = setTimeout(() => {
+            this.#resolveTypingSettle(true);
+        }, 3_000);
+    }
+
+    /**
+     * Releases a pending typing-settle deferral and re-issues the turn.
+     * @param {boolean} [force=false] Fire even if the user is still typing (safety net).
+     * @returns {void}
+     */
+    #resolveTypingSettle(force = false) {
+        this.#clearTypingSettle();
+
+        if (!this.initialized) return; // logged out while waiting
+        if (!force && this.User.isTyping) return; // still mid-sentence
+
+        this.logger.debug("Typing settled. Resuming deferred turn request...");
+        void this.requestTurn();
+    }
+
+    /**
+     * Tears down the typing-settle subscription and safety timer.
+     * @returns {void}
+     */
+    #clearTypingSettle() {
+        if (this.#typingSettleUnsub) {
+            this.#typingSettleUnsub();
+            this.#typingSettleUnsub = null;
+        }
+        if (this.#typingSettleTimer) {
+            clearTimeout(this.#typingSettleTimer);
+            this.#typingSettleTimer = null;
+        }
     }
 
     /**
@@ -593,6 +703,7 @@ export default class ConversationManager {
             this.#scheduleNextRequest_TimeOut = null;
         }
         this.#interruptHandler.destroy();
+        this.#clearTypingSettle();
 
         this.client.abort();
 
@@ -640,20 +751,20 @@ export default class ConversationManager {
             `<task>${PROMPT_DIALOGUE_TASK}</task>`
         ));
 
-        /** Hinglish language mandate — prominent placement for strong adherence */
-        builder.useSystem(() => builder.part(
-            "<language_mandate>\n" +
-            "  <primary_language>Natural conversational Hinglish (Hindi in Roman/Latin script, casually mixed with English)</primary_language>\n" +
-            "  <script_rule>STRICTLY NO Devanagari script. All Hindi must be transliterated to Latin script.</script_rule>\n" +
-            "  <style>Lucknow/Indian casual banter. Real friends talking in a group chat.</style>\n" +
-            "  <examples>\n" +
-            "    Arre Tom, yeh project kab tak finish hoga?\n" +
-            "    Chalo yaar, ab dinner ka time ho gaya hai.\n" +
-            "    Nahi nahi, suno toh — maine ek idea socha hai!\n" +
-            "    Bahut accha laga yaar, sach mein.\n" +
-            "  </examples>\n" +
-            "</language_mandate>"
-        ));
+        /**
+         * SINGLE authoritative language mandate (Task 9): this is now the only
+         * place the Hinglish / Roman-script / no-Devanagari rules are stated —
+         * the redundant copies in <task> and <dialogue_protocol><rules> were
+         * removed to stop wasting the token budget.
+         */
+        builder.useSystem(() => builder.part(PROMPT_LANGUAGE_MANDATE));
+
+        /**
+         * Anti-Cliché & Location Diversity mandate (Task 9): explicitly blocks
+         * the Hazratganj / Chowk / garage pre-training bias and mandates varied
+         * Lucknow locations plus everyday domestic spaces.
+         */
+        builder.useSystem(() => builder.part(PROMPT_LOCATION_MANDATE));
 
         /** World context: current time, active schedule, and (throttled) heavy environment block */
         builder.useSystem(() => {

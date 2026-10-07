@@ -148,6 +148,16 @@ export default class GeminiModelPool {
     }
 
     /**
+     * Synchronous active-model accessor for DevTools inspection panels.
+     * Never triggers discovery — reflects the last-known healthy stack only.
+     *
+     * @returns {string|null} Best healthy model id, or null before discovery.
+     */
+    getActiveModelSync() {
+        return this.#activeStack()[0] ?? null;
+    }
+
+    /**
      * @param {string} modelId
      * @param {number|null} [status]
      * @returns {boolean}
@@ -202,17 +212,67 @@ export default class GeminiModelPool {
             return null;
         }
         return remaining;
-    }
-
-    snapshot() {
-        /** @type {Record<string, number>} */
-        const cooling = {};
+    }    snapshot() {
+        /** @type {Record<string, number>} */ const cooling = {};
         for (const id of this.#cooldownMap.keys()) {
             const remaining = this.cooldownRemaining(id);
             if (remaining !== null) cooling[id] = remaining;
         }
         return { ...cooling };
     }
+
+    /**
+     * Whether EVERY discovered Gemini model is currently unusable.
+     * @returns {boolean}
+     */
+    allModelsBlocked() {
+        this.#restoreRecovered();
+        if (this.#coolingIds().length === 0) return false;
+        return this.#activeStack().length === 0;
+    }
+
+    /**
+     * Shortest remaining cooldown across cooling models (ejected excluded).
+     * @returns {number|null}
+     */
+    minCooldownRemaining() {
+        /** @type {number|null} */ let min = null;
+        for (const id of this.#coolingIds()) {
+            const remaining = this.cooldownRemaining(id);
+            if (remaining === null) continue;
+            min = min === null ? remaining : Math.min(min, remaining);
+        }
+        return min;
+    }
+
+    /** @returns {string[]} */
+    #coolingIds() {
+        return [...this.#cooldownMap.keys()].filter(id => !this.#ejected.has(id));
+    }
+
+    /**
+     * Full per-model health snapshot for the DevTools State tab.
+     *
+     * @returns {Array<{ id: string, displayName: string, tier: number, version: number, status: "healthy"|"cooling"|"ejected", cooldownRemainingMs: number|null, isActive: boolean }>}
+     */
+    listModels() {
+        this.#restoreRecovered();
+        const active = new Set(this.#activeStack());
+
+        return [...this.#entries.values()].map(entry => {
+            if (this.#ejected.has(entry.id)) {
+                return { ...entry, status: "ejected", cooldownRemainingMs: null, isActive: false };
+            }
+
+            const cooldownRemainingMs = this.cooldownRemaining(entry.id);
+            if (cooldownRemainingMs !== null) {
+                return { ...entry, status: "cooling", cooldownRemainingMs, isActive: false };
+            }
+
+            return { ...entry, status: "healthy", cooldownRemainingMs: null, isActive: active.has(entry.id) };
+        });
+    }
+
 
     invalidate() {
         this.#fetchedAt = 0;

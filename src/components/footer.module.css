@@ -5,6 +5,11 @@
     box-shadow: var(--shadow-elevation);
     transition: background-color 0.2s ease, border-color 0.2s ease;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* Never wider than the .chatShell (800px) container, never viewport-wide. */
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .footerDirector {
@@ -122,6 +127,9 @@
     flex-direction: column;
     background-color: var(--bg-surface);
     border-top: 1px solid var(--border-color);
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .replyBanner {
@@ -132,6 +140,21 @@
     background-color: var(--reply-bg);
     border-left: 4px solid var(--reply-border);
     gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/*
+ * Flex items default to `min-width: auto`, so a quoted message with
+ * `white-space: nowrap` could never shrink and pushed the whole footer out of
+ * bounds. Forcing min-width: 0 + overflow: hidden lets the quote truncate
+ * cleanly with the inner text-overflow: ellipsis.
+ */
+.replyBannerQuote {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .replyCloseBtn {
@@ -313,19 +336,29 @@
     background-color: var(--bg-surface);
     gap: 8px;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
 }
 
+/*
+ * Presets rail. Previously `max-width: calc(100vw - 16px)` expanded to the
+ * full viewport width on screens wider than the 800px .chatShell, blowing out
+ * the horizontal layout. It is now strictly bound to its container.
+ */
 .presetTrack {
     display: flex;
     align-items: center;
     gap: 6px;
     overflow-x: auto;
+    overflow-y: hidden;
     padding-bottom: 2px;
-    max-width: calc(100vw - 16px);
     width: 100%;
-    scrollbar-width: none;
+    max-width: 100%;
     min-width: 0;
-    overflow-y: visible;
+    box-sizing: border-box;
+    scrollbar-width: none;
 }
 
 .presetTrack::-webkit-scrollbar {

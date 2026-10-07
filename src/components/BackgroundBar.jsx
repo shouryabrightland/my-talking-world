@@ -21,6 +21,7 @@ import { useBackgroundBar } from "../contexts/BackgroundBarContext";
 import { useChat } from "../contexts/ChatContext";
 import { PlannerStreamEvents } from "../classes/WorldSetter";
 import { ConversationEvents } from "../classes/ConversationManager";
+import { GroqClientEvents } from "../classes/GroqClient";
 
 /**
  * Human-readable reason for a Gemini model failover.
@@ -78,6 +79,9 @@ function NotificationIcon({ type }) {
     return <span className={styles.notifIcon}>{icons[type] || "📌"}</span>;
 }
 
+/** Stable notification id for the all-models-cooling ticker (Task 3). */
+const COOLDOWN_NOTIF_ID = "groq-all-models-cooling";
+
 /**
  * Persistent notification bar for background processes.
  * Returns null when there are no active notifications or all have completed.
@@ -126,7 +130,7 @@ export default function BackgroundBar() {
                     { dismissable: false }
                 );
                 ctxRef.current.updateNotification(id, {
-                    phase: `[${model}] Thinking & structuring scene...`,
+                    phase: `[${model}] 🧠 Thinking & Structuring Scene...`,
                 });
                 activeStreamRef.current = { id, model };
             },
@@ -138,17 +142,31 @@ export default function BackgroundBar() {
             (/** @type {string} */ text) => {
                 const active = activeStreamRef.current;
                 if (!active) return;
+                // `text` is reasoning-stripped output, so block detection can
+                // only fire on real <schedule> XML (Task 7).
                 const hasSchedule = text.includes("<schedule");
                 const blockCount = (
                     text.match(/<\s*block\b/gi) || []
                 ).length;
-                let phase = `[${active.model}] Thinking & structuring scene...`;
+                let phase = `🧠 [${active.model}] Thinking & Structuring Scene...`;
                 if (hasSchedule && blockCount > 0)
-                    phase = `[${active.model}] Generating block ${blockCount} of ${Math.max(blockCount, 3)}...`;
-                else if (hasSchedule) phase = `[${active.model}] Parsing schedule...`;
+                    phase = `⚡ [${active.model}] Generating block ${blockCount} of ${Math.max(blockCount, 3)}...`;
+                else if (hasSchedule) phase = `🧠 [${active.model}] Parsing schedule...`;
                 ctxRef.current.updateNotification(active.id, { phase });
             },
             "BackgroundBar: stream text"
+        );
+
+        const offThinking = world.events.on(
+            PlannerStreamEvents.THINKING,
+            () => {
+                const active = activeStreamRef.current;
+                if (!active) return;
+                ctxRef.current.updateNotification(active.id, {
+                    phase: `🧠 [${active.model}] Thinking & Structuring Scene...`,
+                });
+            },
+            "BackgroundBar: stream thinking"
         );
 
         const offFailover = world.events.on(
@@ -231,6 +249,7 @@ export default function BackgroundBar() {
         return () => {
             offStart();
             offText();
+            offThinking();
             offFailover();
             offDone();
             offError();
@@ -309,6 +328,93 @@ export default function BackgroundBar() {
             directorNotifId = null;
         };
     }, [conversationEvents]);
+
+    // ── All-Models Cooldown / Rate-Limit Ticker (Task 3) ────────────────
+    // When every Groq chat model is cooling down (or the shared rate window is
+    // exhausted) the engine looks frozen. Surface an active notification with a
+    // live countdown, then hand control back the moment a model recovers.
+    useEffect(() => {
+        /** @type {string|null} */
+        let cooldownNotifId = null;
+        let wasBlocked = false;
+
+        const tick = () => {
+            const client = /** @type {any} */ (conv)?.client;
+            const pool = client?.modelPool;
+            if (!pool || typeof pool.allModelsBlocked !== "function") return;
+
+            const ratePauseMs = typeof client.rateLimitPauseRemainingMs === "number"
+                ? client.rateLimitPauseRemainingMs
+                : 0;
+            const poolBlocked = pool.allModelsBlocked() === true;
+            const minCooldown = typeof pool.minCooldownRemaining === "function"
+                ? pool.minCooldownRemaining()
+                : null;
+
+            const blocked = poolBlocked || ratePauseMs > 0;
+
+            if (blocked) {
+                wasBlocked = true;
+                const waitMs = Math.max(minCooldown ?? 0, ratePauseMs);
+                const seconds = Math.max(1, Math.ceil(waitMs / 1000));
+                const message = poolBlocked
+                    ? `⚠️ All chat models cooling down. Resuming in ${seconds}s...`
+                    : `⚠️ Rate limit window exhausted. Resuming in ${seconds}s...`;
+
+                if (!cooldownNotifId) {
+                    cooldownNotifId = ctxRef.current.addNotification("info", message, {
+                        id: COOLDOWN_NOTIF_ID,
+                        dismissable: false,
+                        details: "Every discovered Groq chat model is cooling down after 429/503 responses or the provider rate window is exhausted. The turn pipeline resumes automatically as soon as the first model recovers.",
+                    });
+                } else {
+                    ctxRef.current.updateNotification(cooldownNotifId, {
+                        message,
+                        status: "active",
+                    });
+                }
+            } else if (wasBlocked) {
+                wasBlocked = false;
+                const id = cooldownNotifId;
+                cooldownNotifId = null;
+
+                if (id) {
+                    ctxRef.current.updateNotification(id, {
+                        message: "✅ Chat models recovered — resuming",
+                        phase: "",
+                        status: "completed",
+                    });
+                }
+
+                // A model is available again → let the turn pipeline run.
+                if (
+                    conv?.isReady &&
+                    !conv.requesting &&
+                    typeof conv.scheduleNextRequest === "function"
+                ) {
+                    conv.scheduleNextRequest();
+                }
+            }
+        };
+
+        tick();
+        const interval = setInterval(tick, 1_000);
+
+        // Subscribe to the pool's exhaustion signal so the countdown appears
+        // the moment the LAST model enters cooldown (no up-to-1s polling lag).
+        const clientEvents = conv?.client?.events;
+        const offCooldown = clientEvents && typeof clientEvents.on === "function"
+            ? clientEvents.on(GroqClientEvents.COOLDOWN_ACTIVE, tick, "BackgroundBar: pool cooldown active")
+            : null;
+
+        return () => {
+            clearInterval(interval);
+            offCooldown?.();
+            if (cooldownNotifId) {
+                ctxRef.current.removeNotification(cooldownNotifId);
+            }
+        };
+    }, [conv]);
 
     // ── Network Offline/Online Events ──────────────────────────────────
     // Use ctxRef (stable ref) instead of ctx in deps to prevent infinite re-renders

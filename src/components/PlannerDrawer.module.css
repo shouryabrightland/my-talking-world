@@ -36,6 +36,8 @@
     transform: translate3d(0, 16px, 0) scale(0.96);
     transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
     overflow: hidden;
+    /* Task 8: clip + stacking boundary so inner scrollbars stay inside the curve. */
+    isolation: isolate;
     box-sizing: border-box;
     min-width: 0;
 }
@@ -104,10 +106,12 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Task 8: inset gutter keeps the scrollbar track off the rounded corners. */
+    scrollbar-gutter: stable;
     display: flex;
     flex-direction: column;
     gap: clamp(10px, 2vw, 14px);
-    padding-right: 4px;
+    padding-right: 8px;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
 }

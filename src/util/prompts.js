@@ -22,17 +22,47 @@
 export const PROMPT_DIALOGUE_TASK =
     "Predict the next dialogue messages in the ongoing group chat. " +
     "Continue the conversation naturally so characters interact with the human user, respond to ongoing events, and pursue their active goals according to their personality and knowledge. " +
-    "LANGUAGE: All dialogue and spoken text must be written in natural conversational Hinglish — Hindi vocabulary and grammar written exclusively in Roman/Latin script, casually mixed with English words. " +
-    "Example: 'Arre Tom, yeh project kab tak finish hoga?' or 'Chalo yaar, ab dinner ka time ho gaya hai.' " +
-    "STRICTLY NO Devanagari script must appear anywhere in <text> or <thought> tags under any circumstance — all Hindi must be transliterated to Latin script. " +
-    "Prioritize natural Lucknow/Indian Hinglish banter over formal or pure English.";
+    "LANGUAGE: obey the single authoritative <language_mandate> block registered alongside this task — never restate, dilute or override it here. " +
+    "SETTINGS: obey the <location_diversity_mandate> block for where scenes take place.";
+
+/**
+ * SINGLE AUTHORITATIVE LANGUAGE MANDATE (Task 9 de-duplication).
+ * The redundant copies that used to live inside PROMPT_DIALOGUE_TASK and
+ * PROMPT_DIALOGUE_RULES were removed — this block is now the ONLY place the
+ * Hinglish / Roman-script / no-Devanagari rules are stated.
+ */
+export const PROMPT_LANGUAGE_MANDATE =
+    "<language_mandate>\n" +
+    "  <primary_language>Natural conversational Hinglish (Hindi in Roman/Latin script, casually mixed with English)</primary_language>\n" +
+    "  <script_rule>STRICTLY NO Devanagari script. All Hindi must be transliterated to Latin script.</script_rule>\n" +
+    "  <style>Lucknow/Indian casual banter. Real friends talking in a group chat.</style>\n" +
+    "  <examples>\n" +
+    "    Arre Tom, yeh project kab tak finish hoga?\n" +
+    "    Chalo yaar, ab dinner ka time ho gaya hai.\n" +
+    "    Nahi nahi, suno toh — maine ek idea socha hai!\n" +
+    "    Bahut accha laga yaar, sach mein.\n" +
+    "  </examples>\n" +
+    "</language_mandate>";
+
+/**
+ * ANTI-CLICHÉ & LOCATION DIVERSITY MANDATE (Task 9).
+ * Fights pre-training bias toward Hazratganj / Chowk / the garage by naming
+ * the varied Lucknow settings the simulation should actually use.
+ */
+export const PROMPT_LOCATION_MANDATE =
+    "<location_diversity_mandate>\n" +
+    "  <anti_cliche>Never let scenes collapse into the same few defaults. Hazratganj, Chowk, and the garage are FORBIDDEN as routine go-to settings — use them at most once in a long while, never back-to-back.</anti_cliche>\n" +
+    "  <varied_lucknow_settings>\n" +
+    "    Gomti Nagar riverfront & parks • Indira Nagar lanes • Aliganj markets • university campus spots & canteens • rooftop chai addas • local tea stalls and lassi shops • old-city bylanes beyond Chowk • city library & co-working corners\n" +
+    "  </varied_lucknow_settings>\n" +
+    "  <everyday_domestic_spaces>study rooms • balconies • rooftops at home • kitchens • living rooms • parking yards • society parks</everyday_domestic_spaces>\n" +
+    "  <rule>Pick a fresh, plausible setting for each new scene that fits the time of day and the active goals — geography and routine must feel lived-in and varied.</rule>\n" +
+    "</location_diversity_mandate>";
 
 export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Generate up to 5 dialogue messages per response.",
-    "LANGUAGE RULE: All <text> and <thought> content MUST be natural conversational Hinglish — Hindi words and grammar written exclusively in Roman/Latin script, casually blended with English. " +
-    "Example patterns: 'Arre yaar...', 'Chal dekhte hain', 'Yeh kya ho raha hai?', 'Bahut accha laga', 'Theek hai na?', 'Nahi nahi, suno toh'.",
-    "STRICTLY FORBIDDEN: No Devanagari script anywhere in output. If you need a Hindi word, transliterate it into Latin script.",
-    "Prefer natural Lucknow/Indian Hinglish banter over formal or pure English. Characters speak like real Indian friends in a casual group chat.",
+    "LANGUAGE POINTER: every language rule (Hinglish tone, writing script, Lucknow banter style) lives ONLY in the single authoritative <language_mandate> block — follow it, never restate or contradict it here.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj, Chowk, or the garage. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",
     "Break longer conversational statements across 2 to 3 shorter messages naturally.",
     "Always include a candid <thought></thought> tag for every message revealing the character's internal mindset.",
@@ -67,6 +97,7 @@ export const PROMPT_SCHEDULER_RULES = Object.freeze([
     "Every block must naturally follow from the preceding block.",
     "Each block must have a clear discussion topic, a main objective, and individual character motivations.",
     "LOCATIONS: Dynamically choose realistic, varied, real-world locations across the active city that fit each scheduled activity — drawing naturally from the <location> grounding tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Never reuse the same spot for every block and never default to a single recurring hangout.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj, Chowk, or the garage. Mandate varied Lucknow settings across the day — Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, parks — and everyday domestic spaces (kitchen, balcony, study room) so no block repeats the previous scene's location.",
     "pre_plot must describe the backstory or momentum leading directly into the scene.",
     "post_plot must describe the consequences or lead-up transition into the subsequent scene.",
     "Facts must be concrete, specific items or situational details useful for interaction.",
@@ -93,6 +124,7 @@ export const PROMPT_DEMAND_TASK =
 export const PROMPT_DEMAND_RULES = Object.freeze([
     "The user's requested activity has highest priority. Schedule it at the requested time window.",
     "LOCATIONS: Dynamically choose a realistic, varied, real-world location across the active city that fits the requested activity — grounded in the <location> tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Do not force a fixed or repeating location.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj, Chowk, or the garage — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
     "Every block in the updated schedule MUST include individual <goal> entries for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
     "In the block immediately preceding the requested activity, write a post_plot transition in the final 5 to 10 minutes that smoothly leads into and prepares the upcoming activity.",

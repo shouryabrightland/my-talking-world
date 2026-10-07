@@ -38,6 +38,7 @@ const STREAM_PROGRESS_DEBOUNCE_MS = 150;
 
 export const PlannerStreamEvents = {
     START: "planner:stream:start",
+    THINKING: "planner:stream:thinking",
     TEXT: "planner:stream:text",
     BLOCK: "planner:stream:block",
     FAILOVER: "planner:stream:failover",
@@ -77,6 +78,36 @@ export default class WorldSetter {
     #streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
 
     /**
+     * Strips reasoning spans from a raw model buffer so that block-detection
+     * regexes ONLY ever see real schedule output (Task 7).
+     *
+     * Handles the three shapes reasoning models emit:
+     * - `<?think>…` self-delimited Codestral-style preamble
+     * - `[…]` self-delimited reasoning preamble
+     * - paired `<think>…` and `<thought>…</thought>` spans
+     *
+     * An unclosed opener swallows the remainder of the buffer, which is exactly
+     * right while a model is still reasoning — nothing downstream can fire on a
+     * preamble that merely *mentions* "block" or "<schedule>".
+     *
+     * @param {string} text Raw accumulated text.
+     * @returns {string} Output text with all reasoning spans removed.
+     */
+    static stripReasoningSpans(text) {
+        if (!text || typeof text !== "string") return "";
+        if (!/<\?think\b|\[\s*think\s*\]|<\s*think\b|<thought\b/i.test(text)) return text;
+
+        let out = text;
+        // Self-delimited markers: the opener doubles as the closer (or runs to end-of-stream).
+        out = out.replace(/<\?think\b[\s\S]*?(?:<\?think>|$)/gi, "");
+        out = out.replace(/\[\s*think\s*\][\s\S]*?(?:\[\s*think\s*\]|$)/gi, "");
+        // Paired reasoning tags.
+        out = out.replace(/<\s*think\b[^>]*>[\s\S]*?<\/\s*think\s*>/gi, "");
+        out = out.replace(/<thought\b[^>]*>[\s\S]*?<\/\s*thought\s*>/gi, "");
+        return out;
+    }
+
+    /**
      * @param {{ messages: import("./PromptBuilder").ChatMessage[] }} promptPayload
      * @param {PromptType} promptType
      * @returns {Promise<string>}
@@ -91,6 +122,11 @@ export default class WorldSetter {
             this.#emitStreamProgress(rawText, chunk);
         };
         cleanups.add(this.geminiClient.events.on("text", onChunk, "PlannerStream:text"));
+
+        // Reasoning tokens (`part.thought === true`) never reach the output
+        // stream — surface them as an explicit THINKING phase instead (Task 7).
+        const onThinking = () => this.#emitThinkingProgress();
+        cleanups.add(this.geminiClient.events.on("thinking", onThinking, "PlannerStream:thinking"));
 
         const events = this.world.events;
 
@@ -132,7 +168,9 @@ export default class WorldSetter {
 
                     rawText = result.text;
                     this.modelPool.reportSuccess(model);
-                    return result.text;
+                    // Strip any residual inline reasoning (<?think> / [think] /
+                    // <thought>) before the XML parser sees the response.
+                    return WorldSetter.stripReasoningSpans(result.text);
                 } catch (/** @type {any} */ genError) {
                     const err = genError;
                     lastError = err;
@@ -169,8 +207,8 @@ export default class WorldSetter {
         } finally {
             for (const off of cleanups) off();
             cleanups.clear();
-            this.#emitStreamProgress(rawText, "", true);
-            events.emit(PlannerStreamEvents.DONE, { promptType, rawText });
+            this.#emitStreamProgress(WorldSetter.stripReasoningSpans(rawText), "", true);
+            events.emit(PlannerStreamEvents.DONE, { promptType, rawText: WorldSetter.stripReasoningSpans(rawText) });
         }
     }
 
@@ -188,26 +226,52 @@ export default class WorldSetter {
     }
 
     /**
+     * Emits the debounced "🧠 Thinking & Structuring Scene..." phase while the
+     * model is still in its reasoning preamble (before any schedule output).
+     * @returns {void}
+     */
+    #emitThinkingProgress() {
+        const now = Date.now();
+        if (now - this.#streamProgress.lastEmitAt < STREAM_PROGRESS_DEBOUNCE_MS) return;
+        this.#streamProgress.lastEmitAt = now;
+
+        this.world.events.emit(PlannerStreamEvents.THINKING, {});
+    }
+
+    /**
      * @param {string} accumulated
      * @param {string} [chunk]
      * @param {boolean} [force]
      */
     #emitStreamProgress(accumulated, chunk = "", force = false) {
         const now = Date.now();
-        const closedBlockArrived = /<\/\s*block\s*>/i.test(chunk);
+
+        // (Task 7) Reasoning spans are removed BEFORE any structural analysis:
+        // a preamble that mentions "block" or "<schedule>" must never drive
+        // block detection or the phase indicator.
+        const output = WorldSetter.stripReasoningSpans(accumulated);
+        const hasSchedule = /<\s*schedule\b/i.test(output);
+
+        const closedBlockArrived = /<\/\s*block\s*>/i.test(chunk) && hasSchedule;
         const debounced = now - this.#streamProgress.lastEmitAt >= STREAM_PROGRESS_DEBOUNCE_MS;
 
         if (!force && !closedBlockArrived && !debounced) return;
         this.#streamProgress.lastEmitAt = now;
 
         const events = this.world.events;
-        events.emit(PlannerStreamEvents.TEXT, accumulated);
+        events.emit(PlannerStreamEvents.TEXT, output);
+
+        // Explicit phase: while no <schedule> XML has actually started streaming,
+        // the model is still thinking/structuring — never "Generating block X".
+        if (!hasSchedule) {
+            events.emit(PlannerStreamEvents.THINKING, {});
+        }
 
         const blockRegex = /<\s*block\b[^>]*>([\s\S]*?)<\/\s*block\s*>/gi;
         let match;
         let matchIndex = 0;
 
-        while ((match = blockRegex.exec(accumulated)) !== null) {
+        while ((match = blockRegex.exec(output)) !== null) {
             const rawBlock = match[0];
             const content = match[1];
 

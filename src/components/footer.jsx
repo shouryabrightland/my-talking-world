@@ -26,6 +26,15 @@ import { ReplyBox } from "./message";
 import { sampleDirectorPresets } from "../util/directorPresets";
 
 /**
+ * Typing inactivity cadence in ms (Task 6): `isTyping` flips true on every
+ * keystroke and only returns to false once typing has ceased for a full 800ms,
+ * so rapid follow-up messages keep the flag alive while the turn orchestrator
+ * defers the AI turn until the pause settles.
+ * @type {number}
+ */
+const TYPING_IDLE_MS = 800;
+
+/**
  * Dual-Mode Footer Hub.
  * Renders either the User input or Director input based on the current mode.
  * In offline mode, forces User mode and disables Director mode.
@@ -198,17 +207,12 @@ const UserInputBox = memo(function UserInputBox() {
             typingTimeout.current = null;
         }
 
-        if (!newText) {
-            user.events.emit(ChatMemberEvents.TYPING, false);
-            return newText;
-        }
-
         user.events.emit(ChatMemberEvents.TYPING, true);
 
         typingTimeout.current = setTimeout(() => {
             user.events.emit(ChatMemberEvents.TYPING, false);
             typingTimeout.current = null;
-        }, 1200);
+        }, TYPING_IDLE_MS);
 
         return newText;
     }, [user]);
@@ -240,12 +244,18 @@ const UserInputBox = memo(function UserInputBox() {
         setReply(null);
         setText("");
         setIsDrawerOpen(false);
-        user.events.emit(ChatMemberEvents.TYPING, false);
 
+        // Keep the typing cadence running after an explicit submit: if the
+        // user immediately starts typing a follow-up the flag stays true and
+        // the AI turn waits for the 800ms settle; otherwise the pending timer
+        // clears it automatically. Never leave `isTyping` stuck on.
         if (typingTimeout.current) {
             clearTimeout(typingTimeout.current);
-            typingTimeout.current = null;
         }
+        typingTimeout.current = setTimeout(() => {
+            user.events.emit(ChatMemberEvents.TYPING, false);
+            typingTimeout.current = null;
+        }, TYPING_IDLE_MS);
     }, [text, user, Reply, setReply]);
 
     /** Handle form submission (Enter key or Send button) */
@@ -271,7 +281,7 @@ const UserInputBox = memo(function UserInputBox() {
             {/* Quote Reply Banner */}
             {Reply && (
                 <div className={styles.replyBanner}>
-                    <div style={{ flex: 1 }}>
+                    <div className={styles.replyBannerQuote}>
                         <ReplyBox message={Reply} />
                     </div>
                     <button

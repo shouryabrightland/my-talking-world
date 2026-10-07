@@ -78,12 +78,20 @@ vi.mock("../../src/classes/World.js", () => ({
         get chat() {
             const world = this;
             return {
+                destroyed: false,
+                paused: false,
                 getMembers: () => [], getMember: () => null, getHistory: () => [],
                 addMessage() {}, clear() {},
+                pause() { this.paused = true; },
+                resume() { this.paused = false; },
+                destroy() { this.destroyed = true; },
                 events: world._chatEvents
             };
         }
         async init() {}
+        pause() { this.paused = true; }
+        resume() { this.paused = false; }
+        stopHeartbeat() { this.heartbeatTimer = null; }
         destroy() { this.destroyed = true; }
         toString() { return this._worldContext ?? "Mock World"; }
     },
@@ -177,6 +185,8 @@ vi.mock("../../src/util/Constants.js", () => ({
     DEFAULT_CHAT_MODEL: "mock-model",
     PROMPT_DIALOGUE_TASK: "mock task",
     PROMPT_DIALOGUE_RULES: ["rule1"],
+    PROMPT_LANGUAGE_MANDATE: "<language_mandate>mock mandate</language_mandate>",
+    PROMPT_LOCATION_MANDATE: "<location_diversity_mandate>mock location rule</location_diversity_mandate>",
     PARTICIPANT_TYPE_CHARACTER: "character",
     PARTICIPANT_TYPE_HUMAN: "human"
 }));
@@ -380,10 +390,25 @@ describe("ConversationManager — Protocol Buffer Lifecycle", () => {
             expect(manager.requesting).toBe(false);
         });
 
-        it("destroys the World so the heartbeat timer is cleared", () => {
+        it("pauses the World instead of destroying it so re-login survives", () => {
             manager.logout();
 
-            expect(manager.world.destroyed).toBe(true);
+            // Session logout must NEVER destroy the engine: the room context
+            // (members + messages) has to survive for the next Studio session.
+            expect(manager.world.destroyed).toBe(false);
+            expect(manager.world.paused).toBe(true);
+            expect(manager.chat.paused).toBe(true);
+        });
+
+        it("does not clear chat members or messages on logout", () => {
+            manager.chat.members = new Map([["tom", { id: "tom" }]]);
+            manager.chat.messages = [{ id: "m1" }];
+
+            manager.logout();
+
+            expect(manager.chat.destroyed).toBe(false);
+            expect(manager.chat.members.size).toBe(1);
+            expect(manager.chat.messages).toHaveLength(1);
         });
     });
 

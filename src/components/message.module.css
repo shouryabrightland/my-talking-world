@@ -305,6 +305,12 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    /* Task 2: keep the quote chain shrinkable inside the footer's flex row so
+       a long quoted message truncates instead of pushing the footer wide. */
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .replyAuthor {
@@ -318,6 +324,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
     max-width: 100%;
     width: 100%;
 }
@@ -352,6 +359,9 @@
     width: 100%;
     max-height: min(85dvh, 620px);
     overflow: hidden;
+    /* Task 8: clip + stacking boundary so .inspectorBody's scrollbar never
+       draws square across the 24px corner radius. */
+    isolation: isolate;
     box-shadow: var(--shadow-elevation);
     border: 1px solid var(--border-color);
     display: flex;
@@ -402,6 +412,9 @@
     flex-direction: column;
     gap: 10px;
     overflow-y: auto;
+    /* Task 8: inset the gutter so the scrollbar track stays inside the curve. */
+    scrollbar-gutter: stable;
+    padding-right: 8px;
     overscroll-behavior: contain;
     min-height: 0;
 }

@@ -207,7 +207,15 @@ export default class World {
      * @returns {Promise<void>}
      */
     async init() {
-        if (this.initialized) return;
+        if (this.initialized) {
+            // Re-login after a session logout: the world was only PAUSED, so
+            // refresh the clock, restart the 30s heartbeat and un-pause the
+            // preserved Chat room context (members + messages survive).
+            this.tick(new Date());
+            this.resume();
+            this.chat.resume();
+            return;
+        }
 
         this.logger.info("Initializing World state container and participants...");
 
@@ -235,14 +243,16 @@ export default class World {
         this.currentDateString = this.now.toDateString();
         this.currentHour = this.now.getHours();
 
-        try {
-            await this.worldSetter.ensureSchedule(this.now);
-        } catch (/** @type {unknown} */ err) {
-            this.logger.error("Failed to establish schedule horizon on boot:", err);
-        }
+        // NON-BLOCKING: planHorizon() streams Gemini blocks over the network
+        // and can take 20s+. Boot must not hold `conv.init()` (and the Stage
+        // Card) hostage — the user lands in <ChatUX /> immediately while
+        // BackgroundBar visualizes the horizon streaming in the background.
+        this.worldSetter.ensureSchedule(this.now).catch((/** @type {unknown} */ err) => {
+            this.logger.error("Background schedule horizon generation failed:", err);
+        });
 
         this.tick(this.now);
-        this.#startHeartbeat();
+        this.startHeartbeat();
 
         this.initialized = true;
         this.setReady(true);
@@ -250,18 +260,52 @@ export default class World {
     }
 
     /**
-     * Starts the recurring 30-second simulation clock ticker.
-     * 
+     * Starts (or restarts) the recurring 30-second simulation clock ticker.
+     * Safe to call repeatedly — any existing interval is cleared first.
+     *
      * @returns {void}
      */
-    #startHeartbeat() {
-        if (this.heartbeatTimer !== null) {
-            clearInterval(this.heartbeatTimer);
-        }
+    startHeartbeat() {
+        this.stopHeartbeat();
 
         this.heartbeatTimer = setInterval(() => {
             this.tick(new Date());
         }, 30_000);
+    }
+
+    /**
+     * Clears the 30s heartbeat interval cleanly without destroying anything.
+     *
+     * @returns {void}
+     */
+    stopHeartbeat() {
+        if (this.heartbeatTimer !== null) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+    }
+
+    /**
+     * Non-destructive session pause (used on logout): halts the heartbeat so it
+     * cannot tick in the background, but keeps members, Chat context, memories,
+     * schedule and event listeners fully intact for a later resume().
+     *
+     * @returns {void}
+     */
+    pause() {
+        this.stopHeartbeat();
+        this.logger.info("World paused for session logout — heartbeat halted, Chat context preserved.");
+    }
+
+    /**
+     * Resumes a paused world: refreshes the clock and restarts the heartbeat.
+     * Does NOT re-run init() side effects (members, storage, WorldSetter).
+     *
+     * @returns {void}
+     */
+    resume() {
+        this.startHeartbeat();
+        this.logger.info("World resumed — 30s heartbeat restarted.");
     }
 
     /**
@@ -520,14 +564,13 @@ export default class World {
     }
 
     /**
-     * Destroys World context and cancels recurring timers.
+     * Permanently destroys World context and cancels recurring timers.
+     * RESERVED for full application unmounting — session logouts must use
+     * pause() instead so the Chat room (members + history) survives.
      * @returns {void}
      */
     destroy() {
-        if (this.heartbeatTimer !== null) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
+        this.stopHeartbeat();
 
         this.events.clearAll();
         this.chat.destroy();
