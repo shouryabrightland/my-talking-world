@@ -13,7 +13,7 @@
 
 /**
  * Supported prompt categorizations in the simulation engine.
- * @typedef {"dialogue" | "scheduler" | "demand" | "stabilizer"} PromptType
+ * @typedef {"dialogue" | "scheduler" | "demand" | "stabilizer" | "situation"} PromptType
  */
 
 /**
@@ -56,7 +56,8 @@ export default class PromptLogger {
         dialogue: [],
         scheduler: [],
         demand: [],
-        stabilizer: []
+        stabilizer: [],
+        situation: []
     };
 
     /** 
@@ -157,7 +158,8 @@ export default class PromptLogger {
             dialogue: [...PromptLogger._buffers.dialogue],
             scheduler: [...PromptLogger._buffers.scheduler],
             demand: [...PromptLogger._buffers.demand],
-            stabilizer: [...PromptLogger._buffers.stabilizer]
+            stabilizer: [...PromptLogger._buffers.stabilizer],
+            situation: [...PromptLogger._buffers.situation]
         };
     }
 
@@ -184,5 +186,6 @@ export default class PromptLogger {
         PromptLogger._buffers.scheduler = [];
         PromptLogger._buffers.demand = [];
         PromptLogger._buffers.stabilizer = [];
+        PromptLogger._buffers.situation = [];
     }
 }

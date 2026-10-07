@@ -216,6 +216,24 @@ export default class TimelineProcessor {
     }
 
     /**
+     * Epoch ms at which the last queued event across ALL participant schedulers
+     * finishes — i.e. when the final message of this turn has been typed,
+     * delivered and read on screen. Anchored to at least Date.now().
+     *
+     * Used to anchor macro pacing: a `<delay ms="…"/>` only starts counting
+     * after this instant, so it never runs concurrently with on-screen typing.
+     *
+     * @returns {number} Timestamp in milliseconds epoch.
+     */
+    getLastTime() {
+        let maxTime = Date.now();
+        for (const scheduler of this.schedulers.values()) {
+            maxTime = Math.max(maxTime, scheduler.getLastTime());
+        }
+        return maxTime;
+    }
+
+    /**
      * Calculates the exact timestamp when the next Groq request should be triggered.
      * Prevents fast-loop quota exhaustion by ensuring that requests are only fired
      * when the pending message buffer drains below the threshold.

@@ -30,8 +30,10 @@ import TimelineProcessor from "./TimelineProcessor";
 import PromptBuilderClass from "./PromptBuilder";
 import ProtocolCodec from "./ProtocolCodec";
 import Storage from "./lib/Storage";
+import UnifiedMemory from "./lib/UnifiedMemory";
+import NeedleRouter from "./lib/NeedleRouter";
+import SituationEngine from "./SituationEngine";
 import World, { WorldEvents } from "./World";
-import XmlEncoder from "./lib/XmlEncoder";
 import MemoryExpiryParser from "./lib/MemoryExpiryParser";
 import UserInterruptHandler from "./lib/UserInterruptHandler";
 import { Members } from "../util/member";
@@ -85,6 +87,32 @@ export default class ConversationManager {
         this.world = new World({ logger: this.logger, User: this.User });
 
         /** @readonly @type {Chat} */ this.chat = this.world.chat;
+
+        /**
+         * Shared episodic memory stack (Tier 3 query target, Tier 2 writer,
+         * Tier 1 planning context). Exposed on the World so WorldSetter can
+         * read it when assembling planner prompts.
+         * @readonly @type {UnifiedMemory}
+         */
+        this.unifiedMemory = new UnifiedMemory(this.logger);
+        this.world.unifiedMemory = this.unifiedMemory;
+
+        /**
+         * Tier-3 Needle query router (Wasm worker + deterministic fallback).
+         * @readonly @type {NeedleRouter}
+         */
+        this.needleRouter = new NeedleRouter();
+
+        /**
+         * Tier-2 situation & memory distiller (Gemma). Fed every completed turn.
+         * @readonly @type {SituationEngine}
+         */
+        this.situationEngine = new SituationEngine({
+            logger: this.logger,
+            geminiClient: this.world.worldSetter ? this.world.worldSetter.geminiClient : null,
+            unifiedMemory: this.unifiedMemory
+        });
+
         /** @readonly @type {ProtocolCodec} */ this.codec = new ProtocolCodec({ logger: this.logger });
         /** @readonly @type {TimelineProcessor} */ this.timelineProcessor = new TimelineProcessor(this.chat, Members, this.logger);
 
@@ -104,6 +132,11 @@ export default class ConversationManager {
         /** @type {number} */ this.consecutiveErrors = 0;
         /** @type {string|null} */ this.pendingDirectorPlot = null;
 
+        /** Last Needle route ("member: kw1, kw2") kept for DevTools inspection. @type {string|null} */
+        this.lastNeedleRoute = null;
+        /** Last Tier-3 memory lines injected into the prompt (DevTools). @type {string} */
+        this.lastRetrievedMemory = "";
+
         /** @type {ReturnType<typeof setTimeout>|null} */ this.#scheduleNextRequest_TimeOut = null;
         /** @readonly @type {UserInterruptHandler} */ this.#interruptHandler = new UserInterruptHandler({ logger: this.logger });
 
@@ -120,11 +153,14 @@ export default class ConversationManager {
     /** @readonly @type {UserInterruptHandler} */ #interruptHandler;
     /** Whether a generation stream is actively being processed. @type {boolean} */ #generationActive;
     /** Whether DIRECTOR_RESPONSE_START was already emitted for this turn. @type {boolean} */ #directorResponseStarted = false;
-    /** Monotonic prompt-build counter driving alternating environment injection. @type {number} */ #promptTurnIndex = 0;
-    /** Set when the human user speaks so the very next prompt carries full environment grounding. @type {boolean} */ #envRefreshRequested = false;
     /** One-shot subscription waiting for the human typing cadence to settle. @type {Function|null} */ #typingSettleUnsub = null;
     /** Safety-net timer for a typing settle that never resolves. @type {ReturnType<typeof setTimeout>|null} */ #typingSettleTimer = null;
     /** Single-flight boot: concurrent init() calls share ONE boot. @type {Promise<void>|null} */ #initPromise = null;
+    /** Text of the most recent human message (Needle routing input). @type {string} */ #lastUserMessageText = "";
+    /** Set when the human speaks so the next turn queries UnifiedMemory. @type {boolean} */ #userTurnPending = false;
+    /** Needle-matched memory lines injected into the current Context block. @type {string} */ #pendingMemorySnippet = "";
+    /** Pacing delay captured from a `<delay ms="…"/>` tag during this turn. @type {number|null} */ #pendingDelayMs = null;
+    /** Absolute clock wake-up captured from a `<next time="HH:mm"/>` tag. @type {string|null} */ #pendingNextTime = null;
 
     /**
      * Closes the active simulation session cleanly on user logout.
@@ -181,8 +217,11 @@ export default class ConversationManager {
         this.#generationActive = false;
         this.requesting = false;
         this.consecutiveErrors = 0;
-        this.#promptTurnIndex = 0;
-        this.#envRefreshRequested = false;
+        this.#lastUserMessageText = "";
+        this.#userTurnPending = false;
+        this.#pendingMemorySnippet = "";
+        this.#pendingDelayMs = null;
+        this.#pendingNextTime = null;
         this.pendingDirectorPlot = null;
         this.#directorResponseStarted = false;
 
@@ -216,9 +255,10 @@ export default class ConversationManager {
             ChatEvents.MESSAGE_ADD,
             /** @param {Message} message */            (message) => {
                 if (message && message.sender && !message.sender.isAI) {
-                    // Human messages always get fresh environmental grounding
-                    // on the next prompt build, regardless of turn parity.
-                    this.#envRefreshRequested = true;
+                    // Remember the utterance: the next turn routes it through
+                    // Needle → UnifiedMemory (Tier 3).
+                    this.#lastUserMessageText = message.text || "";
+                    this.#userTurnPending = true;
                     this.#handleHumanInterruption();
                 }
             },
@@ -295,11 +335,28 @@ export default class ConversationManager {
      * @returns {void}
      */
     #handleHumanInterruption() {
+        // 1. Immediately cancel any pending macro delay / <next> timeout.
+        if (this.#scheduleNextRequest_TimeOut !== null) {
+            clearTimeout(this.#scheduleNextRequest_TimeOut);
+            this.#scheduleNextRequest_TimeOut = null;
+        }
+        this.#pendingDelayMs = null;
+        this.#pendingNextTime = null;
+
+        // 2. Reactivate every AI cast member so they can answer right away.
+        for (const member of this.chat.getMembers()) {
+            if (member.isAI) {
+                member.setTransientState("isActive", true, 4000);
+                member.events.emit(ChatMemberEvents.ACTIVE, true);
+            }
+        }
+
+        // 3. Delegate to interrupt handler.
         this.#interruptHandler.handle({
             user: this.User,
             aiMembers: this.chat.getMembers(),
             aiAbortController: this.client,
-            onRequestTurn: () => this.requestTurn(),
+            onRequestTurn: () => this.requestTurn(true, this.#lastUserMessageText),
             isExplicitSubmit: true,
             onCancelQueues: () => {
                 for (const member of this.chat.getMembers()) {
@@ -342,12 +399,18 @@ export default class ConversationManager {
      */
     async #boot() {
         this.logger.info("Booting ConversationManager and World orchestrator...");
+
+        // Tier 3 memory must be hydrated before the planner can read it.
+        await this.unifiedMemory.init();
         await this.world.init();
+
+        // Restore the distilled situation (instead of the default garage text).
+        if (this.situationEngine) {
+            await this.situationEngine.init();
+        }
 
         this.User.isOnline = true;
         this.initialized = true;
-        this.#promptTurnIndex = 0;
-        this.#envRefreshRequested = false;
         this.events.emit(ConversationEvents.READY);
 
         this.scheduleNextRequest();
@@ -364,7 +427,22 @@ export default class ConversationManager {
      *
      * @returns {Promise<void>}
      */
-    async requestTurn() {
+    /**
+     * Triggers a Groq banter turn (Tier 4) via streaming SSE.
+     * **Skipped entirely when offline** — local messages still work.
+     *
+     * On human-initiated turns the utterance is first routed through the
+     * Needle worker (Tier 3) so 0-2 relevant UnifiedMemory lines can be
+     * injected into the lean prompt.
+     *
+     * When the human user is mid-typing (follow-up message being composed),
+     * the turn is deferred until the 800ms typing cadence settles so the AI
+     * never answers while the next sentence is still being written.
+     *
+     * @param {boolean} [isUserInitiated=false] Whether this turn answers a human message.
+     * @param {string} [userMessageText=""] The human utterance to route through Needle.
+     * @returns {Promise<void>} */
+    async requestTurn(isUserInitiated = false, userMessageText = "") {
         if (this.requesting || !this.initialized) return;
 
         // Offline guard: Skip AI turn generation when offline
@@ -384,9 +462,15 @@ export default class ConversationManager {
         this.protocolBuffer = "";
         this.#generationActive = true;
         this.#directorResponseStarted = false;
+        this.#pendingDelayMs = null;
+        this.#pendingNextTime = null;
+        this.#pendingMemorySnippet = "";
         this.logger.info("Requesting fresh conversational turn from Groq...");
 
         try {
+            // Tier 3: Needle keyword extraction → deterministic memory lookup.
+            await this.#resolveMemorySnippet(isUserInitiated, userMessageText);
+
             const promptPayload = await this.promptBuilder.build({
                 includeSystem: true,
                 includeUser: true
@@ -394,11 +478,14 @@ export default class ConversationManager {
 
             await this.client.streamChat(promptPayload.messages, {
                 temperature: 0.85,
-                maxTokens: 2000,
+                maxTokens: 1200,
                 promptType: "dialogue"
             });
 
             this.consecutiveErrors = 0;
+
+            // Tier 2: feed the completed turn to the Situation & Memory engine.
+            this.#tickSituationEngine();
         } catch (err) {
             const error = /** @type {Error & {message: string}} */ (err);
             if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -422,9 +509,63 @@ export default class ConversationManager {
             this.#flushRemainingBuffer();
             this.protocolBuffer = "";
             this.requesting = false;
+            this.#pendingMemorySnippet = "";
         }
 
         this.scheduleNextRequest();
+    }
+
+    /**
+     * Tier-3 lookup: routes the human utterance through the Needle worker and
+     * keeps the 0-2 matching UnifiedMemory lines for the prompt's Context block.
+     * Never throws — a routing failure silently degrades to an empty snippet.
+     *
+     * @param {boolean} isUserInitiated
+     * @param {string} userMessageText
+     * @returns {Promise<void>}
+     */
+    async #resolveMemorySnippet(isUserInitiated, userMessageText) {
+        const wantsLookup = isUserInitiated || this.#userTurnPending;
+        if (!wantsLookup) return;
+
+        // Consume the flag even when the lookup fails so autonomous turns
+        // never keep re-querying with a stale utterance.
+        this.#userTurnPending = false;
+
+        const queryText = String(userMessageText || this.#lastUserMessageText || "").trim();
+        if (!queryText) return;
+
+        try {
+            const { keywords, member } = await this.needleRouter.route(queryText);
+            this.lastNeedleRoute = `${member}: ${keywords.join(", ") || "none"}`;
+            const matches = this.unifiedMemory.searchDeterministic(keywords, [member]);
+            if (matches.length > 0) {
+                // Hard cap keeps the lean prompt inside its prompt-token budget.
+                this.#pendingMemorySnippet = matches.join(" | ").slice(0, 80);
+                this.lastRetrievedMemory = this.#pendingMemorySnippet;
+            }
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Needle memory routing failed:", err);
+        }
+    }
+
+    /**
+     * Tier-2 tick: counts the completed turn toward the SituationEngine
+     * trigger and runs a distillation pass when due (>=10 msgs OR >=10 min).
+     *
+     * @returns {void}
+     */
+    #tickSituationEngine() {
+        if (!this.situationEngine) return;
+        this.situationEngine.recordMessage();
+
+        void this.situationEngine.executeIfDue({
+            currentDateTime: this.world.dateTime,
+            environmentSummary: `${this.world.environment?.temperature || "32°C"}, ${this.world.environment?.weather || "Warm"}`,
+            activeSceneTopic: this.world.activeSchedule?.topic || "Casual hangout",
+            activeSceneGoal: this.world.activeSchedule?.mainGoal || "Chat naturally",
+            recentDialogue: this.#getRecentChatHistory()
+        });
     }
 
     /**
@@ -464,7 +605,8 @@ export default class ConversationManager {
         if (!force && this.User.isTyping) return; // still mid-sentence
 
         this.logger.debug("Typing settled. Resuming deferred turn request...");
-        void this.requestTurn();
+        // Pass the human turn parameters so Tier-3 Needle routing still runs.
+        void this.requestTurn(true, this.#lastUserMessageText);
     }
 
     /**
@@ -531,6 +673,48 @@ export default class ConversationManager {
             }
         }
 
+        // Tier-4 banter tags: <msg sender="…" reaction="…">text</msg> are
+        // dispatched the moment they complete so bubbles keep streaming live.
+        const msgTagRegex = /<\s*msg\s+([^>]*?)>([\s\S]*?)<\/\s*msg\s*>/gi;
+        let msgMatch;
+        let msgLastIndex = 0;
+        /** @type {string[]} */
+        const completedMsgBlocks = [];
+
+        while ((msgMatch = msgTagRegex.exec(this.protocolBuffer)) !== null) {
+            completedMsgBlocks.push(msgMatch[0]);
+            msgLastIndex = msgMatch.index + msgMatch[0].length;
+        }
+
+        if (msgLastIndex > 0) {
+            this.protocolBuffer = this.protocolBuffer.slice(msgLastIndex);
+
+            for (const msgBlock of completedMsgBlocks) {
+                const attrs = msgBlock.match(/<\s*msg\s+([^>]*?)>/i)?.[1] || "";
+                const sender = attrs.match(/sender\s*=\s*["']([^"']+)["']/i)?.[1] || "";
+                const reaction = attrs.match(/reaction\s*=\s*["']([^"']+)["']/i)?.[1] || "Default";
+                const text = msgBlock
+                    .replace(/<\s*msg\s+[^>]*?>/i, "")
+                    .replace(/<\/\s*msg\s*>/gi, "")
+                    .trim();
+                this.handleBanterMessage(sender, reaction, text);
+            }
+        }
+
+        // Tier-4 macro pacing tags drive the next turn timer.
+        const delayMatch = this.protocolBuffer.match(/<\s*delay\s+ms=["'](\d+)["']\s*\/?>/i);
+        if (delayMatch) {
+            this.#pendingDelayMs = Math.max(0, Number(delayMatch[1]) || 0);
+            this.protocolBuffer = this.protocolBuffer.replace(delayMatch[0], "");
+        }
+
+        // Absolute clock wake-up: <next time="HH:mm"/>
+        const nextMatch = this.protocolBuffer.match(/<\s*next\s+time=["'](\d{1,2}:\d{2})["']\s*\/?>/i);
+        if (nextMatch) {
+            this.#pendingNextTime = nextMatch[1];
+            this.protocolBuffer = this.protocolBuffer.replace(nextMatch[0], "");
+        }
+
         // Safety: Prune buffer if it grows too large
         if (this.protocolBuffer.length > 16_000) {
             this.logger.warn("Protocol buffer exceeded safety threshold. Pruning leading characters.");
@@ -591,11 +775,35 @@ export default class ConversationManager {
             protocolReplyId: protocol.replyToID == null ? null : String(protocol.replyToID),
             sender,
             text: protocol.text,
-            thought: protocol.thought,
             emotion: { name: protocol.reaction }
         });
 
         this.timelineProcessor.add(message);
+    }
+
+    /**
+     * Handles a Tier-4 `<msg sender reaction>` banter tag by queueing the line
+     * on the sender's timeline for paced delivery.
+     *
+     * @param {string} sender Raw sender id from the tag.
+     * @param {string} reaction Reaction name from the tag.
+     * @param {string} text Dialogue payload.
+     * @returns {void}
+     */
+    handleBanterMessage(sender, reaction, text) {
+        if (!text) return;
+
+        const member = this.chat.getMember(String(sender || "").toLowerCase());
+        if (!member) {
+            this.logger.warn(`<msg> sender "${sender}" is not registered.`);
+            return;
+        }
+
+        this.timelineProcessor.add(new Message({
+            sender: member,
+            text,
+            emotion: { name: reaction }
+        }));
     }
 
     /**
@@ -633,8 +841,15 @@ export default class ConversationManager {
     }
 
     /**
-     * Schedules the next autonomous AI turn based on the timeline processor's pacing.
-     * Calculates delay from pending message buffer and schedules via setTimeout.
+     * Schedules the next autonomous AI turn from the macro-pacing tags the
+     * model emitted this turn, anchored to the moment the LAST queued message
+     * finishes being delivered/read on screen:
+     *
+     * - `<next time="HH:mm"/>` → absolute clock wake-up; the cast is marked
+     *   inactive for the whole wait and reactivated when the timer fires.
+     * - `<delay ms="…"/>`      → relative pause that starts AFTER last delivery.
+     * - neither                → default 4s banter pacing after last delivery.
+     *
      * @returns {void}
      */
     scheduleNextRequest() {
@@ -645,14 +860,70 @@ export default class ConversationManager {
             this.#scheduleNextRequest_TimeOut = null;
         }
 
-        const nextTime = this.timelineProcessor.getNextLiveRequstTime();
-        const calculatedDelay = nextTime - Date.now();
-        const delay = calculatedDelay <= 0 ? 5_000 : calculatedDelay;
+        const explicitDelay = this.#pendingDelayMs;
+        const nextTimeStr = this.#pendingNextTime;
+        this.#pendingDelayMs = null;
+        this.#pendingNextTime = null;
+
+        // Epoch ms at which the slowest queued typing/reading finishes.
+        const lastMessageDeliveredAt = this.timelineProcessor.getLastTime();
+        const now = Date.now();
+        let targetTimeMs;
+
+        if (nextTimeStr) {
+            // Case A: absolute clock time (e.g. <next time="06:00"/>)
+            const [targetH, targetM] = nextTimeStr.split(":").map(Number);
+            const targetDate = new Date(this.world.now);
+            targetDate.setHours(targetH || 0, targetM || 0, 0, 0);
+
+            if (targetDate.getTime() <= now) {
+                targetDate.setDate(targetDate.getDate() + 1);
+            }
+            targetTimeMs = targetDate.getTime();
+
+            // Mark the AI cast inactive for the whole wait — no character acts
+            // out a scene while the room is waiting for the future clock time.
+            for (const member of this.chat.getMembers()) {
+                if (member.isAI) {
+                    member.setTransientState("isActive", false, 0);
+                    member.events.emit(ChatMemberEvents.ACTIVE, false);
+                }
+            }
+            this.logger.info(`Turn completed. Cast paused until ${nextTimeStr} (${Math.round((targetTimeMs - now) / 60000)}m wait).`);
+        } else if (explicitDelay !== null) {
+            // Case B: explicit relative delay starts AFTER the last message delivery.
+            targetTimeMs = Math.max(now, lastMessageDeliveredAt) + explicitDelay;
+            this.logger.info(`Turn completed. Next request scheduled ${explicitDelay / 1000}s AFTER last message delivery.`);
+        } else {
+            // Case C: default banter pacing (4 seconds after last message delivery).
+            targetTimeMs = Math.max(now, lastMessageDeliveredAt) + 4000;
+        }
+
+        const waitDurationMs = Math.max(100, targetTimeMs - now);
 
         this.#scheduleNextRequest_TimeOut = setTimeout(() => {
             this.#scheduleNextRequest_TimeOut = null;
+            // Reactivate the cast the moment the scheduled wait ends.
+            for (const member of this.chat.getMembers()) {
+                if (member.isAI) {
+                    member.setTransientState("isActive", true, 4000);
+                    member.events.emit(ChatMemberEvents.ACTIVE, true);
+                }
+            }
             void this.requestTurn();
-        }, delay);
+        }, waitDurationMs);
+    }
+
+    /**
+     * Schedules the next autonomous turn after an explicit pacing delay
+     * (parsed from the `<delay ms="…"/>` tag emitted by Tier 4).
+     *
+     * @param {number} delayMs Milliseconds to wait before the next turn.
+     * @returns {void}
+     */
+    scheduleNextRequestWithDelay(delayMs) {
+        this.#pendingDelayMs = Math.max(0, Number(delayMs) || 0);
+        this.scheduleNextRequest();
     }
 
     /**
@@ -705,6 +976,17 @@ export default class ConversationManager {
         this.#generationActive = false;
         this.requesting = false;
         this.consecutiveErrors = 0;
+        this.#lastUserMessageText = "";
+        this.#userTurnPending = false;
+        this.#pendingMemorySnippet = "";
+        this.#pendingDelayMs = null;
+        this.#pendingNextTime = null;
+        this.lastNeedleRoute = null;
+        this.lastRetrievedMemory = "";
+
+        // System reset also wipes the shared Tier-3 episodic stack.
+        this.unifiedMemory.entries = [];
+        await this.unifiedMemory.persist();
 
         await this.chat.clear();
         await new Storage("Scheduler").clear();
@@ -741,134 +1023,80 @@ export default class ConversationManager {
      */
     registerPrompt(builder) {
         /**
-         * SINGLE consolidated system directive (Task: prompt compression):
-         * replaces the former <task> + <language_mandate> +
-         * <location_diversity_mandate> + 13 <rule> tags with one tight block
-         * covering language, setting diversity, turn-taking, anti-parroting
-         * and the output format.
+         * TIER-4 LEAN PROMPT (Tier 4 = Groq Banter Engine).
+         *
+         * Grounding = Tier-2 situation paragraph + simulation clock + 0-2
+         * Needle memory lines + the last 1000 characters of chat. The expected
+         * <msg>/<delay>/<next> XML structures are shown as raw tag text (no
+         * backtick code fences) and memories sit in their own Markdown block.
          */
-        builder.useSystem(() => builder.part(
-            `<system_directive>
-- Language: Authentic Lucknow Hinglish written strictly in Roman/Latin script. Zero Devanagari.
-- Setting: Pick varied real Lucknow settings (Gomti Nagar, Aliganj, university spots, home study, rooftops). Do not repeatedly set scenes in Hazratganj, Chowk, or the garage.
-- Turn-Taking: Emit ONLY 1 to 3 character replies per turn. NEVER force all characters to speak at once like a roll call.
-- Anti-Parroting: React directly to what was JUST said in recent dialogue. NEVER repeat, re-state, or re-ask goals or questions that were already discussed (e.g. food bills, trip confirmations). Progress the scene forward.
-- Output Format: Emit strictly valid XML records:
-  <record type="message" id="1" sender="tom" reaction="Default"><thought>brief internal intent</thought><text>dialogue line</text></record>
-  <record type="memory-set" member="tom" expiry="1h"><key>Mood</key><value>fact</value></record>
-  <record type="memory-remove" member="tom"><key>ObsoleteKey</key></record>
-</system_directive>`
-        ));
-
-        /** World context: current time, active schedule, and (throttled) heavy environment block */
         builder.useSystem(() => {
-            const turn = ++this.#promptTurnIndex;
-            const humanTriggered = this.#envRefreshRequested;
-            this.#envRefreshRequested = false;
+            const castIds = [...this.world.members.keys()].join(", ") || "tom, angela, ben, ginger, hank, becca";
+            const situation = this.situationEngine
+                ? this.situationEngine.situationText
+                : "Cast is hanging out in Lucknow, chatting casually.";
+            const memorySection = this.#pendingMemorySnippet
+                ? `\n\n## Active Memories\n\`\`\`\n${this.#pendingMemorySnippet}\n\`\`\``
+                : "";
 
-            // Full environmental grounding (weather, occasions, upcoming
-            // festivals, news headlines) is injected on alternating turns and
-            // immediately whenever the human user speaks. Interim AI-only
-            // banter turns only get <current_time> + the active schedule.
-            const includeEnvironment = humanTriggered || turn % 2 === 1;
-
-            return builder.part(
-                `<context>\n` +
-                `${this.world.toString(includeEnvironment)}\n` +
-                `</context>`
-            );
-        });
-
-        /** Character definitions — bios preserved but truncated to 50 chars */
-        builder.useSystem(() => {
-            const chars = [...this.world.members.values()].map(m => {
-                const customAbout = (m.about || "").trim();
-                const shortBio = customAbout.length > 50 ? `${customAbout.slice(0, 47)}...` : customAbout;
-                return `  <character id="${XmlEncoder.encode(m.id)}" name="${XmlEncoder.encode(m.name)}" age="${m.age}">${XmlEncoder.encode(shortBio)}</character>`;
-            }).join("\n");
-
-            return builder.part("<characters>\n" + chars + "\n</characters>");
-        });
-
-        /** Dynamic memories with TTL expiry for each member (validated against the simulation clock) */
-        builder.useSystem(() => {
-            const memoryBlocks = [...this.world.members.values()]
-                .map(m => {
-                    const usableKeys = m.memory.values().filter(k => k.isUsable(this.world.now));
-                    if (usableKeys.length === 0) return null;
-
-                    // Flat 2-space layout: expiry markers are dropped entirely —
-                    // the isUsable(world.now) filter above already guarantees
-                    // every injected memory is currently valid, so rendering
-                    // timestamps/permanence flags is generation-irrelevant
-                    // token overhead. The member NAME is omitted because the
-                    // <characters> block already maps id → name.
-                    const keysXml = usableKeys.map(k => {
-                        const val = Array.isArray(k.value) ? k.value.join(", ") : String(k.value);
-                        return `  <memory key="${XmlEncoder.encode(k.name)}">${XmlEncoder.encode(val)}</memory>`;
-                    }).join("\n");
-
-                    return `<memories member="${XmlEncoder.encode(m.id)}">\n${keysXml}\n</memories>`;
-                })
-                .filter(Boolean);
-
-            if (memoryBlocks.length > 0) {
-                return builder.part("<saved_memories>\n" + memoryBlocks.join("\n") + "\n</saved_memories>");
-            }
-            return null;
+            return builder.part([
+                "# Live Group Chat: Tom & Friends (Lucknow, India)",
+                `Cast: ${castIds}`,
+                "",
+                "## Ambient Setting",
+                `- Time: ${this.world.dateTime}`,
+                `- Atmosphere: ${situation}${memorySection}`,
+                "",
+                "## Dialogue Instructions",
+                "- Language: Natural Lucknow Hinglish (Roman/Latin script only).",
+                "- When a human user speaks, reply to them directly first. The ambient setting is background atmosphere.",
+                "- Output 1 to 3 messages using:",
+                '<msg sender="id" reaction="ReactionName">message text</msg>',
+                "- After all messages, output exactly one pacing tag:",
+                '  * For active banter: <delay ms="3000"/> to <delay ms="5000"/>',
+                '  * For thoughtful pause / waiting for user: <delay ms="20000"/> to <delay ms="60000"/>',
+                '  * For specific future time: <next time="HH:MM"/> (e.g. <next time="18:30"/>)'
+            ].join("\n"));
         });
 
         /** Director override: injects plot twists as stage directives */
         builder.useUser(() => {
             if (this.pendingDirectorPlot) {
-                return builder.part(`<stage_event type="director_override">${XmlEncoder.encode(this.pendingDirectorPlot)}</stage_event>`);
+                return builder.part(`Stage directive: ${this.pendingDirectorPlot}`);
             }
             return null;
         });
 
-        /** Recent dialogue history in semantic XML format */
-        builder.useUser(() => builder.part(this.#getRecentDialogueXml()));
+        /** Recent dialogue history (<= 1000 chars, isolated Markdown block) */
+        builder.useUser(() => builder.part([
+            "## Recent Chat",
+            "```",
+            this.#getRecentChatHistory() || "Chat begins now.",
+            "```"
+        ].join("\n")));
     }
 
     /**
-     * Formats recent dialogue history into semantic `<recent_dialogue>` XML.
-     * Each message is encoded with sender, reaction, reply references, and text.
+     * Formats recent dialogue into a plain-text transcript capped at 1000
+     * characters (newest lines win). Used for both the Tier-4 prompt window
+     * and the Tier-2 distillation batch.
      *
-     * @returns {string} XML-formatted recent dialogue block.
+     * @returns {string} Plain-text recent chat block.
      */
-    #getRecentDialogueXml() {
+    #getRecentChatHistory() {
         const recent = this.getRecentMessages();
-        if (recent.length === 0) {
-            return "<recent_dialogue>\n  <system_note>Conversation starts now. Jump into the active scene topic naturally!</system_note>\n</recent_dialogue>";
+        let history = "";
+
+        for (let i = recent.length - 1; i >= 0; i--) {
+            const msg = recent[i];
+            if (!msg || msg.deleted) continue;
+
+            const senderName = msg.sender?.name || "Me";
+            const line = `${senderName}: ${msg.text}\n`;
+            if (history.length + line.length > 1000) break;
+            history = line + history;
         }
 
-        /** @type {string[]} */
-        const xmlRows = ["<recent_dialogue>"];
-
-        for (const msg of recent) {
-            if (msg.deleted) continue;
-
-            // Stage directives (no sender) are rendered differently
-            if (!msg.sender) {
-                xmlRows.push(`  <stage_directive>${XmlEncoder.encode(msg.text)}</stage_directive>`);
-                continue;
-            }
-
-            const senderId = XmlEncoder.encode(msg.sender.id || "tom");
-            const reaction = XmlEncoder.encode(msg.emotion?.name || "Default");
-            const msgId = XmlEncoder.encode(msg.protocol?.id || msg.id);
-
-            let replyAttr = "";
-            if (msg.reply && msg.reply.protocol?.id) {
-                replyAttr = ` reply_to="${XmlEncoder.encode(msg.reply.protocol.id)}"`;
-            } else if (msg.protocol?.replyId) {
-                replyAttr = ` reply_to="${XmlEncoder.encode(msg.protocol.replyId)}"`;
-            }
-
-            xmlRows.push(`  <msg id="${msgId}" sender="${senderId}" reaction="${reaction}"${replyAttr}>${XmlEncoder.encode(msg.text)}</msg>`);
-        }
-
-        xmlRows.push("</recent_dialogue>");
-        return xmlRows.join("\n");
+        return history.replace(/\n+$/, "");
     }
 }

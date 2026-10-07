@@ -118,7 +118,6 @@
  * @property {string} id Unique message identifier.
  * @property {import("../ChatMember").default | null} sender Message author.
  * @property {string} text Message body text.
- * @property {string | null} thought AI reasoning/thought.
  * @property {{ name?: string, intensity?: number }} emotion Emotion metadata.
  * @property {boolean} deleted Whether message is soft-deleted.
  * @property {ProtocolRecord | null} protocol Protocol metadata.

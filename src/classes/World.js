@@ -86,6 +86,13 @@ export default class World {
          */
         this.chat = new Chat(this.logger);
 
+        /**
+         * Shared episodic memory stack (Tier 2 writes, Tier 1/3/4 read).
+         * Injected by ConversationManager after construction.
+         * @type {import("./lib/UnifiedMemory").default|null} 
+         */
+        this.unifiedMemory = null;
+
         /** 
          * Reference to the human user.
          * @readonly @type {ChatMember} 

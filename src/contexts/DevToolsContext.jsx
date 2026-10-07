@@ -69,6 +69,32 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
  * }} chatEngine Engine metrics.
  * @property {ModelPoolState} groqModelPool Snapshot of conv.client.modelPool.
  * @property {ModelPoolState} geminiModelPool Snapshot of conv.world.worldSetter.modelPool.
+ * @property {DevToolsUnifiedMemoryState} unifiedMemory Tier-3 episodic stack snapshot.
+ * @property {DevToolsSituationEngineState} situationEngine Tier-2 situation distiller snapshot.
+ * @property {DevToolsNeedleRouterState} needleRouter Tier-3 Needle query router snapshot.
+ */
+
+/**
+ * @typedef {Object} DevToolsUnifiedMemoryState
+ * @property {number} totalEntries Number of stored episodic entries.
+ * @property {number} characterCount Current rendered character footprint.
+ * @property {number} maxCharacters Hard 20,000-char budget.
+ * @property {Array<{ id: string, datetime: string, tags: string, data: string, expiry: string }>} entries Most recent 10 entries.
+ */
+
+/**
+ * @typedef {Object} DevToolsSituationEngineState
+ * @property {string} situationText Current 500-char ambient paragraph.
+ * @property {number} unreadCount Messages accumulated toward the distillation trigger.
+ * @property {string} lastRunTime Formatted time of the last distillation pass.
+ * @property {boolean} isProcessing Whether a pass is in flight.
+ */
+
+/**
+ * @typedef {Object} DevToolsNeedleRouterState
+ * @property {boolean} isReady Wasm worker availability.
+ * @property {string} lastRoute Last keyword/member route extracted from a human utterance.
+ * @property {string} lastMemorySnippet Most recent UnifiedMemory lines injected into the prompt.
  */
 
 /**
@@ -196,6 +222,31 @@ function extractSystemState(conv) {
         geminiModelPool: {
             activeModel: conv.world?.worldSetter?.modelPool?.getActiveModelSync?.() || null,
             models: extractModelPool(conv.world?.worldSetter?.modelPool)
+        },
+        unifiedMemory: {
+            totalEntries: conv.unifiedMemory?.entries?.length || 0,
+            characterCount: conv.unifiedMemory?.getCharacterCount?.() || 0,
+            maxCharacters: 20000,
+            entries: (conv.unifiedMemory?.entries || []).slice(-10).map((e) => ({
+                id: e.id,
+                datetime: e.datetime,
+                tags: e.tags.join(", "),
+                data: e.data,
+                expiry: e.expiry || "forever"
+            }))
+        },
+        situationEngine: {
+            situationText: conv.situationEngine?.situationText || "Not loaded",
+            unreadCount: conv.situationEngine?.unreadMessagesCount || 0,
+            lastRunTime: conv.situationEngine?.lastRunTime
+                ? new Date(conv.situationEngine.lastRunTime).toLocaleTimeString("en-GB", { hour12: false })
+                : "Never",
+            isProcessing: Boolean(conv.situationEngine?.isProcessing)
+        },
+        needleRouter: {
+            isReady: Boolean(conv.needleRouter?.isReady),
+            lastRoute: conv.lastNeedleRoute || "None",
+            lastMemorySnippet: conv.lastRetrievedMemory || "None"
         }
     };
 }
@@ -251,7 +302,8 @@ export function DevToolsProvider({ children }) {
             dialogue: [],
             scheduler: [],
             demand: [],
-            stabilizer: []
+            stabilizer: [],
+            situation: []
         });
     }, []);
 

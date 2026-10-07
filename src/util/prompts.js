@@ -65,7 +65,6 @@ export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj, Chowk, or the garage. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",
     "Break longer conversational statements across 2 to 3 shorter messages naturally.",
-    "Always include a candid <thought></thought> tag for every message revealing the character's internal mindset.",
     "PERSONA FIDELITY: Every character must strictly embody their unique personality, age, tone, and bio as declared in the <characters> context block. Stay 100% faithful to the participant definitions provided without blending voices.",
     "AUTONOMOUS MEMORIES: Use <record type=\"memory-set\"></record> with an appropriate expiry ('15m', '1h', '24h', 'forever') to store ONLY high-impact information: emotional states, relationship dynamics, secrets, commitments to the human user, or key plot milestones.",
     "FORBIDDEN MEMORIES: Never log micro-actions, physical movements, or trivial busywork (e.g. 'shoes laced', 'counting down', 'waiting for signal', 'picking up the phone', 'walking to the fridge'). If it will not matter in an hour, do not record it.",

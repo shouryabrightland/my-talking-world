@@ -130,31 +130,45 @@ export const PRESENTATION_SCENES = [
     }
 ];
 
+/**
+ * @param {Object} props
+ * @param {(() => void)} [props.onFinish] Exit callback back to the studio.
+ * @returns {React.JSX.Element}
+ */
 export default function PresentationView({ onFinish }) {
     const [activeAct, setActiveAct] = useState(0);
     const [mouseTilt, setMouseTilt] = useState({ x: 0, y: 0 });
     const isScrollingRef = useRef(false);
 
-    const goToAct = useCallback((newIdx) => {
-        const clamped = Math.max(0, Math.min(PRESENTATION_SCENES.length - 1, newIdx));
-        setActiveAct(clamped);
-        try { Sound.playMessagePop(); } catch {}
-    }, []);
+    const goToAct = useCallback(
+        /** @param {number} newIdx */
+        (newIdx) => {
+            const clamped = Math.max(0, Math.min(PRESENTATION_SCENES.length - 1, newIdx));
+            setActiveAct(clamped);
+            try { Sound.playMessagePop(); } catch {}
+        },
+        []
+    );
 
     // Interactive hover parallax
-    const handleMouseMove = useCallback((e) => {
-        if (activeAct === 5) {
-            setMouseTilt({ x: 0, y: 0 });
-            return;
-        }
-        const { innerWidth, innerHeight } = window;
-        const x = (e.clientX / innerWidth - 0.5) * 6;
-        const y = (e.clientY / innerHeight - 0.5) * -6;
-        setMouseTilt({ x, y });
-    }, [activeAct]);
+    const handleMouseMove = useCallback(
+        /** @param {React.MouseEvent} e */
+        (e) => {
+            if (activeAct === 5) {
+                setMouseTilt({ x: 0, y: 0 });
+                return;
+            }
+            const { innerWidth, innerHeight } = window;
+            const x = (e.clientX / innerWidth - 0.5) * 6;
+            const y = (e.clientY / innerHeight - 0.5) * -6;
+            setMouseTilt({ x, y });
+        },
+        [activeAct]
+    );
 
     // Keyboard navigation
     useEffect(() => {
+        /** @param {KeyboardEvent} e */
         const handleKeyDown = (e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
                 e.preventDefault();
@@ -171,16 +185,18 @@ export default function PresentationView({ onFinish }) {
     }, [activeAct, goToAct, onFinish]);
 
     // Trackpad / Wheel navigation
-    const handleWheel = useCallback((e) => {
-        if (isScrollingRef.current) return;
-        if (Math.abs(e.deltaY) < 30) return;
+    const handleWheel = useCallback(
+        /** @param {React.WheelEvent} e */
+        (e) => {
+            if (isScrollingRef.current) return;
+            if (Math.abs(e.deltaY) < 30) return;
 
-        isScrollingRef.current = true;
-        setTimeout(() => { isScrollingRef.current = false; }, 600);
+            isScrollingRef.current = true;
+            setTimeout(() => { isScrollingRef.current = false; }, 600);
 
-        if (e.deltaY > 0) {
-            goToAct(activeAct + 1);
-        } else {
+            if (e.deltaY > 0) {
+                goToAct(activeAct + 1);
+            } else {
             goToAct(activeAct - 1);
         }
     }, [activeAct, goToAct]);
@@ -290,7 +306,7 @@ export default function PresentationView({ onFinish }) {
                             </button>
                             <span className={styles.stepperCounter}>{activeAct + 1} / {PRESENTATION_SCENES.length}</span>
                             <button
-                                onClick={() => activeAct === 5 ? onFinish() : goToAct(activeAct + 1)}
+                                onClick={() => activeAct === 5 ? onFinish?.() : goToAct(activeAct + 1)}
                                 className={styles.nextBtn}
                             >
                                 {activeAct === 5 ? "Launch Studio 🚀" : "Next Scene →"}

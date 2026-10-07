@@ -106,6 +106,7 @@ vi.mock("../../src/util/Constants.js", () => ({
 // ─── Import after mocks ───
 
 import WorldSetter from "../../src/classes/WorldSetter.js";
+import { ChatMemberEvents } from "../../src/classes/ChatMember.js";
 
 function makeMockWorld() {
     return {
@@ -370,5 +371,106 @@ describe("WorldSetter — birthday celebration context", () => {
         await ws.planHorizon(new Date(2026, 9, 6, 14, 0));
 
         expect(capturedSystemText()).not.toContain("<active_celebration>");
+    });
+});
+
+// ─── Tier-1 24-hour macro planner prompt (Zero-Bias migration) ───
+
+describe("WorldSetter — 24-hour planner prompt (UnifiedMemory + continuity)", () => {
+    /** @type {ReturnType<typeof makeMockWorld>} */
+    let world;
+    /** @type {WorldSetter} */
+    let ws;
+
+    beforeEach(() => {
+        world = makeMockWorld();
+        ws = new WorldSetter({ logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }, world });
+    });
+
+    /** @returns {string} Joined system prompt parts captured from prompt thunks. */
+    function capturedSystemText() {
+        return promptCapture.systems
+            .map(fn => fn())
+            .filter(t => typeof t === "string")
+            .join("\n");
+    }
+
+    it("injects the UnifiedMemory stack, cast profiles and continuity locks", async () => {
+        world.now = new Date(2026, 9, 7, 12, 0);
+        world.unifiedMemory = {
+            toTextStack: () => "[2026-10-07 14:00 | tags: tom, chai] Tom promised chai at 5"
+        };
+        world.members.set("tom", { id: "tom", name: "Tom", age: 21, about: "Rooftop tinkerer" });
+        ws.schedule = [
+            { ...makeRecord(9, 10, "Morning chai on the balcony") },
+            { ...makeRecord(15, 16, "Evening riverfront walk") }
+        ];
+
+        await ws.planHorizon(world.now);
+
+        const text = capturedSystemText();
+        expect(text).toContain("# 24-Hour Storyline Planner & Director Engine");
+        expect(text).toContain("Tom promised chai at 5");
+        expect(text).toContain("**Tom** (ID: `tom`, Age: 21y)");
+        expect(text).toContain("LOCKED / PAST");
+        expect(text).toContain("FUTURE - SUBJECT TO RE-STABILIZATION");
+        expect(text).toContain("full 24-hour cycle");
+        expect(text).toContain("<main_goal>");
+        expect(text).toContain('goal id="tom" name="Tom"');
+    });
+
+    it("uses clean objective framing (no anti-tags or <thought> spans)", async () => {
+        world.now = new Date(2026, 9, 7, 12, 0);
+
+        await ws.planHorizon(world.now);
+
+        const text = capturedSystemText();
+        expect(text).not.toContain("<thought>");
+        expect(text).not.toContain("FORBIDDEN");
+        expect(text).not.toContain("ANTI-CLICH");
+        expect(text).not.toContain("<rule>");
+    });
+
+    it("registers a user prompt so Gemini contents is never an empty array", async () => {
+        world.now = new Date(2026, 9, 7, 12, 0);
+
+        await ws.planHorizon(world.now);
+
+        // GeminiClient#buildRequestBody rejects `contents: []` with HTTP 400
+        // ("contents is not specified"), so planHorizon must emit a user turn.
+        expect(promptCapture.users.length).toBeGreaterThan(0);
+
+        const userText = promptCapture.users
+            .map(fn => fn())
+            .filter(t => typeof t === "string")
+            .join("\n");
+        expect(userText).toContain("24-hour storyline schedule");
+    });
+
+    it("re-stabilizes the 24h horizon when a cast member bio changes", async () => {
+        const planSpy = vi.spyOn(ws, "planHorizon").mockResolvedValue([]);
+
+        /** @type {Record<string, Function>} */
+        const handlers = {};
+        world.members.set("tom", {
+            id: "tom",
+            name: "Tom",
+            events: {
+                on(/** @type {string} */ event, /** @type {Function} */ handler) {
+                    handlers[event] = handler;
+                    return () => {};
+                }
+            }
+        });
+
+        await ws.init();
+
+        expect(typeof handlers[ChatMemberEvents.ABOUT]).toBe("function");
+
+        handlers[ChatMemberEvents.ABOUT]();
+        await Promise.resolve();
+
+        expect(planSpy).toHaveBeenCalledTimes(1);
+        expect(planSpy).toHaveBeenCalledWith(world.now);
     });
 });

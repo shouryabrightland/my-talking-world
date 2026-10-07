@@ -70,6 +70,12 @@ export default function DevToolsPromptsTab({
                     >
                         ⚡ Stabilizer ({promptLogs.stabilizer?.length || 0})
                     </button>
+                    <button
+                        onClick={() => setSelectedCategory("situation")}
+                        className={selectedCategory === "situation" ? styles.promptCatActive : styles.promptCatBtn}
+                    >
+                        🧠 Situation ({promptLogs.situation?.length || 0})
+                    </button>
                 </div>
 
                 <button onClick={clearPromptLogs} className={styles.clearBtn}>

@@ -120,7 +120,11 @@ describe("Prompt Templates — Hinglish Language Mandate", () => {
         it("still contains the original dialogue rules", () => {
             expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("5 dialogue"))).toBe(true);
             expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("memory-set"))).toBe(true);
-            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("thought"))).toBe(true);
+        });
+
+        it("carries NO <thought> instruction (thought system eliminated)", () => {
+            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("<thought>"))).toBe(false);
+            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("thought"))).toBe(false);
         });
     });
 });

@@ -8,7 +8,6 @@
  * @property {string|null} replyToID Target message ID (integer string or UUID), or null.
  * @property {string} reaction Expressed emotion identifier.
  * @property {string} sender Character ID of the author.
- * @property {string|null} thought Unfiltered live thought/reasoning for this specific message.
  * @property {string} text Spoken dialogue payload.
  */
 

@@ -8,8 +8,9 @@
 
 /**
  * Hardened XML Tag Protocol Codec for Streaming & Reasoning Models.
- * Extracts `<think>` reasoning blocks into clean metadata without leaking into chat bubbles,
- * strips markdown fences (```xml), and parses structured `<record>` tags safely.
+ * Strips markdown fences (```xml) and parses structured `<record>` tags safely.
+ * Residual `<thought>` spans are stripped from message bodies so they never
+ * reach a chat bubble — the `<thought>` system itself has been eliminated.
  */
 export default class ProtocolCodec {
 
@@ -221,7 +222,7 @@ export default class ProtocolCodec {
         const replyToID = this._parseReplyId(attributes.reply || attributes.replytoid);
         const reaction = attributes.reaction ? attributes.reaction.trim() : "Default";
 
-        const thought = this.#extractTagContent(content, "thought");
+        // <thought> spans are stripped, never surfaced — see class docs.
         let text = this.#extractTagContent(content, "text");
 
         if (text === null) {
@@ -229,7 +230,7 @@ export default class ProtocolCodec {
             text = this.#decodeEntities(text);
         }
 
-        if (!text && !thought) {
+        if (!text) {
             return null;
         }
 
@@ -239,7 +240,6 @@ export default class ProtocolCodec {
             replyToID,
             reaction,
             sender,
-            thought,
             text
         };
     }

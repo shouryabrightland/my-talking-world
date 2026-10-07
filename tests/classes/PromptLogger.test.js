@@ -94,3 +94,44 @@ describe("PromptLogger — token metrics & finish reasons", () => {
         expect(PromptLogger.getLogsForType("demand")).toHaveLength(0);
     });
 });
+
+describe("PromptLogger — dialogue prompt budget inspection", () => {
+    beforeEach(() => {
+        PromptLogger.clear();
+    });
+
+    it("exposes the full request payload + token metrics for the <500-token gate", () => {
+        const requestMessages = [
+            {
+                role: "system",
+                content:
+                    "# Tom & Friends group chat (Lucknow, India)\n" +
+                    "Cast: tom, angela, ben, ginger, hank, becca · reactions: Default/Happy/Sad/Angry\n" +
+                    "Reply to the latest speaker in Lucknow Hinglish (Roman script only). Engage the human user.\n" +
+                    'Emit 1-3 replies: <msg sender="id" reaction="Name">text</msg> then <delay ms="2500"/>.'
+            },
+            { role: "user", content: "Recent chat:\nAngela: Chalo phir 5 baje milte hain." }
+        ];
+
+        PromptLogger.record({
+            type: "dialogue",
+            model: "llama-3.3-70b-versatile",
+            startTime: Date.now() - 10,
+            requestMessages,
+            rawResponse: '<msg sender="tom" reaction="Happy">Theek hai, 5 baje Gomti Nagar.</msg>',
+            tokensIn: 120,
+            tokensOut: 38,
+            finishReason: "stop"
+        });
+
+        const stored = PromptLogger.getLogsForType("dialogue");
+        expect(stored).toHaveLength(1);
+        expect(stored[0].status).toBe("success");
+        expect(stored[0].requestMessages).toHaveLength(2);
+
+        // Gate 3: the recorded dialogue turn stays under the 500-token ceiling.
+        expect(stored[0].tokensIn).toBeLessThan(500);
+        const payloadChars = requestMessages.reduce((sum, m) => sum + m.content.length, 0);
+        expect(Math.ceil(payloadChars / 4)).toBeLessThan(500);
+    });
+});

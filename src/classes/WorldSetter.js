@@ -21,12 +21,11 @@ import PromptBuilderClass from "./PromptBuilder";
 import Storage from "./lib/Storage";
 import ProtocolCodec from "./ProtocolCodec";
 import XmlEncoder from "./lib/XmlEncoder";
+import { ChatMemberEvents } from "./ChatMember";
 import { getEnvironmentSnapshot } from "../util/environment";
 import {
     DEFAULT_GEMINI_MODEL,
     GEMINI_MAX_OUTPUT_TOKENS,
-    PROMPT_SCHEDULER_TASK,
-    PROMPT_SCHEDULER_RULES,
     PROMPT_DEMAND_TASK,
     PROMPT_DEMAND_RULES,
     PROMPT_RESTABILIZER_TASK,
@@ -76,6 +75,9 @@ export default class WorldSetter {
     }
 
     #streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
+
+    /** Whether cast member ABOUT listeners are already bound. @type {boolean} */
+    #profilesBound = false;
 
     /**
      * Strips reasoning spans from a raw model buffer so that block-detection
@@ -281,7 +283,8 @@ export default class WorldSetter {
             const startAttr = rawBlock.match(/start\s*=\s*["']([^"']+)["']/);
             const endAttr = rawBlock.match(/end\s*=\s*["']([^"']+)["']/);
             const topicMatch = content.match(/<\s*topic\b[^>]*>([\s\S]*?)<\/\s*topic\s*>/i);
-            const mainGoalMatch = content.match(/<\s*main\b[^>]*>([\s\S]*?)<\/\s*main\s*>/i);
+            const mainGoalMatch = content.match(/<\s*main\b[^>]*>([\s\S]*?)<\/\s*main\s*>/i)
+                || content.match(/<\s*main_goal\b[^>]*>([\s\S]*?)<\/\s*main_goal\s*>/i);
 
             /** @type {Partial<ScheduleRecord>} */
             const block = {
@@ -324,7 +327,32 @@ export default class WorldSetter {
             this.logger.warn("Failed to fetch live environment data, using defaults:", err);
         }
 
+        this.#bindMemberProfileListeners();
+
         return this.schedule;
+    }
+
+    /**
+     * Tier-1 re-stabilization trigger: any cast member profile (bio) change
+     * schedules an immediate 24-hour horizon refresh so the timeline reflects
+     * the new character development.
+     *
+     * @returns {void}
+     */
+    #bindMemberProfileListeners() {
+        if (this.#profilesBound) return;
+        if (!(this.world.members instanceof Map)) return;
+        this.#profilesBound = true;
+
+        for (const member of this.world.members.values()) {
+            if (!member || !member.events || typeof member.events.on !== "function") continue;
+            member.events.on(ChatMemberEvents.ABOUT, () => {
+                this.logger.info(`Profile changed for ${member.name}. Triggering 24h schedule re-stabilization...`);
+                void this.planHorizon(this.world.now).catch((/** @type {unknown} */ err) => {
+                    this.logger.warn("Profile-driven re-stabilization failed:", err);
+                });
+            }, `WorldSetter: ABOUT listener for ${member.id}`);
+        }
     }
 
     #buildBirthdayPromptPart() {
@@ -371,72 +399,117 @@ export default class WorldSetter {
     }
 
     /**
-     * @param {Date} date
+     * Generates (or re-stabilizes) the contiguous 24-hour macro timeline.
+     *
+     * @param {Date} date Anchor date for the horizon.
+     * @param {string|null} [demandText] Optional Director Demand to integrate.
      * @returns {Promise<ScheduleRecord[]>}
      */
-    async planHorizon(date) {
+    async planHorizon(date, demandText = null) {
         if (this.isPlanning) return this.schedule;
 
         this.isPlanning = true;
-        this.logger.info(`Generating streaming horizon schedule starting from ${date.toLocaleTimeString()}...`);
+        this.logger.info(`Generating streaming 24-hour horizon schedule starting from ${date.toLocaleTimeString()}...`);
 
         try {
             const promptBuilder = new PromptBuilderClass();
             const startHour = date.getHours();
-
-            promptBuilder.useSystem(() => promptBuilder.part(
-                "<scheduler_instruction>\n" +
-                `  <task>${PROMPT_SCHEDULER_TASK}</task>\n` +
-                "  <rules>\n" +
-                PROMPT_SCHEDULER_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
-                "  </rules>\n" +
-                "  <output_schema>\n" +
-                "    <schedule>\n" +
-                '      <block start="14.0" end="15.5">\n' +
-                "        <topic>Humorous discussion topic in authentic Hinglish</topic>\n" +
-                "        <goals>\n" +
-                "          <main>Main session objective</main>\n" +
-                '          <goal id="tom" name="Tom">Individual motivation for Tom</goal>\n' +
-                '          <goal id="angela" name="Angela">Individual motivation for Angela</goal>\n' +
-                '          <goal id="ben" name="Ben">Individual motivation for Ben</goal>\n' +
-                '          <goal id="ginger" name="Ginger">Individual motivation for Ginger</goal>\n' +
-                '          <goal id="hank" name="Hank">Individual motivation for Hank</goal>\n' +
-                '          <goal id="becca" name="Becca">Individual motivation for Becca</goal>\n' +
-                "        </goals>\n" +
-                "        <pre_plot>What led up to this scene</pre_plot>\n" +
-                "        <post_plot>What this leads to next</post_plot>\n" +
-                "        <facts>\n" +
-                "          <fact>Specific active fact or object 1</fact>\n" +
-                "          <fact>Specific active fact or object 2</fact>\n" +
-                "        </facts>\n" +
-                "      </block>\n" +
-                "    </schedule>\n" +
-                "  </output_schema>\n" +
-                "</scheduler_instruction>"
-            ));
-
+            const currentHour = this.world.now.getHours();
             const env = this.world.environment;
-            if (env) {
-                promptBuilder.useSystem(() => promptBuilder.part(
-                    "<grounding_context>\n" +
-                    `  <location>${XmlEncoder.encode(env.city)}</location>\n` +
-                    `  <weather temperature="${XmlEncoder.encode(env.temperature)}">${XmlEncoder.encode(env.weather)}</weather>\n` +
-                    `  <occasion>${XmlEncoder.encode(env.todayCelebration)}</occasion>\n` +
-                    `  <headlines>${env.newsHeadlines.slice(0, 3).map(h => XmlEncoder.encode(h)).join(" | ")}</headlines>\n` +
-                    "</grounding_context>"
-                ));
-            }
+            const unifiedMemory = this.world.unifiedMemory;
+
+            /** @type {ChatMember[]} */
+            const members = this.world.members instanceof Map
+                ? [...this.world.members.values()]
+                : [];
+
+            // Timeline continuity: past/active blocks are locked, future blocks
+            // are re-stabilized against new developments.
+            const previousPlanMarkdown = this.schedule.length === 0
+                ? "No prior schedule. Generate a fresh 24-hour daily timeline."
+                : this.schedule.map(b => {
+                    const isLocked = b.endHour <= currentHour || (b.startHour <= currentHour && b.endHour > currentHour);
+                    return `- [${b.timeRange}] ${b.topic} (${isLocked ? "LOCKED / PAST" : "FUTURE - SUBJECT TO RE-STABILIZATION"})`;
+                }).join("\n");
+
+            const memoryStack = unifiedMemory && typeof unifiedMemory.toTextStack === "function"
+                ? unifiedMemory.toTextStack()
+                : "";
+
+            const goalSchema = (members.length > 0
+                ? members
+                : [
+                    { id: "tom", name: "Tom" },
+                    { id: "angela", name: "Angela" },
+                    { id: "ben", name: "Ben" },
+                    { id: "ginger", name: "Ginger" },
+                    { id: "hank", name: "Hank" },
+                    { id: "becca", name: "Becca" }
+                ]
+            ).map(m => `      <goal id="${XmlEncoder.encode(String(m.id))}" name="${XmlEncoder.encode(String(m.name))}">Goal</goal>`).join("\n");
+
+            promptBuilder.useSystem(() => promptBuilder.part([
+                "# 24-Hour Storyline Planner & Director Engine",
+                'You are the Lead Storyline Director for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
+                "Generate or update a complete, contiguous 24-hour daily schedule for the cast.",
+                "",
+                "## 1. Environment & Clock",
+                `- Simulation Time: ${this.world.date}, ${this.world.time} (Current Hour: ${currentHour}:00)`,
+                `- Location: ${env?.city || "Lucknow"}`,
+                `- Weather: ${env?.temperature || "32°C"}, ${env?.weather || "Warm"}`,
+                `- Occasion: ${env?.todayCelebration || "Regular day"}`,
+                `- Headlines: ${(env?.newsHeadlines || []).slice(0, 3).join(" | ") || "None"}`,
+                "",
+                "## 2. Cast Profiles",
+                members.length > 0
+                    ? members.map(m => `- **${m.name}** (ID: \`${m.id}\`, Age: ${m.age}y): ${m.about}`).join("\n")
+                    : "- Cast profiles unavailable.",
+                "",
+                "## 3. Active Memories",
+                memoryStack || "No active memories stored.",
+                "",
+                "## 4. Timeline Continuity",
+                previousPlanMarkdown,
+                "",
+                "Directive:",
+                `- Blocks before ${currentHour}:00 are locked or in progress. Do not change their topics or timings.`,
+                "- Re-align future blocks to smoothly integrate new character developments or demands.",
+                "",
+                "## 5. Director Demand",
+                demandText || "None. Generate natural daily sitcom progression.",
+                "",
+                "## Rules & Constraints",
+                "1. Provide a complete, unbroken sequence of blocks covering the full 24-hour cycle.",
+                "2. Contiguous start/end times with no overlapping hours.",
+                "3. Rotate settings across Lucknow (Gomti Nagar riverfront, Aliganj markets, university campus, rooftop addas, balconies, living rooms).",
+                "4. Assign explicit individual character goals for every cast member in each block.",
+                "",
+                "## Output Schema",
+                "Output strictly valid XML matching this structure:",
+                `<schedule date="${XmlEncoder.encode(this.world.date)}">`,
+                "  <summary>Brief 1-2 sentence overview of the daily arc.</summary>",
+                '  <block start="14.0" end="15.5">',
+                "    <topic>Scene title</topic>",
+                "    <setting>Specific location</setting>",
+                "    <main_goal>Primary group objective</main_goal>",
+                "    <character_goals>",
+                goalSchema,
+                "    </character_goals>",
+                "    <pre_plot>Backstory leading into this scene</pre_plot>",
+                "    <post_plot>Transition hook leading to next scene</post_plot>",
+                "    <facts><fact>Concrete item or constraint</fact></facts>",
+                "  </block>",
+                "</schedule>"
+            ].join("\n")));
 
             const birthdayPart = this.#buildBirthdayPromptPart();
             if (birthdayPart) {
                 promptBuilder.useSystem(() => promptBuilder.part(birthdayPart));
             }
 
+            // Gemini requires at least one non-system message in `contents`.
             promptBuilder.useUser(() => promptBuilder.part(
-                `<horizon_request date="${XmlEncoder.encode(date.toDateString())}" start_hour="${startHour}:00">` +
-                "  Generate exactly 3 to 4 sequential blocks covering the upcoming 4 hours starting from the given hour. " +
-                "Do not emit more than 4 blocks.\n" +
-                "</horizon_request>"
+                "Please generate the complete 24-hour storyline schedule following the instructions and schema above."
             ));
 
             const promptPayload = await promptBuilder.build();
@@ -940,7 +1013,9 @@ export default class WorldSetter {
             const eHour = this.#clampHour(eHourRaw) > sHour ? this.#clampHour(eHourRaw) : Math.min(24, sHour + 1);
 
             const topicMatch = content.match(/<\s*(?:topic|title|name)\b[^>]*>([\s\S]*?)<\/\s*(?:topic|title|name)\s*>/i);
-            const mainGoalMatch = content.match(/<\s*main\b[^>]*>([\s\S]*?)<\/\s*main\s*>/i) || content.match(/<\s*goal\b[^>]*>([\s\S]*?)<\/\s*goal\s*>/i);
+            const mainGoalMatch = content.match(/<\s*main\b[^>]*>([\s\S]*?)<\/\s*main\s*>/i)
+                || content.match(/<\s*main_goal\b[^>]*>([\s\S]*?)<\/\s*main_goal\s*>/i)
+                || content.match(/<\s*goal\b[^>]*>([\s\S]*?)<\/\s*goal\s*>/i);
             const preMatch = content.match(/<\s*pre_plot\b[^>]*>([\s\S]*?)<\/\s*pre_plot\s*>/i);
             const postMatch = content.match(/<\s*post_plot\b[^>]*>([\s\S]*?)<\/\s*post_plot\s*>/i);
 

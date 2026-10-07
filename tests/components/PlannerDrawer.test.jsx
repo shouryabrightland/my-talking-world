@@ -56,6 +56,32 @@ describe("PlannerDrawer — Structural Invariants", () => {
     });
 });
 
+describe("PlannerDrawer — timeline gap indicator", () => {
+    it("computes a gap between non-contiguous blocks", () => {
+        expect(COMPONENT_SOURCE).toContain("const nextRecord = records[idx + 1]");
+        expect(COMPONENT_SOURCE).toContain("Math.round((nextRecord.startHour - record.endHour) * 60)");
+        expect(COMPONENT_SOURCE).toContain("const hasGap = gapMinutes > 0");
+    });
+
+    it("renders the ── Xh Ym gap ── badge between the cards", () => {
+        expect(COMPONENT_SOURCE).toContain("timelineGapLine");
+        expect(COMPONENT_SOURCE).toContain("timelineGapDash");
+        expect(COMPONENT_SOURCE).toContain("timelineGapBadge");
+        expect(COMPONENT_SOURCE).toContain("── {gapText} ──");
+        expect(COMPONENT_SOURCE).toContain("${gapHours > 0");
+        expect(COMPONENT_SOURCE).toContain("${gapMins > 0");
+    });
+
+    it("styles the gap line in the CSS module", () => {
+        const cssPath = resolve(import.meta.dirname, "../../src/components/PlannerDrawer.module.css");
+        const css = readFileSync(cssPath, "utf-8");
+
+        expect(css).toContain(".timelineGapLine");
+        expect(css).toContain(".timelineGapDash");
+        expect(css).toContain(".timelineGapBadge");
+    });
+});
+
 describe("PlannerDrawer — formatHour utility", () => {
     // Extract formatHour by evaluating a minimal snippet
     function formatHour(/** @type {number} */ decimal) {

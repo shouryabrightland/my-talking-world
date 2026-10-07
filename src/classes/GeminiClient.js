@@ -544,12 +544,21 @@ export default class GeminiClient {
             generationConfig.thinkingConfig = { thinkingBudget };
         }
 
-        /** @type {Record<string, any>} */
-        const body = {
-            contents: conversationMessages.map(msg => ({
+        // Defensive fallback: Gemini API rejects an empty `contents` array (HTTP 400),
+        // so if only a system message was provided, promote it to a user turn.
+        const contentsPayload = conversationMessages.length > 0
+            ? conversationMessages.map(msg => ({
                 role: msg.role === "assistant" ? "model" : "user",
                 parts: [{ text: msg.content }]
-            })),
+            }))
+            : [{
+                role: "user",
+                parts: [{ text: systemMessage?.content || "Proceed with generation." }]
+            }];
+
+        /** @type {Record<string, any>} */
+        const body = {
+            contents: contentsPayload,
             generationConfig
         };
 

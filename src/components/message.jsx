@@ -15,8 +15,8 @@ import { Sound } from "../util/sound";
 export const MessageUX = memo(
     /**
      * Living Dialogue Message Component.
-     * Displays dynamic per-message live thoughts, character-branded comic balloons,
-     * quote replies, and Director Stage Directive banners.
+     * Displays character-branded comic balloons, quote replies,
+     * and Director Stage Directive banners.
      *
      * @param {Object} props
      * @param {Message} props.message Context Message instance.
@@ -28,9 +28,6 @@ export const MessageUX = memo(
 
         /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
         const [isInspectorOpen, setIsInspectorOpen] = useState(false);
-
-        /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
-        const [isThoughtOpen, setIsThoughtOpen] = useState(false);
 
         const isLiveArrival = useMemo(() => {
             if (!message?.sentAt) return false;
@@ -75,9 +72,6 @@ export const MessageUX = memo(
         const rowClass = isOther
             ? `${styles.msgRowLeft} ${isLiveArrival ? styles.popIn : ""}`.trim()
             : `${styles.msgRowRight} ${isLiveArrival ? styles.popIn : ""}`.trim();
-
-        // Resolves the dynamic thought generated specifically for this turn
-        const dynamicThought = message.thought || null;
 
         // Dynamic Posture or Prop from short-term memory if present
         const activePosture = isOther && message.sender.memory
@@ -131,40 +125,20 @@ export const MessageUX = memo(
                         </p>
 
                         <div className={styles.bubbleFooter}>
-                            {/* Dynamic Live Thought Peel Trigger */}
-                            {isOther && dynamicThought && (
-                                <button
-                                    onClick={() => setIsThoughtOpen(prev => !prev)}
-                                    className={isThoughtOpen ? styles.thoughtBtnActive : styles.thoughtBtn}
-                                    title="Peek at what this character was thinking for this line"
-                                >
-                                    💭 {isThoughtOpen ? "Hide Thought" : "Peek Thought"}
-                                </button>
-                            )}
-
                             {isOther && message.emotion?.emoji && (
                                 <span className={styles.emotionTag} title={`Emotion: ${message.emotion.name}`}>
                                     {message.emotion.emoji}
                                 </span>
                             )}
                         </div>
-
-                        {/* Collapsible Dynamic Thought Peel */}
-                        {isOther && isThoughtOpen && dynamicThought && (
-                            <div className={styles.thoughtPeelContainer}>
-                                <span className={styles.thoughtLabel}>💭 INNER MONOLOGUE:</span>
-                                <p className={styles.thoughtText}>"{dynamicThought}"</p>
-                            </div>
-                        )}
                     </div>
                 </div>
 
-                {/* Character Dynamic Memory & Mindset Inspector Modal */}
+                {/* Character Dynamic Memory Inspector Modal */}
                 {isOther && (
                     <CharacterInspectorModal
                         isOpen={isInspectorOpen}
                         member={message.sender}
-                        latestThought={message.thought}
                         onClose={() => setIsInspectorOpen(false)}
                     />
                 )}
@@ -231,17 +205,16 @@ export function ReplyBox({ message }) {
 }
 
 /**
- * Dynamic Memory & Mindset Inspector Modal.
- * Scans all active unexpired memories (reminders, postures, thoughts, facts) with live TTL countdowns.
+ * Dynamic Memory Inspector Modal.
+ * Scans all active unexpired memories (reminders, postures, facts) with live TTL countdowns.
  *
  * @param {Object} props
  * @param {boolean} props.isOpen
  * @param {ChatMember} props.member
- * @param {string|null} [props.latestThought]
  * @param {() => void} props.onClose
  * @returns {React.JSX.Element}
  */
-function CharacterInspectorModal({ isOpen, member, latestThought, onClose }) {
+function CharacterInspectorModal({ isOpen, member, onClose }) {
     const memberId = String(member?.id || "tom").toLowerCase();
 
     const activeMemories = useMemo(() => {
@@ -282,14 +255,6 @@ function CharacterInspectorModal({ isOpen, member, latestThought, onClose }) {
                         <span className={styles.inspectorLabel}>🎭 Biography:</span>
                         <span className={styles.inspectorValue}>{member.about}</span>
                     </div>
-
-                    {/* Latest Unspoken Thought */}
-                    {latestThought && (
-                        <div className={styles.inspectorHighlightSection}>
-                            <span className={styles.inspectorLabelHighlight}>💭 Latest Unfiltered Thought:</span>
-                            <p className={styles.inspectorThoughtText}>"{latestThought}"</p>
-                        </div>
-                    )}
 
                     {/* Active Dynamic Short-Term & Long-Term Memories */}
                     <div className={styles.inspectorRow}>

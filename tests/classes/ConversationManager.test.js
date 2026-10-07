@@ -142,6 +142,7 @@ vi.mock("../../src/classes/TimelineProcessor.js", () => ({
         constructor() { this._messages = []; }
         add(msg) { this._messages.push(msg); }
         getNextLiveRequstTime() { return Date.now() + 5000; }
+        getLastTime() { return Date.now(); }
     }
 }));
 
@@ -196,6 +197,7 @@ vi.mock("../../src/util/sound.js", () => ({ AmbientAudio: { stop() {} } }));
 
 import ConversationManager, { ConversationEvents } from "../../src/classes/ConversationManager.js";
 import { ChatEvents } from "../../src/classes/Chat.js";
+import { ChatMemberEvents } from "../../src/classes/ChatMember.js";
 import Logger from "../../src/classes/lib/Logger.js";
 import Memory from "../../src/classes/lib/Memory.js";
 
@@ -528,6 +530,54 @@ describe("ConversationManager — Streaming <record> Extraction", () => {
         finish();
         await turnPromise;
     });
+
+    it("extracts Tier-4 <msg sender reaction> banter tags as they complete", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        const spy = vi.spyOn(manager, "handleBanterMessage");
+
+        manager.onStreamToken('<msg sender="tom" reaction="Laughing">Arre yeh toh mast hai!</msg>');
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][0]).toBe("tom");
+        expect(spy.mock.calls[0][1]).toBe("Laughing");
+        expect(spy.mock.calls[0][2]).toBe("Arre yeh toh mast hai!");
+        expect(manager.protocolBuffer).toBe("");
+
+        finish();
+        await turnPromise;
+    });
+
+    it("holds a partial <msg> tag in the buffer until its closer arrives", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        const spy = vi.spyOn(manager, "handleBanterMessage");
+
+        manager.onStreamToken('<msg sender="angela" reaction="Happy">Arre suno toh');
+        expect(spy).not.toHaveBeenCalled();
+        expect(manager.protocolBuffer).toContain("Arre suno toh");
+
+        manager.onStreamToken(' — plan ready hai!</msg>');
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][2]).toBe("Arre suno toh — plan ready hai!");
+        expect(manager.protocolBuffer).toBe("");
+
+        finish();
+        await turnPromise;
+    });
+
+    it("captures the <delay ms> pacing tag and skips timeline-derived pacing", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        const timelineSpy = vi.spyOn(manager.timelineProcessor, "getNextLiveRequstTime");
+
+        manager.onStreamToken('<delay ms="2500"/>');
+        expect(manager.protocolBuffer).toBe("");
+
+        finish();
+        await turnPromise;
+        await vi.advanceTimersByTimeAsync(5);
+
+        // The explicit pacing tag replaces the timeline-derived delay.
+        expect(timelineSpy).not.toHaveBeenCalled();
+    });
 });
 
 // ─── Director Mode transparency ──────────────────────────────────
@@ -588,71 +638,79 @@ describe("ConversationManager — Director Mode Notifications", () => {
 // ─── Environmental prompt throttling ───────────────────────────
 
 /**
- * Capturing prompt builder that stores system callbacks so tests can
- * invoke them manually (the real PromptBuilder runs them on build()).
- * @returns {{ systemFns: Function[], useSystem: (fn: Function) => void, useUser: (fn: Function) => void, part: (t: string) => string, build: () => Promise<{ messages: never[] }> }}
+ * Builds every registered user-turn part for the given manager.
+ * @param {ConversationManager} manager
+ * @returns {string}
  */
-function makeCapturingBuilder() {
-    const systemFns = [];
-    return {
-        systemFns,
-        useSystem(fn) { systemFns.push(fn); },
-        useUser() {},
-        part(text) { return text; },
-        async build() { return { messages: [] }; }
-    };
+function buildUserParts(manager) {
+    return manager.promptBuilder.users
+        .map(fn => fn())
+        .filter(t => typeof t === "string")
+        .join("\n\n");
 }
 
-describe("ConversationManager — Environmental Context Throttling", () => {
-    /** @type {ConversationManager} */
-    let manager;
-    /** @type {boolean[]} */
-    let envCalls;
-    /** @type {ReturnType<typeof makeCapturingBuilder>} */
-    let builder;
+describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
+    it("emits the lean Markdown directive with the <msg>/<delay> output contract", () => {
+        const { manager } = createManager();
+        const joined = buildSystemParts(manager).join("\n\n");
 
-    beforeEach(() => {
-        const result = createManager();
-        manager = result.manager;
-        envCalls = [];
+        expect(joined).toContain("# Live Group Chat: Tom & Friends");
+        expect(joined).toContain("Cast:");
+        expect(joined).toContain('<msg sender="id" reaction="ReactionName">');
+        expect(joined).toContain('<delay ms="3000"/>');
+        expect(joined).toContain('<delay ms="60000"/>');
+        expect(joined).toContain('<next time="HH:MM"/>');
+        expect(joined).toContain('<next time="18:30"/>');
+        // No hour-based bedtime framing left in the instructions.
+        expect(joined.toLowerCase()).not.toContain("sleep");
+        expect(joined).toContain("## Ambient Setting");
+        expect(joined).toContain("- Atmosphere:");
+        expect(joined).toContain("Lucknow Hinglish");
+        expect(joined).toContain("Roman/Latin script only");
 
-        // Spy on the heavy environment injection flag passed to World.toString().
-        manager.world.toString = (/** @type {boolean} */ includeEnvironment = true) => {
-            envCalls.push(includeEnvironment !== false);
-            return "Mock World";
-        };
-
-        builder = makeCapturingBuilder();
-        manager.registerPrompt(builder);
+        // Raw XML structures are provided directly — never fenced in backticks.
+        expect(joined).not.toContain("```xml");
     });
 
-    /** Runs one prompt build cycle (invokes all registered system parts). */
-    function buildPrompt() {
-        for (const fn of builder.systemFns) fn();
-    }
+    it("drops every legacy heavy block and the <thought> system", () => {
+        const { manager } = createManager();
+        const joined = buildSystemParts(manager).join("\n\n");
 
-    it("injects the full environment on alternating turns only", () => {
-        buildPrompt(); // turn 1
-        buildPrompt(); // turn 2
-        buildPrompt(); // turn 3
-        buildPrompt(); // turn 4
+        // <thought> elimination (Zero-Bias migration).
+        expect(joined).not.toContain("<thought>");
+        expect(joined).not.toContain("thought>");
 
-        expect(envCalls).toEqual([true, false, true, false]);
+        // Replaced by the Tier-2 situation paragraph + Tier-3 memory lines.
+        expect(joined).not.toContain("<system_directive>");
+        expect(joined).not.toContain("<characters>");
+        expect(joined).not.toContain("<saved_memories>");
+        expect(joined).not.toContain("<language_mandate>");
+        expect(joined).not.toContain("<location_diversity_mandate>");
+        expect(joined).not.toContain("<task>");
+        expect(joined).not.toContain("<rule>");
+
+        // Zero-bias framing: no anti-tags or negative rule language.
+        expect(joined).not.toContain("FORBIDDEN");
+        expect(joined).not.toContain("ANTI-CLICH");
+        expect(joined).not.toContain("NEVER");
     });
 
-    it("immediately refreshes environmental grounding when the human user speaks", () => {
-        buildPrompt(); // turn 1 → full
-        buildPrompt(); // turn 2 → minimal
-        buildPrompt(); // turn 3 → full
+    it("renders the recent chat window as plain text capped at 1000 chars", () => {
+        const { manager } = createManager();
+        manager.getRecentMessages = () => Array.from({ length: 40 }, (_, i) => ({
+            id: `m${i}`,
+            deleted: false,
+            sender: { id: "tom", name: "Tom" },
+            text: `chatter number ${i} about the plan`
+        }));
 
-        // Human user sends a message — the NEXT build must carry full env,
-        // even though turn 4 is an even (minimal) turn.
-        manager.chat.events.emit(ChatEvents.MESSAGE_ADD, { sender: { isAI: false } });
-        buildPrompt(); // turn 4 → full (human override)
-        buildPrompt(); // turn 5 → flag consumed; odd turn → full
-        buildPrompt(); // turn 6 → minimal again
+        const userText = buildUserParts(manager);
+        expect(userText).toContain("## Recent Chat");
+        expect(userText).toContain("Tom: chatter number 39");
+        expect(userText.startsWith("## Recent Chat\n```\n")).toBe(true);
 
-        expect(envCalls).toEqual([true, false, true, true, true, false]);
+        const history = userText.replace(/^## Recent Chat\n```\n/, "").replace(/\n```$/, "");
+        expect(history.length).toBeLessThanOrEqual(1000);
     });
 });
 
@@ -714,31 +772,22 @@ describe("ConversationManager — Memory Cap Enforcement", () => {
     });
 });
 
-describe("ConversationManager — birthday celebration context injection", () => {
-    it("passes the world's <active_celebration> tag into the dialogue system prompt", () => {
+describe("ConversationManager — Context block (clock + Tier-2 situation)", () => {
+    it("injects the simulation clock and the situation paragraph", () => {
         const { manager } = createManager();
 
-        // World.toString() emits this tag on a matching calendar date.
-        manager.world._worldContext = [
-            '<active_celebration type="birthday" member="tom" name="Tom" turning_age="20">',
-            "  Today is Tom's 20th birthday! The characters should congratulate them, plan surprises, or joke about getting older.",
-            "</active_celebration>"
-        ].join("\n");
+        manager.world.dateTime = "Mon Oct 07 2026 at 14:30";
+        manager.situationEngine.situationText = "Tom is on the rooftop repairing Angela's drone.";
 
-        const parts = manager.promptBuilder.systems
-            .map(fn => fn())
-            .filter(t => typeof t === "string");
-        const contextPart = parts.find(t => t.includes("<context>"));
+        const contextPart = buildSystemParts(manager).find(t => t.includes("## Ambient Setting"));
 
         expect(contextPart).toBeDefined();
-        expect(contextPart).toContain("<active_celebration");
-        expect(contextPart).toContain('member="tom"');
-        expect(contextPart).toContain('turning_age="20"');
-        expect(contextPart).toContain("20th birthday");
+        expect(contextPart).toContain("- Time: Mon Oct 07 2026 at 14:30");
+        expect(contextPart).toContain("- Atmosphere: Tom is on the rooftop repairing Angela's drone.");
     });
 });
 
-// ─── Prompt compression / bio cap / memory clock / history window ───
+// ─── Lean prompt / Tier-3 memory injection / history window ───
 
 /**
  * Builds every registered system part for the given manager.
@@ -767,47 +816,93 @@ function addWorldMember(manager, spec) {
     });
 }
 
-describe("ConversationManager — unified <system_directive> (prompt compression)", () => {
-    it("emits ONE consolidated directive and none of the legacy redundant blocks", () => {
-        const { manager } = createManager();
-        const joined = buildSystemParts(manager).join("\n");
+describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", () => {
+    /** Captures the prompt exactly as requestTurn() compiles it. */
+    function captureBuildOn(/** @type {ConversationManager} */ manager) {
+        /** @type {{ system: string, user: string }} */
+        const captured = { system: "", user: "" };
+        manager.promptBuilder.build = async () => {
+            captured.system = buildSystemParts(manager).join("\n\n");
+            captured.user = buildUserParts(manager);
+            return { messages: [] };
+        };
+        return captured;
+    }
 
-        expect(joined).toContain("<system_directive>");
-        expect(joined).toContain("Turn-Taking: Emit ONLY 1 to 3 character replies per turn");
-        expect(joined).toContain("Anti-Parroting");
-        expect(joined).toContain("Zero Devanagari");
-
-        // The former <task>, <language_mandate>, <location_diversity_mandate>
-        // and 13 <rule> tags are all consolidated away.
-        expect(joined).not.toContain("<task>");
-        expect(joined).not.toContain("<language_mandate>");
-        expect(joined).not.toContain("<location_diversity_mandate>");
-        expect(joined).not.toContain("<dialogue_protocol>");
-        expect(joined).not.toContain("<rule>");
+    beforeEach(() => {
+        vi.useFakeTimers();
     });
 
-    it("preserves custom bios up to 50 chars and truncates longer ones", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it("injects 0-2 matching memory lines for human-initiated turns", async () => {
         const { manager } = createManager();
-        const longAbout = "A really long custom biography that definitely exceeds the fifty character budget";
-        const shortAbout = "Chill Gujarati lad from Lucknow";
-        addWorldMember(manager, { id: "tom", name: "Tom", age: 21, about: longAbout });
-        addWorldMember(manager, { id: "angela", name: "Angela", age: 20, about: shortAbout });
+        manager.initialized = true;
+        manager.unifiedMemory.entries.push({
+            id: crypto.randomUUID(),
+            datetime: "2026-10-07 14:00",
+            tags: ["tom", "chai"],
+            data: "Tom promised the group chai at the Gomti Nagar stall.",
+            expiry: "forever"
+        });
 
-        const chars = buildSystemParts(manager).find(t => t.includes("<characters>"));
+        const captured = captureBuildOn(manager);
 
-        expect(chars).toBeDefined();
-        // Custom description is KEPT (not stripped): first 47 chars + "...".
-        expect(chars).toContain(`>${longAbout.slice(0, 47)}...<`);
-        // Short custom descriptions pass through untouched.
-        expect(chars).toContain(`>${shortAbout}<`);
-        // The full long bio never reaches the prompt.
-        expect(chars).not.toContain(longAbout);
-        expect(chars).toContain('id="tom"');
-        expect(chars).toContain('age="21"');
+        await manager.requestTurn(true, "tom ke chai wale plan ke baare mein bata");
+
+        expect(captured.system).toContain("## Active Memories");
+        expect(captured.system).toContain("Tom promised the group chai");
+    });
+
+    it("skips the lookup for autonomous turns (no human utterance)", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        manager.unifiedMemory.entries.push({
+            id: crypto.randomUUID(),
+            datetime: "2026-10-07 14:00",
+            tags: ["tom", "chai"],
+            data: "Tom promised the group chai at the Gomti Nagar stall.",
+            expiry: "forever"
+        });
+
+        const captured = captureBuildOn(manager);
+
+        await manager.requestTurn();
+
+        expect(captured.system).not.toContain("## Active Memories");
+        expect(captured.system).toContain("## Ambient Setting");
+    });
+
+    it("captures the human utterance from MESSAGE_ADD and routes the next turn through it", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        manager.unifiedMemory.entries.push({
+            id: crypto.randomUUID(),
+            datetime: "2026-10-07 14:00",
+            tags: ["tom", "chai"],
+            data: "Tom promised the group chai at the Gomti Nagar stall.",
+            expiry: "forever"
+        });
+
+        const captured = captureBuildOn(manager);
+
+        manager.chat.events.emit(ChatEvents.MESSAGE_ADD, {
+            sender: { isAI: false },
+            text: "tom ke chai wale plan ke baare mein batao"
+        });
+
+        // No explicit arguments: the pending human utterance drives the lookup.
+        await manager.requestTurn();
+
+        expect(captured.system).toContain("## Active Memories");
+        expect(captured.system).toContain("Tom promised the group chai");
     });
 });
 
-describe("ConversationManager — memory TTL validated against world.now", () => {
+describe("ConversationManager — per-member memory clock (legacy Memory table)", () => {
     it("drops memories already expired on the active simulation clock", () => {
         const { manager } = createManager();
         manager.world.now = new Date();
@@ -817,12 +912,11 @@ describe("ConversationManager — memory TTL validated against world.now", () =>
         memory.set("Stale Gossip", "already forgotten", new Date(Date.now() - 1_000));
         addWorldMember(manager, { id: "tom", name: "Tom", memory });
 
-        const part = buildSystemParts(manager).find(t => t.includes("<saved_memories>"));
+        const usable = memory.values().filter(k => k.isUsable(manager.world.now));
 
-        expect(part).toBeDefined();
-        expect(part).toContain('key="Mood"');
-        // Expired memory must NOT be injected.
-        expect(part).not.toContain("Stale Gossip");
+        expect(usable.map(k => k.name)).toContain("Mood");
+        // Expired memory is filtered out on the simulation clock.
+        expect(usable.map(k => k.name)).not.toContain("Stale Gossip");
     });
 
     it("passes this.world.now (not wall-clock) into every isUsable() check", () => {
@@ -835,10 +929,9 @@ describe("ConversationManager — memory TTL validated against world.now", () =>
         memory.set("Recent Fact", "just happened", new Date(Date.now() - 600_000));
         addWorldMember(manager, { id: "tom", name: "Tom", memory });
 
-        const part = buildSystemParts(manager).find(t => t.includes("<saved_memories>"));
+        const usable = memory.values().filter(k => k.isUsable(manager.world.now));
 
-        expect(part).toBeDefined();
-        expect(part).toContain('key="Recent Fact"');
+        expect(usable.map(k => k.name)).toContain("Recent Fact");
     });
 });
 
@@ -876,58 +969,232 @@ describe("ConversationManager — dialogue history window (7 committed / 8 merge
 });
 
 describe("ConversationManager — per-turn prompt token budget", () => {
-    it("stays under ~1,000 tokens for the system prompt with a full house", () => {
-        const { manager } = createManager();
-        manager.world.now = new Date();
-        manager.world._worldContext = [
-            "<current_time>Tuesday, October 7, 2026 at 10:42 AM</current_time>",
-            '<active_schedule time_range="10:00 - 11:00" start="10" end="11" phase="core">',
-            "  <topic>Morning chai & project planning on the rooftop</topic>",
-            "  <goals><main>Plan the weekend outing together</main></goals>",
-            "  <facts><fact>Rain expected tonight</fact><fact>Math exam tomorrow</fact></facts>",
-            "</active_schedule>",
-            '<environment city="Lucknow">',
-            "  <weather temperature=\"31\" humidity=\"60\">Partly cloudy</weather>",
-            "  <occasion>Normal day</occasion>",
-            "  <upcoming_festivals>Diwali</upcoming_festivals>",
-            "  <headlines><headline>Traffic diversions announced</headline><headline>New cafe opens in Gomti Nagar</headline></headlines>",
-            "</environment>"
-        ].join("\n");
+    /** Standard ~4 chars/token estimate used across the prompt-budget gates. */
+    const estimateTokens = (/** @type {string} */ s) => Math.ceil(s.length / 4);
 
-        const bios = [
-            "Chill lad who cracks jokes all day long",
-            "Sharp topper obsessed with gadgets",
-            "Foodie planning outings around snacks",
-            "Fitness freak dragging everyone on runs",
-            "Quiet artist sketching the whole group",
-            "Beloved human friend and director"
-        ];
-        bios.forEach((about, i) => {
-            const memory = new Memory(new Logger("Test"), `member${i}`);
-            memory.set("Mood", "excited about the weekend trip plans", new Date(Date.now() + 900_000));
-            memory.set("Active Goal", "finish the group project before Friday", new Date(Date.now() + 3_600_000));
-            memory.set("Opinion on User", "finds the user genuinely funny", -1);
-            addWorldMember(manager, { id: `member${i}`, name: `Member ${i}`, age: 20 + i, about, memory });
+    it("stays under 650 tokens for a worst-case dialogue turn", async () => {
+        vi.useFakeTimers();
+        try {
+            const { manager } = createManager();
+            manager.initialized = true;
+            manager.world.dateTime = "Tue Oct 07 2026 at 10:42";
+
+            // Worst case: full 500-char Tier-2 situation paragraph.
+            manager.situationEngine.situationText = (
+                "Tom, Angela and Ben are crowded around the rooftop table in Gomti Nagar, " +
+                "repairing the drone while Hank narrates tomorrow's physics viva plan. " +
+                "Chai glasses are half empty, the sky is turning orange and Ginger keeps " +
+                "checking the stairwell door every few minutes for the courier."
+            ).slice(0, 500);
+
+            // Worst case: full 1000-char recent chat window.
+            manager.getRecentMessages = () => Array.from({ length: 40 }, (_, i) => ({
+                id: `m${i}`,
+                deleted: false,
+                sender: { id: i % 2 ? "angela" : "tom", name: i % 2 ? "Angela" : "Tom" },
+                text: `chatter number ${i} about tomorrow's plan and snacks`
+            }));
+
+            // Worst case: a matching Tier-3 memory line is present.
+            manager.unifiedMemory.entries.push({
+                id: crypto.randomUUID(),
+                datetime: "2026-10-07 14:00",
+                tags: ["tom", "chai"],
+                data: "Tom promised the group chai at the Gomti Nagar stall before the viva.",
+                expiry: "forever"
+            });
+
+            let systemText = "";
+            let userText = "";
+            manager.promptBuilder.build = async () => {
+                systemText = buildSystemParts(manager).join("\n\n");
+                userText = buildUserParts(manager);
+                return { messages: [] };
+            };
+
+            await manager.requestTurn(true, "tom ke chai wale plan ke baare mein bata");
+
+            // The prompt really is the worst case we configured.
+            expect(systemText).toContain("## Active Memories");
+            expect(systemText).toContain("- Atmosphere:");
+            expect(
+                userText.replace(/^## Recent Chat\n```\n/, "").replace(/\n```$/, "").length
+            ).toBeGreaterThan(900);
+
+            const totalChars = systemText.length + userText.length;
+            const totalTokens = estimateTokens("x".repeat(totalChars));
+            console.log(`[prompt-budget] dialogue turn ≈ ${totalTokens} tokens (${totalChars} chars)`);
+
+            // Gate 3: Groq prompt tokens stay under 650 per dialogue turn.
+            // The Step-3 prompt documents the raw <msg>/<delay>/<next> XML
+            // contract, which costs ~150 tokens over the old 500-token ceiling.
+            expect(totalTokens).toBeLessThan(650);
+        } finally {
+            vi.useRealTimers();
+            vi.restoreAllMocks();
+        }
+    });
+});
+
+// ─── Macro pacing: <delay> / <next> + human interruption override ───
+
+describe("ConversationManager — macro pacing (<delay> / <next>)", () => {
+    /**
+     * Runs one full turn whose stream ends with the supplied pacing tag.
+     * @param {ConversationManager} manager
+     * @param {string|null} tag Pacing tag emitted at the end of the stream.
+     * @returns {Promise<void>}
+     */
+    async function runTurn(manager, tag) {
+        let emitted = false;
+        manager.client.streamChat = async () => {
+            if (tag && !emitted) {
+                emitted = true;
+                manager.onStreamToken(tag);
+            }
+            return "ok";
+        };
+        await manager.requestTurn();
+    }
+
+    /**
+     * Builds an AI cast stub recording transient-state and event calls.
+     * @returns {{ id: string, isAI: boolean, currentEmotion: { name: string }, scheduler: { getTimeline: () => unknown[], clear: () => void }, setTransientState: import("vitest").Mock, setEmotion: import("vitest").Mock, events: { emit: import("vitest").Mock } }}
+     */
+    function makeCastMember() {
+        return {
+            id: "tom",
+            isAI: true,
+            currentEmotion: { name: "Default" },
+            scheduler: { getTimeline: () => [], clear() {} },
+            setTransientState: vi.fn(),
+            setEmotion: vi.fn(),
+            events: { emit: vi.fn() }
+        };
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers({ now: new Date("2026-10-07T23:00:00") });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it("<delay ms> starts counting only AFTER the last queued message is delivered", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        // Slowest queue still has 5s of typing/reading left when the stream ends.
+        manager.timelineProcessor.getLastTime = () => Date.now() + 5000;
+
+        await runTurn(manager, '<delay ms="20000"/>');
+
+        const requestSpy = vi.spyOn(manager, "requestTurn");
+
+        // 5s delivery + 20s delay = 25s total, NOT 20s from stream end.
+        await vi.advanceTimersByTimeAsync(24_999);
+        expect(requestSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(2);
+        expect(requestSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("defaults to a 4s banter pause after the last delivery when no tag is emitted", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        manager.timelineProcessor.getLastTime = () => Date.now() + 3000;
+
+        await runTurn(manager, null);
+
+        const requestSpy = vi.spyOn(manager, "requestTurn");
+
+        await vi.advanceTimersByTimeAsync(6_999);
+        expect(requestSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(2);
+        expect(requestSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("<next time> marks the cast inactive for the wait and requests the turn at the target time", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+
+        // Wall clock and simulation clock both sit late at night on Oct 7.
+        manager.world.now = new Date("2026-10-07T23:00:00");
+
+        const member = makeCastMember();
+        manager.chat.getMembers = () => [member];
+
+        await runTurn(manager, '<next time="06:00"/>');
+
+        // Inactive for the whole wait — no hour-based sleeping emotion involved.
+        expect(member.setTransientState).toHaveBeenCalledWith("isActive", false, 0);
+        expect(member.events.emit).toHaveBeenCalledWith(ChatMemberEvents.ACTIVE, false);
+        expect(member.setEmotion).not.toHaveBeenCalled();
+
+        const requestSpy = vi.spyOn(manager, "requestTurn");
+
+        // Target = 2026-10-08 06:00 → exactly 7h from the fake clock.
+        await vi.advanceTimersByTimeAsync(7 * 3600_000 - 1000);
+        expect(requestSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(requestSpy).toHaveBeenCalledTimes(1);
+
+        // The cast is reactivated the moment the scheduled wait ends.
+        expect(member.setTransientState).toHaveBeenCalledWith("isActive", true, 4000);
+        expect(member.events.emit).toHaveBeenCalledWith(ChatMemberEvents.ACTIVE, true);
+    });
+
+    it("a human message cancels the pending <next> timer and activates the cast", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        manager.world.now = new Date("2026-10-07T23:00:00");
+
+        const member = makeCastMember();
+        manager.chat.getMembers = () => [member];
+
+        await runTurn(manager, '<next time="06:00"/>');
+
+        // Cast went inactive for the 7h wait.
+        expect(member.setTransientState).toHaveBeenCalledWith("isActive", false, 0);
+
+        const requestSpy = vi.spyOn(manager, "requestTurn");
+
+        manager.chat.events.emit(ChatEvents.MESSAGE_ADD, {
+            sender: { isAI: false },
+            text: "Arre suno yaar"
         });
 
-        const systemParts = buildSystemParts(manager);
-        const systemText = systemParts.join("\n");
-        const tokens = (/** @type {string} */ s) => Math.ceil(s.length / 4);
+        // Human input reactivates every AI cast member immediately.
+        expect(member.setTransientState).toHaveBeenCalledWith("isActive", true, 4000);
+        expect(member.events.emit).toHaveBeenCalledWith(ChatMemberEvents.ACTIVE, true);
 
-        const systemTokens = tokens(systemText);
-        console.log(
-            `[prompt-budget] system prompt ≈ ${systemTokens} tokens ` +
-            `(${systemParts.length} parts, ${systemText.length} chars) · ` +
-            `directive ≈ ${tokens(systemParts[0])} · characters ≈ ${tokens(systemParts.find(p => p.includes("<characters>")) ?? "")}`
-        );
+        // The pending 7h timer was cancelled — nothing fires at the old deadline.
+        await vi.advanceTimersByTimeAsync(7 * 3600_000);
+        expect(requestSpy).not.toHaveBeenCalled();
+    });
 
-        // Gate: total system overhead below ~1,000 tokens per turn.
-        expect(systemTokens).toBeLessThan(1_000);
+    it("a deferred turn resumes with the human turn arguments so Needle routing still runs", async () => {
+        const { manager, User } = createManager();
+        manager.initialized = true;
+        manager.client.streamChat = async () => "ok";
 
-        // Every custom bio is still present (capped at 50 chars).
-        for (const about of bios) {
-            const expected = about.length > 50 ? `${about.slice(0, 47)}...` : about;
-            expect(systemText).toContain(expected);
-        }
+        manager.chat.events.emit(ChatEvents.MESSAGE_ADD, {
+            sender: { isAI: false },
+            text: "chai ke plan ke baare mein batao"
+        });
+
+        // Mid-typing: the turn is deferred instead of running immediately.
+        User.isTyping = true;
+        await manager.requestTurn(true, "chai ke plan ke baare mein batao");
+
+        const requestSpy = vi.spyOn(manager, "requestTurn");
+
+        // 3s safety net resolves the deferral and re-issues the SAME turn args.
+        await vi.advanceTimersByTimeAsync(3000);
+
+        expect(requestSpy).toHaveBeenCalledWith(true, "chai ke plan ke baare mein batao");
     });
 });

@@ -163,6 +163,34 @@ describe("ProtocolCodec — Buffer Lifecycle", () => {
     });
 
     // ─────────────────────────────────────────────
+    // <thought> elimination (Zero-Bias migration)
+    // ─────────────────────────────────────────────
+    describe("<thought> system elimination", () => {
+        it("strips residual <thought> spans and never exposes a thought field", () => {
+            const text = '<record type="message" id="1" sender="tom"><thought>secret intent</thought><text>Hello world</text></record>';
+            const records = codec.parseRecords(text);
+
+            expect(records).toHaveLength(1);
+            expect(records[0].text).toBe("Hello world");
+            // The thought system is fully removed from the protocol shape.
+            expect(/** @type {Record<string, unknown>} */ (records[0]).thought).toBeUndefined();
+        });
+
+        it("drops message records whose only payload is a <thought> span", () => {
+            const text = '<record type="message" id="1" sender="tom"><thought>only reasoning</thought></record>';
+            expect(codec.parseRecords(text)).toHaveLength(0);
+        });
+
+        it("strips a bare <thought> span outside a <text> tag", () => {
+            const text = '<record type="message" id="1" sender="tom"><thought>whisper</thought>Actual line</record>';
+            const records = codec.parseRecords(text);
+
+            expect(records).toHaveLength(1);
+            expect(records[0].text).toBe("Actual line");
+        });
+    });
+
+    // ─────────────────────────────────────────────
     // Scenario: fragmented back-to-back streams
     // ─────────────────────────────────────────────
     describe("Fragmented stream simulation", () => {

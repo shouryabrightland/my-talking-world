@@ -693,9 +693,17 @@ export default function PlannerDrawer() {
                             const isRemoved = proposal?.changes.some(c => c.action === "remove" && c.block.id === record.id);
                             const diffClass = isProposed ? styles.sceneCardProposed : (isRemoved ? styles.sceneCardRemoved : "");
 
+                            // Timeline continuity: surface non-contiguous blocks with a gap line.
+                            const nextRecord = records[idx + 1];
+                            const gapMinutes = nextRecord ? Math.round((nextRecord.startHour - record.endHour) * 60) : 0;
+                            const hasGap = gapMinutes > 0;
+                            const gapHours = Math.floor(gapMinutes / 60);
+                            const gapMins = gapMinutes % 60;
+                            const gapText = `${gapHours > 0 ? `${gapHours}h ` : ""}${gapMins > 0 ? `${gapMins}m` : ""} gap`;
+
                             return (
+                                <React.Fragment key={record.id}>
                                 <div
-                                    key={record.id}
                                     className={`${styles.sceneCard} ${isCurrent ? styles.sceneCardCurrent : ""} ${isReordering ? styles.sceneCardReordering : ""} ${diffClass}`}
                                     style={isReordering ? { transform: "translate3d(0, -4px, 0)", opacity: 0.7 } : undefined}
                                 >
@@ -941,6 +949,15 @@ export default function PlannerDrawer() {
                                         </div>
                                     )}
                                 </div>
+
+                                {hasGap && (
+                                    <div className={styles.timelineGapLine}>
+                                        <div className={styles.timelineGapDash} />
+                                        <span className={styles.timelineGapBadge}>── {gapText} ──</span>
+                                        <div className={styles.timelineGapDash} />
+                                    </div>
+                                )}
+                                </React.Fragment>
                             );
                         })}
                     </div>
