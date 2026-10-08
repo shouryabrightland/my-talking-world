@@ -177,6 +177,7 @@ export default class GroqModelPool {
     #cooldownMap = new Map();
     #serverPauseMap = new Map();
     #ejected = new Set();
+    /** @type {string|null} */
     #activeModelId = null;
     #fetchedAt = 0;
     /** @type {Promise<void>|null} */

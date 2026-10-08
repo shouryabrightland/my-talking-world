@@ -35,6 +35,66 @@ export const GroqClientEvents = {
     COOLDOWN_ACTIVE: "cooldown_active"
 };
 
+/**
+ * Reserved thinking (chain-of-thought) budget in tokens.
+ *
+ * Groq exposes NO numeric thinking-budget parameter — reasoning tokens are
+ * drawn from the request's own `max_tokens`. The budget is therefore applied
+ * in two parts:
+ *   1. `reasoning_effort: "low"` → Groq's smallest documented reasoning size.
+ *   2. `max_tokens` is topped up by this value so the thinking chain can use
+ *      up to GROQ_THINKING_BUDGET_TOKENS without shrinking the reply's own
+ *      token budget.
+ * @readonly
+ */
+export const GROQ_THINKING_BUDGET_TOKENS = 512;
+
+/**
+ * Models documented by Groq as supporting `reasoning_effort` (low/medium/high).
+ * Everything else (llama, qwen3-32b/3.6, minimax, …) must NOT receive
+ * reasoning params — Groq rejects unsupported parameters with HTTP 400.
+ * @readonly @type {readonly RegExp[]}
+ */
+const REASONING_MODEL_PATTERNS = Object.freeze([
+    /^openai\/gpt-oss-120b$/,
+    /^openai\/gpt-oss-20b$/,
+    /^qwen\/qwen3\.8-/
+]);
+
+/**
+ * @param {string|null|undefined} modelId
+ * @returns {boolean} True when the model supports Groq's reasoning params.
+ */
+export function supportsGroqThinking(modelId) {
+    const id = String(modelId || "").trim().toLowerCase();
+    if (!id || id.includes("safeguard")) return false;
+    return REASONING_MODEL_PATTERNS.some(re => re.test(id));
+}
+
+/**
+ * Attaches thinking options to a chat-completions request body when the
+ * target model supports them. Mutates and returns the body; non-reasoning
+ * models are left completely untouched.
+ *
+ * - `reasoning_effort: "low"` → minimal reasoning size (small thinking chain).
+ * - `reasoning_format: "parsed"` → reasoning streams via `delta.reasoning`
+ *   and NEVER enters `delta.content`, keeping the protocol parser & stream
+ *   events clean. (Also the required format when JSON mode is on.)
+ * - `max_tokens += GROQ_THINKING_BUDGET_TOKENS` → reserves the thinking
+ *   budget on top of the reply budget.
+ *
+ * @param {Record<string, any>} body
+ * @returns {Record<string, any>} The same body, possibly augmented.
+ */
+export function applyGroqThinking(body) {
+    if (!supportsGroqThinking(body.model)) return body;
+
+    body.reasoning_effort = "low";
+    body.reasoning_format = "parsed";
+    body.max_tokens = (Number(body.max_tokens) || 0) + GROQ_THINKING_BUDGET_TOKENS;
+    return body;
+}
+
 /** @type {RateLimiter} */
 const sharedRateLimiter = new RateLimiter({
     maxPerMinute: 10,
@@ -303,6 +363,8 @@ export default class GroqClient {
                         body.response_format = { type: "json_object" };
                     }
 
+                    applyGroqThinking(body);
+
                     const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
                         method: "POST",
                         signal: this.abortController?.signal,
@@ -384,10 +446,10 @@ export default class GroqClient {
                 "Authorization": `Bearer ${key}`,
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({
+            body: JSON.stringify(applyGroqThinking({
                 model, messages, temperature, max_tokens: maxTokens, stream: true,
                 stream_options: { include_usage: true }
-            })
+            }))
         });
 
         if (response.status === 429 || response.status === 503) {

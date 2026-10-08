@@ -284,3 +284,133 @@ describe("RateLimiter — server-specified pause windows", () => {
         expect(elapsed).toBeGreaterThanOrEqual(100);
     });
 });
+
+describe("GroqClient — thinking (reasoning) options", () => {
+    beforeEach(() => {
+        PromptLogger.clear();
+        setApiKey("gsk_test_thinking_key");
+    });
+
+    afterEach(() => {
+        clearApiKey();
+    });
+
+    /**
+     * Builds a minimal pool stub that always serves one fixed model.
+     * @param {string} modelId
+     * @returns {any}
+     */
+    function makePool(modelId) {
+        return {
+            activeModelId: modelId,
+            getCandidates: async () => [{ id: modelId, displayName: modelId, tier: 1, version: 1 }],
+            getActiveModel: async () => modelId,
+            reportSuccess() {},
+            reportFailure() { return false; },
+            isEjected() { return false; },
+            observeRateLimit() { return null; },
+            allModelsCooling() { return false; },
+            allModelsBlocked() { return false; },
+            minCooldownRemaining() { return null; },
+            cooldownRemaining() { return null; }
+        };
+    }
+
+    it("enables thinking with a 512-token budget on reasoning models", async () => {
+        /** @type {any} */
+        let capturedBody = null;
+
+        server.use(http.post(CHAT_URL, async ({ request }) => {
+            capturedBody = await request.json();
+            return new HttpResponse(sseBody([
+                { choices: [{ delta: { reasoning: "pehle sochta hoon…" } }] },
+                { choices: [{ delta: { content: "Answer." }, finish_reason: "stop" }] },
+                { choices: [], usage: { prompt_tokens: 10, completion_tokens: 20 } }
+            ]), { headers: { "Content-Type": "text/event-stream" } });
+        }));
+
+        const client = new GroqClient({ logger: makeFakeLogger(), modelPool: makePool("openai/gpt-oss-120b") });
+        const text = await client.streamChat([{ role: "user", content: "hello" }], { maxTokens: 100 });
+
+        expect(capturedBody).toBeTruthy();
+        expect(capturedBody.model).toBe("openai/gpt-oss-120b");
+        expect(capturedBody.reasoning_effort).toBe("low");
+        expect(capturedBody.reasoning_format).toBe("parsed");
+        // Reply budget (100) stays intact; the 512 thinking budget is on top.
+        expect(capturedBody.max_tokens).toBe(100 + 512);
+        // Reasoning deltas must never leak into the streamed reply text.
+        expect(text).toBe("Answer.");
+    });
+
+    it("leaves non-reasoning models completely untouched", async () => {
+        /** @type {any} */
+        let capturedBody = null;
+
+        server.use(http.post(CHAT_URL, async ({ request }) => {
+            capturedBody = await request.json();
+            return new HttpResponse(sseBody([
+                { choices: [{ delta: { content: "plain reply" }, finish_reason: "stop" }] },
+                { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } }
+            ]), { headers: { "Content-Type": "text/event-stream" } });
+        }));
+
+        const client = new GroqClient({ logger: makeFakeLogger(), modelPool: makePool("llama-3.3-70b-versatile") });
+        await client.streamChat([{ role: "user", content: "hello" }], { maxTokens: 100 });
+
+        expect(capturedBody).toBeTruthy();
+        expect(capturedBody.reasoning_effort).toBeUndefined();
+        expect(capturedBody.reasoning_format).toBeUndefined();
+        expect(capturedBody.max_tokens).toBe(100);
+    });
+
+    it("applies thinking options to non-streaming (generateText) requests too", async () => {
+        /** @type {any} */
+        let capturedBody = null;
+
+        server.use(http.post(CHAT_URL, async ({ request }) => {
+            capturedBody = await request.json();
+            return HttpResponse.json({
+                choices: [{ message: { content: "{\"ok\":true}" } }],
+                usage: { prompt_tokens: 10, completion_tokens: 5 }
+            });
+        }));
+
+        const client = new GroqClient({ logger: makeFakeLogger(), modelPool: makePool("openai/gpt-oss-120b") });
+        await client.generateText([{ role: "user", content: "hi" }], { maxTokens: 100, jsonMode: true });
+
+        expect(capturedBody).toBeTruthy();
+        expect(capturedBody.stream).toBe(false);
+        expect(capturedBody.reasoning_effort).toBe("low");
+        // reasoning_format "parsed" is also the required format under JSON mode.
+        expect(capturedBody.reasoning_format).toBe("parsed");
+        expect(capturedBody.response_format).toEqual({ type: "json_object" });
+        expect(capturedBody.max_tokens).toBe(100 + 512);
+    });
+
+    it("only allowlists Groq-documented reasoning models", async () => {
+        const { supportsGroqThinking, applyGroqThinking, GROQ_THINKING_BUDGET_TOKENS } =
+            await import("../../src/classes/GroqClient.js");
+
+        expect(GROQ_THINKING_BUDGET_TOKENS).toBe(512);
+
+        expect(supportsGroqThinking("openai/gpt-oss-120b")).toBe(true);
+        expect(supportsGroqThinking("openai/gpt-oss-20b")).toBe(true);
+        expect(supportsGroqThinking("qwen/qwen3.8-27b")).toBe(true);
+
+        // Safeguard & everything else must never get reasoning params (400 risk).
+        expect(supportsGroqThinking("openai/gpt-oss-safeguard-20b")).toBe(false);
+        expect(supportsGroqThinking("llama-3.3-70b-versatile")).toBe(false);
+        expect(supportsGroqThinking("qwen/qwen3-32b")).toBe(false);
+        expect(supportsGroqThinking("qwen/qwen3.6-27b")).toBe(false);
+        expect(supportsGroqThinking("")).toBe(false);
+
+        const body = applyGroqThinking({ model: "openai/gpt-oss-120b", max_tokens: 100 });
+        expect(body.max_tokens).toBe(612);
+        expect(body.reasoning_effort).toBe("low");
+        expect(body.reasoning_format).toBe("parsed");
+
+        const plain = applyGroqThinking({ model: "llama-3.3-70b-versatile", max_tokens: 100 });
+        expect(plain.max_tokens).toBe(100);
+        expect(plain.reasoning_effort).toBeUndefined();
+    });
+});
