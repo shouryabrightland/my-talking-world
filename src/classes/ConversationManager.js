@@ -204,13 +204,19 @@ export default class ConversationManager {
             () => {
                 this.logger.info("Schedule segment updated. Synchronizing dialogue context...");
                 this.events.emit(ConversationEvents.SCHEDULE_SYNC, this.world.activeSchedule);
+                // Publish upcoming planner scenes to Tier-3 memory so the
+                // cast can recall future events through Active Memories.
+                this.#syncPlannerScenes();
             },
             "ConversationManager: schedule sync listener"
         );
 
         this.world.events.on(
             WorldEvents.READY,
-            () => this.#runInitialSituationPass(),
+            () => {
+                this.#syncPlannerScenes();
+                this.#runInitialSituationPass();
+            },
             "ConversationManager: initial situation on world ready"
         );
 
@@ -501,6 +507,23 @@ export default class ConversationManager {
         void this.situationEngine.executeIfDue(this.#buildSituationContext(), true).catch((/** @type {unknown} */ err) => {
             this.logger.warn("Ambient situation pass failed:", err);
         });
+    }
+
+    /**
+     * Publishes the planner's upcoming scenes into Tier-3 UnifiedMemory so
+     * characters can see future events ("what's scheduled at 17:00?" through
+     * Needle → Active Memories). Never throws.
+     * @returns {void}
+     */
+    #syncPlannerScenes() {
+        try {
+            const records = this.world.worldSetter?.getRecords?.() || [];
+            void this.unifiedMemory.syncPlannerScenes(records).catch((/** @type {unknown} */ err) => {
+                this.logger.warn("Planner scene sync into UnifiedMemory failed:", err);
+            });
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Planner scene sync into UnifiedMemory failed:", err);
+        }
     }
 
     #tickSituationEngine() {

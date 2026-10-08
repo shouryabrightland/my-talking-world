@@ -384,4 +384,68 @@ export default class UnifiedMemory {
         await this.persist();
         this.logger.info("Synchronized real-world environment & news into UnifiedMemory.");
     }
+
+    /**
+     * Synchronizes the planner's FUTURE schedule blocks into the UnifiedMemory
+     * stack so characters can recall upcoming scenes through Tier-3 retrieval
+     * (Needle keyword match → Active Memories). Replaces previous planner
+     * entries on every sync to avoid duplicates and skips blocks that have
+     * already ended.
+     *
+     * @param {import("../types/World.types").ScheduleRecord[]} schedule Full planner horizon.
+     * @returns {Promise<void>}
+     */
+    async syncPlannerScenes(schedule) {
+        if (!Array.isArray(schedule) || schedule.length === 0) return;
+
+        // 1. Purge previous planner entries so re-syncs never duplicate.
+        this.entries = this.entries.filter(e => !e.tags.includes("planner"));
+
+        const now = new Date();
+        const decimalHour = now.getHours() + now.getMinutes() / 60;
+        const stamp = now.toISOString().slice(0, 16).replace("T", " ");
+
+        /** @param {number} h @returns {string} */
+        const fmt = (h) => {
+            const hh = Math.floor(h);
+            const mm = Math.round((h - hh) * 60);
+            return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+        };
+
+        let count = 0;
+        for (const block of schedule) {
+            if (!block || typeof block.startHour !== "number") continue;
+            // Scenes already in the past are dead — characters only need what's ahead.
+            if (typeof block.endHour === "number" && block.endHour <= decimalHour) continue;
+
+            const time = block.timeRange || `${fmt(block.startHour)}-${fmt(block.endHour)}`;
+            const goals = Array.isArray(block.characterGoals) ? block.characterGoals : [];
+            const goalText = goals.length
+                ? ` Goals: ${goals.map(g => `${g.id}: ${g.goal}`).join("; ")}.`
+                : "";
+            const data = `Upcoming scene ${time}: ${block.topic || "Casual hangout"} — ${block.mainGoal || "Chat naturally"}.${goalText}`;
+
+            // Retrieval tags: fixed planner keywords + topic words + goal owners.
+            const topicWords = String(block.topic || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, " ")
+                .split(/\s+/)
+                .filter(w => w.length > 3)
+                .slice(0, 3);
+            const ownerIds = goals.map(g => String(g.id || "").toLowerCase()).filter(Boolean);
+            const tags = [...new Set(["planner", "schedule", "future", "scene", ...topicWords, ...ownerIds])];
+
+            this.entries.push({
+                id: crypto.randomUUID(),
+                datetime: stamp,
+                tags,
+                data,
+                expiry: "24h"
+            });
+            count++;
+        }
+
+        await this.persist();
+        this.logger.info(`Synchronized ${count} upcoming planner scene(s) into UnifiedMemory.`);
+    }
 }

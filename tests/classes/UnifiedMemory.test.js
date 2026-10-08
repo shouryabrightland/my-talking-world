@@ -248,3 +248,62 @@ describe("UnifiedMemory — Gemma compression", () => {
         expect(memory.entries[0].data).toBe("Tom repaired the drone rotor");
     });
 });
+
+describe("UnifiedMemory — planner scene sync (future events for the cast)", () => {
+    /** Schedule horizon: one past block (always ended) + one upcoming block. */
+    function makeSchedule(topic, mainGoal) {
+        const now = new Date();
+        const h = now.getHours() + now.getMinutes() / 60;
+        return [
+            { id: "past", startHour: -5, endHour: -4, timeRange: "00:00-01:00", topic: "Dead scene", mainGoal: "over", characterGoals: [] },
+            {
+                id: "future", startHour: h + 1, endHour: h + 2,
+                topic, mainGoal,
+                characterGoals: [{ id: "tom", goal: "Sketch the rotor mount" }]
+            }
+        ];
+    }
+
+    it("stores only upcoming scenes and replaces them on re-sync", async () => {
+        await memory.syncPlannerScenes(makeSchedule("Rooftop drone repair", "Fix the rotor"));
+
+        const planner = memory.entries.filter(e => e.tags.includes("planner"));
+        expect(planner).toHaveLength(1); // past block skipped, no duplicates
+        expect(planner[0].data).toContain("Upcoming scene");
+        expect(planner[0].data).toContain("Rooftop drone repair");
+        expect(planner[0].data).toContain("tom: Sketch the rotor mount");
+        expect(planner[0].tags).toContain("schedule");
+        expect(planner[0].tags).toContain("tom");
+        expect(planner[0].expiry).toBe("24h");
+
+        // Re-sync with a changed plan REPLACES the old entry.
+        await memory.syncPlannerScenes(makeSchedule("Chai run at the stall", "Grab chai for the group"));
+        const again = memory.entries.filter(e => e.tags.includes("planner"));
+        expect(again).toHaveLength(1);
+        expect(again[0].data).toContain("Chai run at the stall");
+        expect(again[0].data).not.toContain("Rooftop drone repair");
+    });
+
+    it("keeps non-planner memories intact across planner re-syncs", async () => {
+        await memory.add({ tags: ["tom", "chai"], data: "Tom promised chai." });
+        await memory.syncPlannerScenes(makeSchedule("Rooftop drone repair", "Fix the rotor"));
+        await memory.syncPlannerScenes(makeSchedule("Chai run at the stall", "Grab chai"));
+
+        expect(memory.entries.some(e => e.data === "Tom promised chai.")).toBe(true);
+        expect(memory.entries.filter(e => e.tags.includes("planner"))).toHaveLength(1);
+    });
+
+    it("is retrievable through the deterministic Needle search", async () => {
+        await memory.syncPlannerScenes(makeSchedule("Rooftop drone repair", "Fix the rotor before sunset"));
+
+        const hits = memory.searchDeterministic(["drone", "repair"], ["planner"]);
+        expect(hits.length).toBeGreaterThan(0);
+        expect(hits[0]).toContain("Rooftop drone repair");
+    });
+
+    it("ignores empty or non-array schedules", async () => {
+        await memory.syncPlannerScenes(/** @type {any} */ ([]));
+        await memory.syncPlannerScenes(/** @type {any} */ (null));
+        expect(memory.entries).toHaveLength(0);
+    });
+});
