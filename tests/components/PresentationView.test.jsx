@@ -2,30 +2,16 @@
 // @ts-check
 
 /**
- * @file PresentationView tests — continuous 11-station living flowchart.
- * Covers: station rendering, HUD jump dots, scroll-bound progress,
- * keyboard navigation and both onFinish exits (skip + finale CTA).
+ * @file PresentationView tests — single-phone "bifurcating" scrollytelling.
+ * Covers: HUD (brand, 11 dots, progress, skip), per-step caption reveals,
+ * scroll-bound --scroll-progress / --t clock, slab peel transforms,
+ * keyboard navigation and all three exits (Escape, skip, finale CTA).
  */
 
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import PresentationView from "../../src/components/presentation/PresentationView.jsx";
-
-/** Exact headlines of the 11 architectural stations (0% → 100% scroll). */
-const HEADLINES = [
-    "ZERO-SERVER PRIVACY",
-    "GROUNDED REALITY",
-    "24-HOUR LIVING ARC",
-    "DIRECTOR GOD-MODE",
-    "20,000-CHAR VAULT",
-    "ON-DEVICE 14MB AI CHIP",
-    "SUB-SECOND BANTER",
-    "PROCEDURAL SOUND ENGINE",
-    "UNBREAKABLE ARMOR",
-    "LIVE SYSTEM COCKPIT",
-    "TAKE THE WHEEL"
-];
+import PresentationView, { PRESENTATION_LAYERS } from "../../src/components/presentation/PresentationView.jsx";
 
 /**
  * Give the scroll container a deterministic scrollable range in jsdom
@@ -42,85 +28,107 @@ function mountWithScrollRange(scrollHeight, clientHeight) {
     return scroller;
 }
 
-describe("PresentationView — continuous 11-station flowchart", () => {
-    it("renders all 11 stations with their headlines and source chips", () => {
-        render(<PresentationView onFinish={vi.fn()} />);
-
-        for (const headline of HEADLINES) {
-            expect(screen.getByText(headline)).toBeTruthy();
-        }
-
-        // Every station section is present in the continuous pipeline.
-        for (let i = 1; i <= 11; i++) {
-            expect(screen.getByTestId(`station-${i}`)).toBeTruthy();
-        }
-
-        // Source-module chips prove the pipeline maps to real architecture.
-        expect(screen.getByText("apiKeys.js")).toBeTruthy();
-        expect(screen.getByText("WorldSetter.js")).toBeTruthy();
-        expect(screen.getByText("sound.js")).toBeTruthy();
-        expect(screen.getByText("Chat.jsx")).toBeTruthy();
-
-        // Station 06 chip carries the exact spec label.
-        expect(screen.getByText("Needle 2 • 14MB Wasm")).toBeTruthy();
-    });
-
-    it("shows the glass HUD: brand, 11 jump dots, progress bar and skip button", () => {
+describe("PresentationView — single-phone scrollytelling", () => {
+    it("renders the phone stack (9 slabs), initial caption, HUD and 11 jump dots", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
         expect(screen.getByText("TOM & FRIENDS • LIVING SITCOM")).toBeTruthy();
         expect(screen.getByText("0%")).toBeTruthy();
 
-        const dots = screen.getAllByRole("button", { name: /^Station \d+:/ });
-        expect(dots).toHaveLength(11);
+        // One phone, split into 9 physical slabs (display → cockpit).
+        for (let k = 0; k < 9; k++) {
+            expect(screen.getByTestId(`slab-${k}`)).toBeTruthy();
+        }
+        expect(screen.getByText("DISPLAY")).toBeTruthy();
+        expect(screen.getByText("NEEDLE CHIP")).toBeTruthy();
+        expect(screen.getByText("COCKPIT")).toBeTruthy();
 
-        // No slide-deck controls survive the rewrite.
-        expect(screen.queryByRole("button", { name: /Next Scene/ })).toBeNull();
-        expect(screen.queryByRole("button", { name: /Prev/ })).toBeNull();
-        expect(screen.queryByRole("button", { name: /Launch Studio/ })).toBeNull();
+        // Intro caption with plain-language blurb + source chips.
+        expect(screen.getByTestId("caption-1")).toBeTruthy();
+        expect(screen.getByText("A LIVING SITCOM IN YOUR POCKET")).toBeTruthy();
+        expect(screen.getByText(/six AI friends hang out/i)).toBeTruthy();
+        expect(screen.getByText("Chat.jsx")).toBeTruthy();
+
+        const dots = screen.getAllByRole("button", { name: /^Step \d+: / });
+        expect(dots).toHaveLength(PRESENTATION_LAYERS.length);
+        expect(dots).toHaveLength(11);
     });
 
-    it("jump dots activate the target station along the pipeline", () => {
+    it("every jump dot reveals its own step caption (all 11 headlines reachable)", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
-        expect(screen.getByTestId("station-1").getAttribute("data-active")).toBe("true");
-
-        fireEvent.click(screen.getByRole("button", { name: "Station 4: Director" }));
-
-        expect(screen.getByTestId("station-4").getAttribute("data-active")).toBe("true");
-        expect(screen.getByTestId("station-1").getAttribute("data-active")).toBe("false");
-        expect(
-            screen.getByRole("button", { name: "Station 4: Director" }).getAttribute("aria-current")
-        ).toBe("step");
+        for (const layer of PRESENTATION_LAYERS) {
+            fireEvent.click(screen.getByRole("button", { name: `Step ${layer.id}: ${layer.label}` }));
+            expect(screen.getByTestId(`caption-${layer.id}`)).toBeTruthy();
+            expect(screen.getByText(layer.headline)).toBeTruthy();
+            expect(screen.getByText(layer.blurb)).toBeTruthy();
+        }
     });
 
-    it("scroll position drives --scroll-progress, the HUD label and the active station", () => {
+    it("jump dots mark the active step on the HUD, track and phone", () => {
+        render(<PresentationView onFinish={vi.fn()} />);
+
+        const root = screen.getByTestId("presentation-scroll");
+        expect(root.getAttribute("data-active-step")).toBe("0");
+        expect(screen.getByTestId("step-1").getAttribute("data-active")).toBe("true");
+
+        fireEvent.click(screen.getByRole("button", { name: "Step 4: Director" }));
+
+        expect(root.getAttribute("data-active-step")).toBe("3");
+        expect(screen.getByTestId("step-4").getAttribute("data-active")).toBe("true");
+        expect(screen.getByTestId("step-1").getAttribute("data-active")).toBe("false");
+        expect(screen.getByTestId("step-1").getAttribute("data-past")).toBe("true");
+        expect(
+            screen.getByRole("button", { name: "Step 4: Director" }).getAttribute("aria-current")
+        ).toBe("step");
+
+        // The Director slab (k=2) glows while its step is active.
+        expect(screen.getByTestId("slab-2").getAttribute("data-active")).toBe("true");
+        expect(screen.getByTestId("slab-0").getAttribute("data-active")).toBe("false");
+    });
+
+    it("scroll drives --scroll-progress, the peel clock --t, the HUD label and the active step", () => {
         const scroller = mountWithScrollRange(1100, 100);
 
         scroller.scrollTop = 500;
         fireEvent.scroll(scroller);
 
         expect(scroller.style.getPropertyValue("--scroll-progress")).toBe("0.5000");
+        // Continuous step clock: progress × 11 steps.
+        expect(scroller.style.getPropertyValue("--t")).toBe("5.5000");
         expect(screen.getByText("50%")).toBeTruthy();
 
-        // floor(0.50 × 11) = 5 → Station 06 is the live node.
-        expect(screen.getByTestId("station-6").getAttribute("data-active")).toBe("true");
-        // Everything already streamed past stays marked as passed.
-        expect(screen.getByTestId("station-3").getAttribute("data-past")).toBe("true");
-        expect(screen.getByTestId("station-9").getAttribute("data-past")).toBe("false");
+        // floor(0.50 × 11) = 5 → Step 06 (Chip) is the live caption.
+        expect(screen.getByTestId("step-6").getAttribute("data-active")).toBe("true");
+        expect(screen.getByTestId("caption-6")).toBeTruthy();
+        // Everything already peeled past stays marked as passed.
+        expect(screen.getByTestId("step-3").getAttribute("data-past")).toBe("true");
+        expect(screen.getByTestId("step-9").getAttribute("data-past")).toBe("false");
     });
 
-    it("keyboard arrows walk the pipeline one station at a time", () => {
+    it("each slab's peel transform is bound to the continuous --t clock", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
+        // Slab k starts peeling at t = k+1 and closes again at t = 10 (finale).
+        for (let k = 0; k < 9; k++) {
+            const transform = screen.getByTestId(`slab-${k}`).style.getPropertyValue("transform");
+            expect(transform).toContain(`var(--t) - ${k + 1}`);
+            expect(transform).toContain("var(--t) - 10");
+        }
+    });
+
+    it("keyboard arrows walk the pipeline one step at a time", () => {
+        render(<PresentationView onFinish={vi.fn()} />);
+        const root = screen.getByTestId("presentation-scroll");
+
         fireEvent.keyDown(window, { key: "ArrowDown" });
-        expect(screen.getByTestId("station-2").getAttribute("data-active")).toBe("true");
+        expect(root.getAttribute("data-active-step")).toBe("1");
 
         fireEvent.keyDown(window, { key: "PageDown" });
-        expect(screen.getByTestId("station-3").getAttribute("data-active")).toBe("true");
+        expect(root.getAttribute("data-active-step")).toBe("2");
 
         fireEvent.keyDown(window, { key: "ArrowUp" });
-        expect(screen.getByTestId("station-2").getAttribute("data-active")).toBe("true");
+        expect(root.getAttribute("data-active-step")).toBe("1");
     });
 
     it("Escape exits straight back to the studio", () => {
@@ -139,30 +147,32 @@ describe("PresentationView — continuous 11-station flowchart", () => {
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
-    it("triggers onFinish from the finale CTA at 100% scroll", () => {
+    it("the finale reassembles the phone and offers the studio CTA", () => {
         const onFinish = vi.fn();
         render(<PresentationView onFinish={onFinish} />);
 
+        fireEvent.click(screen.getByRole("button", { name: "Step 11: Wheel" }));
+
         const cta = screen.getByRole("button", { name: /Enter Live Studio 🚀/ });
-        expect(screen.getByTestId("station-11").contains(cta)).toBe(true);
+        expect(screen.getByTestId("caption-11").contains(cta)).toBe(true);
+        expect(screen.getByText("TAKE THE WHEEL")).toBeTruthy();
 
         fireEvent.click(cta);
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
-    it("micro-widgets are interactive: thought peek and armor switches", () => {
+    it("slab visuals carry the self-explanatory story text", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
-        const peek = screen.getByRole("button", { name: /Peek Thought/ });
-        expect(peek.getAttribute("aria-expanded")).toBe("false");
-        fireEvent.click(peek);
-        expect(peek.getAttribute("aria-expanded")).toBe("true");
-        expect(screen.getByText(/Lighting best rahegi/)).toBeTruthy();
-
-        const breaker = screen.getByRole("switch", { name: "Circuit Breaker" });
-        expect(breaker.getAttribute("aria-checked")).toBe("false");
-        fireEvent.click(breaker);
-        expect(breaker.getAttribute("aria-checked")).toBe("true");
-        expect(screen.getByText(/outage absorbed/)).toBeTruthy();
+        // Display: live chat + typing indicator.
+        expect(screen.getByText(/Ben is typing/i)).toBeTruthy();
+        // Reality: live grounding chips + news ticker.
+        expect(screen.getByText("🌡️ 32°C, Warm")).toBeTruthy();
+        // Memory: the 20k gauge.
+        expect(screen.getByText("8,432 / 20,000 chars")).toBeTruthy();
+        // Engines: on-device keys.
+        expect(screen.getByText(/keys never leave this phone/i)).toBeTruthy();
+        // Armor: self-healing guards.
+        expect(screen.getByText("Breaker: CLOSED ✓")).toBeTruthy();
     });
 });
