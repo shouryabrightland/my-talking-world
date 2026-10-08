@@ -359,7 +359,8 @@ export default class ConversationManager {
         this.logger.info("Requesting fresh conversational turn from Groq...");
 
         try {
-            await this.#resolveMemorySnippet();
+            // Tier 3: route the human utterance through Needle → UnifiedMemory.
+            await this.#resolveMemorySnippet(isUserInitiated, userMessageText);
 
             const promptPayload = await this.promptBuilder.build({
                 includeSystem: true,
@@ -404,19 +405,29 @@ export default class ConversationManager {
     }
 
     /**
-     * Tier-3 lookup: routes the entire recent chat transcript through Needle
-     * so 0-2 relevant UnifiedMemory lines can be retrieved for the active topic.
-     * Runs on every generation turn (both user and autonomous).
+     * Tier-3 lookup: routes the HUMAN UTTERANCE through Needle so 0-2
+     * relevant UnifiedMemory lines are injected for the active topic.
+     * Autonomous turns (nothing human pending) skip the lookup entirely —
+     * routing the whole noisy transcript would only surface junk matches.
+     * Never throws — a routing failure silently degrades to an empty snippet.
      *
+     * @param {boolean} isUserInitiated Whether this turn answers a human message.
+     * @param {string} userMessageText The human utterance to route through Needle.
      * @returns {Promise<void>}
      */
-    async #resolveMemorySnippet() {
-        const recentChat = this.#getRecentChatHistory();
-        if (!recentChat || !recentChat.trim()) return;
+    async #resolveMemorySnippet(isUserInitiated, userMessageText) {
+        const wantsLookup = isUserInitiated || this.#userTurnPending;
+        if (!wantsLookup) return;
+
+        // Consume the flag even when the lookup fails so autonomous turns
+        // never keep re-querying with a stale utterance.
+        this.#userTurnPending = false;
+
+        const queryText = String(userMessageText || this.#lastUserMessageText || "").trim();
+        if (!queryText) return;
 
         try {
-            // Pass the entire recent chat window (~1000 chars / ~250 tokens) to Needle
-            const { keywords, member } = await this.needleRouter.route(recentChat);
+            const { keywords, member } = await this.needleRouter.route(queryText);
             this.lastNeedleRoute = `${member}: ${keywords.join(", ") || "none"}`;
 
             const matches = this.unifiedMemory.searchDeterministic(keywords, [member]);
@@ -879,7 +890,7 @@ export default class ConversationManager {
             return builder.part([
                 "# Live Group Chat: Tom & Friends (Lucknow, India)",
                 "",
-                "## Cast",
+                "## Cast:",
                 castIds,
                 "- Speak each cast member at their listed age (mental maturity, slang, tone).",
                 "",
@@ -897,7 +908,7 @@ export default class ConversationManager {
                 "- After all messages, output exactly one pacing tag:",
                 '  * For active banter: <delay ms="3000"/> to <delay ms="5000"/>',
                 '  * For thoughtful pause / waiting for user: <delay ms="20000"/> to <delay ms="60000"/>',
-                '  * When wrapping up the scene, saying good night / signing off, or agreeing to meet at a later hour: <next time="HH:MM"/> (e.g. <next time="07:30"/> or <next time="17:00"/>). Use <next> (not <delay>) when pausing until later.'
+                '  * When wrapping up the scene, saying good night / signing off, or agreeing to meet at a later hour: <next time="HH:MM"/> (e.g. <next time="18:30"/> or <next time="07:30"/>). Use <next> (not <delay>) when pausing until later.'
             ].filter(Boolean).join("\n"));
         });
 
