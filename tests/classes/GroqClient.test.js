@@ -97,8 +97,14 @@ describe("GroqClient — streaming metrics & per-attempt logging", () => {
             }
         }));
 
-        const client = new GroqClient({ logger: makeFakeLogger(), defaultModel: "openai/gpt-oss-120b" });
-        const text = await client.streamChat([{ role: "user", content: "hello" }], { maxRetries: 0 });
+        const client = new GroqClient({ logger: makeFakeLogger() });
+        // Pin the primary model so the 404 → cascade path is deterministic
+        // (GroqClient has no defaultModel fallback; the pool ladder ranks
+        // other models first).
+        const text = await client.streamChat(
+            [{ role: "user", content: "hello" }],
+            { maxRetries: 0, model: "openai/gpt-oss-120b" }
+        );
 
         expect(text).toBe("fallback reply");
 
@@ -111,10 +117,10 @@ describe("GroqClient — streaming metrics & per-attempt logging", () => {
         expect(errorEntry?.model).toBe("openai/gpt-oss-120b");
         expect(errorEntry?.error).toContain("does not exist");
 
-        // The success card names the fallback model that served the response.
-        // Dynamic pool ranking puts Tier-1 instant-banter models first.
+        // The success card names the fallback model that served the response —
+        // the >=12B pool ladder falls through to the tier-1 flagship next.
         expect(successEntry).toBeDefined();
-        expect(successEntry?.model).toBe("llama-3.1-8b-instant");
+        expect(successEntry?.model).toBe("llama-3.3-70b-versatile");
         expect(successEntry?.tokensOut).toBe(10);
     });
 
@@ -146,21 +152,32 @@ describe("GroqModelPool — dynamic filtering & tiered ranking", () => {
         const ranked = prioritizeGroqModels(normalizeGroqModels(raw)).map(e => e.id);
 
         // Safeguard / non-text models crash chat calls with 400 — never listed.
-        expect(ranked).toHaveLength(6);
+        // The >=12B restriction additionally drops sub-12B models (8b, 3b,
+        // instant) — only 4 of the 12 raw ids survive.
+        expect(ranked).toHaveLength(4);
+        expect(ranked).toEqual([
+            "openai/gpt-oss-120b",
+            "llama-3.3-70b-versatile",
+            "qwen/qwen3.6-27b",
+            "mixtral-8x7b-32768"
+        ]);
         for (const bad of [
             "llama-prompt-guard-2-8b",
             "llama-guard-4",
             "whisper-large-v3",
             "orpheus-tts",
             "text-embedding-v3",
-            "llama-3.2-11b-vision-preview"
+            "llama-3.2-11b-vision-preview",
+            "llama-3.1-8b-instant",
+            "llama-3.2-3b-preview"
         ]) {
             expect(ranked).not.toContain(bad);
         }
 
-        // Tier 1 (instant/small banter) before Tier 2 (deep conversational).
-        expect(ranked.indexOf("llama-3.1-8b-instant")).toBeLessThan(ranked.indexOf("llama-3.3-70b-versatile"));
-        expect(ranked.indexOf("llama-3.2-3b-preview")).toBeLessThan(ranked.indexOf("qwen/qwen3.6-27b"));
+        // Tier 1 (>=70B flagship) leads, Tier 2 (20-70B) next, Tier 3 (MoE) last.
+        expect(ranked.indexOf("openai/gpt-oss-120b")).toBe(0);
+        expect(ranked.indexOf("llama-3.3-70b-versatile")).toBe(1);
+        expect(ranked.indexOf("qwen/qwen3.6-27b")).toBeLessThan(ranked.indexOf("mixtral-8x7b-32768"));
         // Tier 3 (other text chat models) sorts last.
         expect(ranked[ranked.length - 1]).toBe("mixtral-8x7b-32768");
     });
@@ -174,13 +191,16 @@ describe("GroqModelPool — dynamic filtering & tiered ranking", () => {
             const ids = candidates.map(c => c.id);
 
             // Chat models present, non-chat models filtered out.
-            expect(ids).toContain("llama-3.1-8b-instant");
             expect(ids).toContain("llama-3.3-70b-versatile");
+            expect(ids).toContain("mixtral-8x7b-32768");
             expect(ids.some(id => /guard|whisper|orpheus|embedding/.test(id))).toBe(false);
 
-            // Tier-1 instant banter model leads the ladder & the active model.
-            expect(ids[0]).toBe("llama-3.1-8b-instant");
-            expect(client.activeModel).toBe("llama-3.1-8b-instant");
+            // The >=12B restriction drops sub-12B models (8b-instant) entirely.
+            expect(ids).not.toContain("llama-3.1-8b-instant");
+
+            // The tier-1 flagship leads the ladder & the active model.
+            expect(ids[0]).toBe("llama-3.3-70b-versatile");
+            expect(client.activeModel).toBe("llama-3.3-70b-versatile");
         } finally {
             clearApiKey();
         }
@@ -220,10 +240,14 @@ describe("GroqClient — real rate-limit header integration", () => {
             ]), { headers: { "Content-Type": "text/event-stream" } });
         }));
 
-        const client = new GroqClient({ logger: makeFakeLogger(), defaultModel: "openai/gpt-oss-120b" });
+        const client = new GroqClient({ logger: makeFakeLogger() });
         const reportFailure = vi.spyOn(client.modelPool, "reportFailure");
 
-        const text = await client.streamChat([{ role: "user", content: "hello" }], { maxRetries: 0 });
+        // Pin the primary model so the 429 lands on a known pool id.
+        const text = await client.streamChat(
+            [{ role: "user", content: "hello" }],
+            { maxRetries: 0, model: "openai/gpt-oss-120b" }
+        );
         expect(text).toBe("recovered reply");
 
         // The pool receives the EXACT server reset (2.5s), not a blind
@@ -248,10 +272,14 @@ describe("GroqClient — real rate-limit header integration", () => {
             }
         })));
 
-        const client = new GroqClient({ logger: makeFakeLogger(), defaultModel: "openai/gpt-oss-120b" });
+        const client = new GroqClient({ logger: makeFakeLogger() });
         const observe = vi.spyOn(client.modelPool, "observeRateLimit");
 
-        const text = await client.streamChat([{ role: "user", content: "hello" }]);
+        // Pin the primary model so the observed pause lands on a known pool id.
+        const text = await client.streamChat(
+            [{ role: "user", content: "hello" }],
+            { model: "openai/gpt-oss-120b" }
+        );
         expect(text).toBe("window exhausted");
 
         // All five real headers are parsed from the response.

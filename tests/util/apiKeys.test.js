@@ -69,7 +69,7 @@ function makeFakeLogger() {
 // GROQ KEY VERIFICATION (1-TOKEN GENERATION CHECK)
 // =========================================================================
 
-describe("Groq API Key Verification (1-token generation)", () => {
+describe("Groq API Key Verification (single GET /models discovery)", () => {
     /** @type {ReturnType<typeof vi.spyOn>} */ let fetchSpy;
 
     beforeEach(() => {
@@ -96,22 +96,26 @@ describe("Groq API Key Verification (1-token generation)", () => {
         expect(result.models).toEqual([]);
     });
 
-    it("should accept a valid key with a single max_tokens:1 generation request", async () => {
+    it("should accept a valid key with a single GET /models discovery request", async () => {
         const result = await verifyApiKey("gsk_test_key_12345");
 
         expect(result.valid).toBe(true);
         expect(result.error).toBeNull();
 
-        // Exactly ONE lightweight request — no /models round trip.
+        // Exactly ONE lightweight request: the discovery GET doubles as the
+        // key probe (validates the key AND returns the >=12B chat ladder).
         expect(fetchSpy).toHaveBeenCalledTimes(1);
 
         const [url, init] = fetchSpy.mock.calls[0];
-        expect(String(url)).toContain("/chat/completions");
-
-        const body = JSON.parse(String(init?.body));
-        expect(body.max_tokens).toBe(1);
-        expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+        expect(String(url)).toContain("/openai/v1/models");
+        expect(String(init?.method || "GET")).toBe("GET");
         expect(String(init?.headers?.["Authorization"] ?? "")).toContain("gsk_test_key_12345");
+
+        // Discovered models are filtered to text chat models >= 12B.
+        expect(result.models).toContain("llama-3.3-70b-versatile");
+        expect(result.models).toContain("mixtral-8x7b-32768");
+        expect(result.models).not.toContain("llama-3.1-8b-instant");
+        expect(result.models.some(id => /guard|whisper|orpheus|embedding/.test(id))).toBe(false);
     });
 });
 
