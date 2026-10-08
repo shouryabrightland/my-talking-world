@@ -147,7 +147,8 @@ export default class GeminiClient {
         thinkingBudget = PLANNER_THINKING_BUDGET
     } = {}) {
         this.abort();
-        this.abortController = new AbortController();
+        const controller = new AbortController();
+        this.abortController = controller;
 
         const startTime = Date.now();
         const activeKey = this.apiKey;
@@ -169,7 +170,12 @@ export default class GeminiClient {
                 return await this.#streamWithRetry(requestBody, targetModel, activeKey, startTime, messages, promptType, maxRetries);
             });
         } finally {
-            this.abort();
+            // Only clean up OUR OWN controller: if a newer call already
+            // replaced the shared field, aborting it would kill that call's
+            // in-flight request (the AbortError cross-talk seen on boot).
+            if (this.abortController === controller) {
+                this.abort();
+            }
         }
     }
 
@@ -196,7 +202,8 @@ export default class GeminiClient {
         thinkingBudget = PLANNER_THINKING_BUDGET
     } = {}) {
         this.abort();
-        this.abortController = new AbortController();
+        const controller = new AbortController();
+        this.abortController = controller;
 
         const startTime = Date.now();
         const activeKey = this.apiKey;
@@ -218,7 +225,10 @@ export default class GeminiClient {
                 return await this.#generateWithRetry(requestBody, targetModel, activeKey, startTime, messages, promptType, maxRetries);
             });
         } finally {
-            this.abort();
+            // Only clean up OUR OWN controller (see streamGenerate).
+            if (this.abortController === controller) {
+                this.abort();
+            }
         }
     }
 

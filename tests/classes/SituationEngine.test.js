@@ -106,6 +106,16 @@ describe("SituationEngine — Tier-2 trigger rules", () => {
         await expect(engine.executeIfDue(ctx)).resolves.toBe(false);
         expect(geminiClient.streamGenerate).not.toHaveBeenCalled();
     });
+
+    it("suppresses a forced pass while one is already in flight (boot double-fire)", async () => {
+        // World READY and init() both fire the forced boot pass; overlapping
+        // passes used to abort each other's Gemini request (AbortError spam).
+        const { engine, geminiClient, ctx } = makeEngine();
+        engine.isProcessing = true;
+
+        await expect(engine.executeIfDue(ctx, true)).resolves.toBe(false);
+        expect(geminiClient.streamGenerate).not.toHaveBeenCalled();
+    });
 });
 
 describe("SituationEngine — Gemma output parsing", () => {

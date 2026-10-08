@@ -135,6 +135,11 @@ export default class SituationEngine {
      * @returns {Promise<boolean>} Whether the pass ran successfully.
      */
     async executeIfDue(ctx, force = false) {
+        // Single-flight ALWAYS: `force` bypasses the message/time THRESHOLDS,
+        // never the in-flight guard. World READY and init() both fire the
+        // forced boot pass; overlapping passes used to abort each other's
+        // Gemini request via the shared AbortController.
+        if (this.isProcessing) return false;
         if (!force && !this.shouldRun()) return false;
         if (!this.geminiClient || !this.unifiedMemory) return false;
 
