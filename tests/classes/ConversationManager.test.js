@@ -196,6 +196,7 @@ vi.mock("../../src/util/sound.js", () => ({ AmbientAudio: { stop() {} } }));
 // ─── Import after mocks ───
 
 import ConversationManager, { ConversationEvents } from "../../src/classes/ConversationManager.js";
+import Reaction from "../../src/classes/Reaction.js";
 import { ChatEvents } from "../../src/classes/Chat.js";
 import { ChatMemberEvents } from "../../src/classes/ChatMember.js";
 import Logger from "../../src/classes/lib/Logger.js";
@@ -661,8 +662,9 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         expect(joined).toContain('<delay ms="60000"/>');
         expect(joined).toContain('<next time="HH:MM"/>');
         expect(joined).toContain('<next time="18:30"/>');
-        // No hour-based bedtime framing left in the instructions.
-        expect(joined.toLowerCase()).not.toContain("sleep");
+        // No bedtime framing in the instructions. "Sleeping" itself is a
+        // VALID reaction name and must stay in the allow-list.
+        expect(joined.toLowerCase()).not.toMatch(/\b(bedtime|sleepy|go to sleep|sleep at|time to sleep|lights out)\b/i);
         expect(joined).toContain("## Ambient Setting");
         expect(joined).toContain("- Atmosphere:");
         expect(joined).toContain("Lucknow Hinglish");
@@ -670,6 +672,33 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
 
         // Raw XML structures are provided directly — never fenced in backticks.
         expect(joined).not.toContain("```xml");
+    });
+
+    it("lists every valid Reaction.EMOTION name in the message contract", () => {
+        const { manager } = createManager();
+        const joined = buildSystemParts(manager).join("\n\n");
+
+        // Single source of truth: Reaction.EMOTION. Every valid reaction name
+        // must be offered to the model so it never invents reaction values
+        // that the avatar layer would silently discard. (Emojis are omitted
+        // from the prompt on purpose — the 650-token Groq gate is tight.)
+        for (const { name } of Reaction.EMOTION) {
+            expect(joined).toContain(name);
+        }
+
+        expect(joined).toContain('<msg sender="id" reaction="ReactionName">');
+        expect(joined).toContain("Valid reactions (exact): {");
+        expect(joined).toMatch(/Use Default if unsure/i);
+    });
+
+    it("lists cast ages and the age directive in the message contract", () => {
+        const { manager } = createManager();
+        const joined = buildSystemParts(manager).join("\n\n");
+
+        // Ages ride inline with the cast ids (fallback cast includes ages too),
+        // and the compact Groq prompt carries one age-directive line.
+        expect(joined).toMatch(/\(\d{2}\)/);
+        expect(joined).toMatch(/Speak each cast member at their listed age/);
     });
 
     it("drops every legacy heavy block and the <thought> system", () => {

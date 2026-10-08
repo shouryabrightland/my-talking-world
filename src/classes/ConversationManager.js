@@ -20,6 +20,7 @@ import Message from "./Message";
 import TimelineProcessor from "./TimelineProcessor";
 import PromptBuilderClass from "./PromptBuilder";
 import ProtocolCodec from "./ProtocolCodec";
+import Reaction from "./Reaction";
 import Storage from "./lib/Storage";
 import UnifiedMemory from "./lib/UnifiedMemory";
 import NeedleRouter from "./lib/NeedleRouter";
@@ -862,7 +863,9 @@ export default class ConversationManager {
         builder.useSystem(() => {
             // Strictly AI characters only (never "me")
             const aiMembers = [...this.world.members.values()].filter(m => m.isAI);
-            const castIds = aiMembers.map(m => m.id).join(", ") || "tom, angela, ben, ginger, hank, becca";
+            const castIds = aiMembers
+                .map(m => (Number.isFinite(m.age) && m.age > 0 ? `${m.id} (${m.age})` : m.id))
+                .join(", ") || "tom (28), angela (24), ben (19), ginger (17), hank (26), becca (22)";
 
             const situation = this.situationEngine
                 ? this.situationEngine.situationText
@@ -878,6 +881,7 @@ export default class ConversationManager {
                 "",
                 "## Cast",
                 castIds,
+                "- Speak each cast member at their listed age (mental maturity, slang, tone).",
                 "",
                 "## Ambient Setting",
                 `- Time: ${this.world.dateTime}`,
@@ -885,14 +889,15 @@ export default class ConversationManager {
                 memorySection,
                 "## Dialogue Instructions",
                 "- Language: Natural Lucknow Hinglish (Roman/Latin script only).",
-                `- Characters: Speak ONLY as the AI cast (${castIds}). NEVER generate messages for the human user ("me"). The user speaks for themselves.`,
-                "- When the human user speaks, reply to them directly first. The ambient setting is background atmosphere.",
+                `- Characters: speak only as the AI cast; never answer for the human user ("me") — they speak for themselves.`,
+                "- Reply to the human directly first; ambient setting is background.",
                 "- Output 1 to 3 messages using:",
                 '<msg sender="id" reaction="ReactionName">message text</msg>',
+                `- Valid reactions (exact): {${Reaction.EMOTION.map(e => e.name).join(", ")}}. Use Default if unsure.`,
                 "- After all messages, output exactly one pacing tag:",
                 '  * For active banter: <delay ms="3000"/> to <delay ms="5000"/>',
                 '  * For thoughtful pause / waiting for user: <delay ms="20000"/> to <delay ms="60000"/>',
-                '  * When wrapping up the scene, saying good night / signing off, or agreeing to meet at a later hour: <next time="HH:MM"/> (e.g. <next time="07:30"/> or <next time="17:00"/>). Always use <next> instead of <delay> when the conversation pauses until later.'
+                '  * When wrapping up the scene, saying good night / signing off, or agreeing to meet at a later hour: <next time="HH:MM"/> (e.g. <next time="07:30"/> or <next time="17:00"/>). Use <next> (not <delay>) when pausing until later.'
             ].filter(Boolean).join("\n"));
         });
 
