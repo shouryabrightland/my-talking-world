@@ -138,6 +138,23 @@ describe("PresentationView — single-unit phone scrollytelling", () => {
         expect(screen.getByTestId("screen-0").getAttribute("data-active")).toBe("false");
     });
 
+    it("renders the cinematic FX canvas and drives zoom pulse + sway from scroll", () => {
+        const scroller = mountWithScrollRange(1100, 100);
+
+        // Starfield canvas behind the stage (2D context guarded for jsdom).
+        expect(screen.getByTestId("fx-canvas")).toBeTruthy();
+
+        scroller.scrollTop = 500;
+        fireEvent.scroll(scroller);
+
+        // t = 5.5 → pulse peaks exactly at step centers (0.5 − 0.5·cos(π) = 1).
+        expect(scroller.style.getPropertyValue("--pulse")).toBe("1.0000");
+        // Continuous yaw sway in degrees, written every frame.
+        const sway = parseFloat(scroller.style.getPropertyValue("--sway"));
+        expect(Number.isNaN(sway)).toBe(false);
+        expect(sway).not.toBe(0);
+    });
+
     it("keyboard arrows walk the pipeline one step at a time", () => {
         render(<PresentationView onFinish={vi.fn()} />);
         const root = screen.getByTestId("presentation-scroll");

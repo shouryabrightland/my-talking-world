@@ -14,8 +14,13 @@
  *
  * Responsive by design: the caption sits beside the phone on desktop and
  * overlays the bottom of the stage on phones, where the HUD wraps into two
- * compact rows. Wheel / touch / keyboard / HUD dots all move the same
- * pipeline. No frameworks beyond React + CSS custom properties.
+ * compact rows.
+ *
+ * Cinematics: a canvas starfield behind the stage (warp-burst on every step
+ * change), pointer parallax, a scroll-driven zoom pulse (`--pulse`) and yaw
+ * sway (`--sway`) on the phone, and 3D screen swaps inside the device — all
+ * driven by CSS custom properties so React only re-renders on step changes.
+ * Wheel / touch / keyboard / HUD dots all move the same pipeline.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -150,6 +155,15 @@ export default function PresentationView({ onFinish }) {
     const [activeIndex, setActiveIndex] = useState(0);
     const [progressPct, setProgressPct] = useState(0);
 
+    /** Cinematic starfield canvas element. */
+    const canvasRef = useRef(/** @type {HTMLCanvasElement|null} */ (null));
+
+    /** Warp burst amount (1 → 0) recharged on every step change. */
+    const warpRef = useRef(0);
+
+    /** Pointer parallax (-1..1) shared by the phone tilt and the canvas. */
+    const pointerRef = useRef({ x: 0, y: 0 });
+
     /**
      * Normalizes container scroll into `--scroll-progress` + continuous `--t`
      * (the parallax clock) + active step. CSS custom properties are written
@@ -167,7 +181,14 @@ export default function PresentationView({ onFinish }) {
 
         el.style.setProperty("--scroll-progress", progress.toFixed(4));
         // Continuous step clock: 0 → LAYER_COUNT. Drives phone glow/parallax.
-        el.style.setProperty("--t", (progress * LAYER_COUNT).toFixed(4));
+        const t = progress * LAYER_COUNT;
+        el.style.setProperty("--t", t.toFixed(4));
+        // Cinematic zoom pulse: 0 at step edges → 1 at step centers, so the
+        // phone pushes toward the viewer each time a step lands.
+        const frac = t - Math.floor(t);
+        el.style.setProperty("--pulse", (0.5 - 0.5 * Math.cos(frac * Math.PI * 2)).toFixed(4));
+        // Gentle continuous yaw so the device never stands perfectly still.
+        el.style.setProperty("--sway", (Math.sin(t * 0.85) * 7).toFixed(3));
 
         const pct = Math.round(progress * 100);
         setProgressPct(prev => (prev === pct ? prev : pct));
@@ -185,6 +206,163 @@ export default function PresentationView({ onFinish }) {
         window.addEventListener("resize", syncScroll);
         return () => window.removeEventListener("resize", syncScroll);
     }, [syncScroll]);
+
+    // Every step change recharges the canvas warp burst.
+    useEffect(() => {
+        warpRef.current = 1;
+    }, [activeIndex]);
+
+    // Pointer parallax (fine pointers only): sets --mx/--my for the phone
+    // tilt and feeds the starfield's camera drift.
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        if (typeof window.matchMedia === "function" && !window.matchMedia("(pointer: fine)").matches) return;
+
+        /** @param {PointerEvent} e */
+        const onMove = (e) => {
+            const r = el.getBoundingClientRect();
+            const x = ((e.clientX - r.left) / Math.max(1, r.width) - 0.5) * 2;
+            const y = ((e.clientY - r.top) / Math.max(1, r.height) - 0.5) * 2;
+            pointerRef.current = { x, y };
+            el.style.setProperty("--mx", x.toFixed(3));
+            el.style.setProperty("--my", y.toFixed(3));
+        };
+        const onLeave = () => {
+            pointerRef.current = { x: 0, y: 0 };
+            el.style.setProperty("--mx", "0");
+            el.style.setProperty("--my", "0");
+        };
+
+        el.addEventListener("pointermove", onMove);
+        el.addEventListener("pointerleave", onLeave);
+        return () => {
+            el.removeEventListener("pointermove", onMove);
+            el.removeEventListener("pointerleave", onLeave);
+        };
+    }, []);
+
+    // Cinematic starfield: depth-projected particles that rush toward the
+    // viewer, with a warp burst on every step change. Skipped entirely when
+    // the canvas has no 2D context (jsdom) or the user prefers reduced motion.
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        /** @type {CanvasRenderingContext2D|null} */
+        let ctx = null;
+        try {
+            ctx = canvas.getContext("2d");
+        } catch {
+            ctx = null; // jsdom / canvas-less environments
+        }
+        if (!ctx) return;
+        const reduced = typeof window.matchMedia === "function"
+            && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        /** @type {Array<{x:number,y:number,z:number,r:number,cr:number,cg:number,cb:number}>} */
+        const stars = Array.from({ length: 100 }, () => {
+            const palette = [[94, 234, 212], [139, 92, 246], [159, 215, 255]][Math.floor(Math.random() * 3)];
+            return {
+                x: Math.random() * 2 - 1,
+                y: Math.random() * 2 - 1,
+                z: Math.random() * 0.9 + 0.1,
+                r: Math.random() * 1.4 + 0.5,
+                cr: /** @type {number} */ (palette[0]),
+                cg: /** @type {number} */ (palette[1]),
+                cb: /** @type {number} */ (palette[2])
+            };
+        });
+
+        // Soft glow sprite per star — one-time radial gradient, drawn with
+        // cheap drawImage calls instead of per-frame gradients.
+        /** @type {Map<string, HTMLCanvasElement>} */
+        const sprites = new Map();
+        /** @param {number} cr @param {number} cg @param {number} cb @returns {HTMLCanvasElement} */
+        const sprite = (cr, cg, cb) => {
+            const key = `${cr},${cg},${cb}`;
+            let s = sprites.get(key);
+            if (s) return s;
+            s = document.createElement("canvas");
+            s.width = 64;
+            s.height = 64;
+            const sc = s.getContext("2d");
+            if (sc) {
+                const g = sc.createRadialGradient(32, 32, 0, 32, 32, 32);
+                g.addColorStop(0, `rgba(${cr},${cg},${cb},1)`);
+                g.addColorStop(0.35, `rgba(${cr},${cg},${cb},0.45)`);
+                g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+                sc.fillStyle = g;
+                sc.fillRect(0, 0, 64, 64);
+            }
+            sprites.set(key, s);
+            return s;
+        };
+
+        let raf = 0;
+        let w = 0;
+        let h = 0;
+
+        const resize = () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            w = canvas.clientWidth || canvas.parentElement?.clientWidth || 0;
+            h = canvas.clientHeight || canvas.parentElement?.clientHeight || 0;
+            canvas.width = Math.max(1, Math.round(w * dpr));
+            canvas.height = Math.max(1, Math.round(h * dpr));
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        };
+        resize();
+        window.addEventListener("resize", resize);
+
+        const BASE_SPEED = 0.0011;
+        let last = performance.now();
+
+        /** @param {number} now @returns {void} */
+        const frame = (now) => {
+            const dt = Math.min(now - last, 50);
+            last = now;
+            const warp = warpRef.current;
+            warpRef.current = Math.max(0, warp - dt / 700);
+            const { x: px, y: py } = pointerRef.current;
+
+            ctx.clearRect(0, 0, w, h);
+            const cx = w / 2 + px * 18;
+            const cy = h / 2 + py * 12;
+
+            for (const s of stars) {
+                s.z -= (BASE_SPEED + BASE_SPEED * warp * 8) * (dt / 16.7);
+                if (s.z <= 0.06) {
+                    s.z = 1;
+                    s.x = Math.random() * 2 - 1;
+                    s.y = Math.random() * 2 - 1;
+                }
+                const k = 0.62 / s.z;
+                const x = cx + s.x * k * w * 0.5;
+                const y = cy + s.y * k * h * 0.5;
+                if (x < -40 || x > w + 40 || y < -40 || y > h + 40) continue;
+
+                const depth = 1 - s.z;
+                const rad = Math.max(2, s.r * (1.5 / s.z) * (1 + warp * 1.6));
+                ctx.globalAlpha = Math.min(0.85, 0.18 + depth * 0.7);
+                ctx.drawImage(sprite(s.cr, s.cg, s.cb), x - rad * 3, y - rad * 3, rad * 6, rad * 6);
+            }
+            ctx.globalAlpha = 1;
+            raf = requestAnimationFrame(frame);
+        };
+
+        if (reduced) {
+            // Static field: draw one frame, no animation loop.
+            last = performance.now();
+            frame(last);
+            cancelAnimationFrame(raf);
+        } else {
+            raf = requestAnimationFrame(frame);
+        }
+
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener("resize", resize);
+        };
+    }, []);
 
     /** Currently glowing screen (undefined during intro/finale → home screen). */
     const activeLayer = typeof PRESENTATION_LAYERS[activeIndex]?.layer === "number"
@@ -398,6 +576,9 @@ export default function PresentationView({ onFinish }) {
             ref={scrollRef}
             onScroll={syncScroll}
         >
+            {/* ── Cinematic starfield (warp bursts on step changes) ──────── */}
+            <canvas ref={canvasRef} className={styles.fxCanvas} data-testid="fx-canvas" aria-hidden="true" />
+
             {/* ── Floating glass HUD ─────────────────────────────────────── */}
             <header className={styles.hudBar}>
                 <div className={styles.brandCluster}>

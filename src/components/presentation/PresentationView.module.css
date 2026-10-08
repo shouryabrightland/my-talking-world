@@ -41,10 +41,27 @@
     --neon2: #8b5cf6;
     --phone-h: clamp(400px, 78vh, 680px);
     --phone-h: clamp(400px, 78svh, 680px);
+    /* Cinematic custom props written per frame by JS. */
+    --pulse: 0; /* 0 → 1 zoom bump landing on each step center */
+    --sway: 0;  /* continuous yaw in degrees */
+    --mx: 0;    /* pointer parallax x (-1..1) */
+    --my: 0;    /* pointer parallax y (-1..1) */
 }
 
 .scrollViewport::-webkit-scrollbar {
     display: none;
+}
+
+/* ── Cinematic starfield canvas ─────────────────────────────────────── */
+
+.fxCanvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.9;
 }
 
 /* ── Floating glass HUD (viewport-fixed above everything) ───────────── */
@@ -201,17 +218,30 @@
     padding: 64px clamp(20px, 4vw, 64px) 24px;
     overflow: hidden;
     pointer-events: none;
+    perspective: 1600px;
+    perspective-origin: 62% 45%;
 }
 
 .stage > * {
     pointer-events: auto;
 }
 
+/* Filmic vignette over the whole stage (below the HUD). */
+.stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+    box-shadow: inset 0 0 160px 30px rgba(0, 0, 0, 0.55);
+}
+
 .ghostCode {
     position: absolute;
     right: 6vw;
     top: 50%;
-    transform: translateY(-50%);
+    transform: translateY(-50%)
+        translate3d(calc(var(--mx) * -16px), calc(var(--my) * -12px), 0);
     font-size: 34vh;
     font-weight: 900;
     letter-spacing: -0.04em;
@@ -236,6 +266,15 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    /* Cinematic 3D: pointer tilt + scroll-driven yaw + step zoom pulse. */
+    transform-style: preserve-3d;
+    transform:
+        rotateX(calc(var(--my) * -5deg))
+        rotateY(calc(var(--mx) * 7deg + var(--sway) * 1deg))
+        translateY(calc(var(--pulse) * -8px))
+        scale(calc(0.93 + 0.07 * var(--pulse)));
+    transition: transform 160ms linear;
+    will-change: transform;
 }
 
 .phoneBody {
@@ -252,6 +291,31 @@
         0 0 34px rgba(94, 234, 212, calc(0.10 + 0.16 * clamp(0, calc((var(--t, 0) - 1) / 9), 1))),
         0 0 90px rgba(139, 92, 246, calc(0.08 + 0.10 * clamp(0, calc((var(--t, 0) - 1) / 9), 1)));
     transition: box-shadow 0.3s ease;
+}
+
+/* Slow glossy light sweep across the bezel — Netflix-style sheen. */
+.phoneBody::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+        115deg,
+        transparent 32%,
+        rgba(255, 255, 255, 0.12) 45%,
+        rgba(255, 255, 255, 0.04) 52%,
+        transparent 64%
+    );
+    background-size: 320% 100%;
+    background-position: 130% 0;
+    animation: sheenSweep 7s ease-in-out infinite;
+    z-index: 2;
+}
+
+@keyframes sheenSweep {
+    0%, 55% { background-position: 130% 0; }
+    85%, 100% { background-position: -30% 0; }
 }
 
 .phoneIsland {
@@ -278,6 +342,8 @@
         radial-gradient(120% 70% at 50% -10%, rgba(56, 89, 190, 0.4), transparent 60%),
         linear-gradient(180deg, #0a0f24 0%, #070b18 100%);
     container-type: inline-size;
+    /* Local perspective so screens swap in 3D inside the device. */
+    perspective: 900px;
 }
 
 .phoneShadow {
@@ -302,20 +368,21 @@
     padding: 38px 14px 22px;
     opacity: 0;
     visibility: hidden;
-    transform: translateY(16px) scale(0.985);
+    backface-visibility: hidden;
+    transform: translateZ(-70px) translateY(22px) rotateX(7deg);
     transition:
         opacity 0.4s ease,
-        transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
         visibility 0s linear 0.4s;
 }
 
 .screen[data-active="true"] {
     opacity: 1;
     visibility: visible;
-    transform: none;
+    transform: translateZ(0) translateY(0) rotateX(0deg);
     transition:
         opacity 0.4s ease,
-        transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
         visibility 0s linear 0s;
 }
 
@@ -453,8 +520,8 @@
 }
 
 @keyframes captionIn {
-    from { opacity: 0; transform: translateY(26px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(26px) scale(0.985); filter: blur(6px); }
+    to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 
 .captionCode {
@@ -1078,7 +1145,8 @@
     .ghostCode {
         right: auto;
         left: 50%;
-        transform: translate(-50%, -50%);
+        transform: translate(-50%, -50%)
+            translate3d(calc(var(--mx) * -10px), calc(var(--my) * -8px), 0);
         font-size: 30vh;
         text-align: center;
         opacity: 0.75;
@@ -1189,5 +1257,38 @@
 
     .homeTitle {
         font-size: 18px;
+    }
+}
+
+/* ── Reduced motion: keep the story, drop the cinematography ────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    .phoneWrap {
+        transition: none;
+        transform: none;
+    }
+
+    .phoneBody::after {
+        animation: none;
+    }
+
+    .screen {
+        transition: opacity 0.2s ease;
+        transform: none;
+    }
+
+    .caption,
+    .ghostCode {
+        animation: none;
+    }
+
+    .eqBar,
+    .chipPulse,
+    .keyWire,
+    .tickerTrack,
+    .typingDot,
+    .finaleCta,
+    .liveDot {
+        animation: none;
     }
 }
