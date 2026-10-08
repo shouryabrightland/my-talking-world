@@ -289,15 +289,24 @@ export const calendarBharatHandlers = [
      * GET /calendar/2026.json — Festival/holiday calendar.
      */
     http.get("https://jayantur13.github.io/calendar-bharat/calendar/2026.json", () => {
+        // Mirrors the live API shape: { "2026": { "Month YYYY": { "Month D, YYYY, Weekday": {event,...} } } }
         return HttpResponse.json({
-            august: {
-                "2026-08-15": { name: "Independence Day" },
-                "2026-08-25": { name: "Onam" },
-                "2026-08-26": { name: "Onam Celebrations" }
-            },
-            october: {
-                "2026-10-20": { name: "Diwali" },
-                "2026-10-21": { name: "Diwali Day 2" }
+            "2026": {
+                "August 2026": {
+                    "August 15, 2026, Saturday": { event: "Independence Day", type: "Government Holiday", extras: "fixed day in Gregorian calendar" },
+                    "August 25, 2026, Tuesday": { event: "Onam", type: "Religional Festival", extras: "Chingam 1" },
+                    "August 26, 2026, Wednesday": { event: "Onam Celebrations", type: "Religional Festival", extras: "Chingam 2" }
+                },
+                "October 2026": {
+                    "October 2, 2026, Friday": { event: "Gandhi Jayanti", type: "Government Holiday", extras: "fixed day in Gregorian calendar" },
+                    "October 20, 2026, Tuesday": { event: "Dussehra", type: "Religional Festival", extras: "Ashwina, Shukla Dashami" },
+                    "October 21, 2026, Wednesday": { event: "Madhvacharya Jayanti", type: "Religional Festival", extras: "Ashwina, Shukla Dashami" }
+                },
+                "November 2026": {
+                    "November 8, 2026, Sunday": { event: "Diwali", type: "Religional Festival", extras: "Kartika, Krishna Amavasya" },
+                    "November 10, 2026, Tuesday": { event: "Govardhan Puja", type: "Religional Festival", extras: "Kartika, Shukla Pratipada" },
+                    "November 11, 2026, Wednesday": { event: "Bhaiya Dooj", type: "Religional Festival", extras: "Kartika, Shukla Dwitiya" }
+                }
             }
         });
     }),

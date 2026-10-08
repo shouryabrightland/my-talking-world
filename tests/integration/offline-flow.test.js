@@ -155,9 +155,10 @@ describe("Offline Flow Integration (Network Fallback + MSW)", () => {
         const response = await fetch("https://jayantur13.github.io/calendar-bharat/calendar/2026.json");
         const data = await response.json();
 
-        expect(data.august).toBeDefined();
-        expect(data.august["2026-08-15"]).toBeDefined();
-        expect(data.august["2026-08-15"].name).toBe("Independence Day");
+        // Live API shape: { "2026": { "August 2026": { "August 15, 2026, Saturday": {event} } } }
+        expect(data["2026"]).toBeDefined();
+        expect(data["2026"]["August 2026"]).toBeDefined();
+        expect(data["2026"]["August 2026"]["August 15, 2026, Saturday"].event).toBe("Independence Day");
     });
 
     it("Google News RSS returns headlines when online", async () => {

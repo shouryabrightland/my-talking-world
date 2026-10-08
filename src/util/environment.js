@@ -127,6 +127,9 @@ async function fetchCityWeather() {
 /**
  * Fetches rich Indian Festivals and Celebrations from calendar-bharat (2026.json).
  *
+ * The live API nests data as:
+ * `{ "2026": { "October 2026": { "October 20, 2026, Tuesday": { event, type, extras } } } }`
+ *
  * @param {Date} date
  * @returns {Promise<{ todayCelebration: string, upcomingFestivals: string[] }>}
  */
@@ -136,6 +139,7 @@ async function fetchCalendarBharatFestivals(date) {
     const monthNum = String(date.getMonth() + 1).padStart(2, "0");
     const dayNum = String(date.getDate()).padStart(2, "0");
     const todayFormattedDate = `${date.getFullYear()}-${monthNum}-${dayNum}`;
+    const todayDayKey = `${Number(dayNum)}`;
 
     /** @type {string} */
     let todayCelebration = `Regular day in ${SIMULATION_CITY}`;
@@ -149,20 +153,64 @@ async function fetchCalendarBharatFestivals(date) {
         /** @type {Record<string, any>} */
         const calendarData = await response.json();
 
-        const monthKey = date.toLocaleString("en-US", { month: "long" }).toLowerCase();
-        const monthDays = calendarData[monthKey] || calendarData.days || calendarData;
+        // Resolve blocks: live shape is { "2026": { "October 2026": { ... } } },
+        // older fixtures used a flat { october: { "2026-10-20": {...} } }.
+        const yearBlock = calendarData[String(date.getFullYear())] || calendarData;
 
-        if (typeof monthDays === "object" && monthDays !== null) {
-            for (const [key, value] of Object.entries(monthDays)) {
-                const dayEntry = typeof value === "object" ? value : { name: String(value) };
-                const entryName = dayEntry?.name || dayEntry?.festival || dayEntry?.holiday || String(value || "");
+        /** @type {Array<{ key: string, name: string, ts: number }>} */
+        const dated = [];
 
-                if (key === todayFormattedDate || key === `${Number(dayNum)}` || key === dayNum) {
-                    if (entryName) todayCelebration = `🎉 ${entryName}`;
-                } else if (upcomingFestivals.length < 4 && entryName) {
-                    upcomingFestivals.push(`${entryName}`);
+        const collect = (/** @type {Record<string, any>} */ block) => {
+            if (typeof block !== "object" || block === null) return;
+            for (const [key, value] of Object.entries(block)) {
+                const dayEntry = typeof value === "object" && value !== null ? value : { name: String(value) };
+                const entryName = dayEntry.event || dayEntry.name || dayEntry.festival || dayEntry.holiday ||
+                    (typeof value === "string" ? value : "");
+                if (!entryName) continue;
+
+                // Live keys look like "October 20, 2026, Tuesday"; flat fixtures use "2026-10-20".
+                let ts = NaN;
+                const liveMatch = /^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})/.exec(key);
+                if (liveMatch) {
+                    ts = new Date(`${liveMatch[1]} ${liveMatch[2]}, ${liveMatch[3]}`).getTime();
+                } else if (/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+                    ts = new Date(`${key}T00:00:00`).getTime();
+                }
+                dated.push({ key, name: String(entryName), ts });
+            }
+        };
+
+        if (typeof yearBlock === "object" && yearBlock !== null) {
+            const sampleKeys = Object.keys(yearBlock);
+            const isDayMap = sampleKeys.some(k => /^\d{4}-\d{2}-\d{2}$/.test(k) || /^[A-Za-z]+\s+\d{1,2},/.test(k));
+            if (isDayMap) {
+                collect(yearBlock);
+            } else {
+                // Walk every month sub-block (e.g. { "October 2026": {...} }) so
+                // "upcoming" can span into future months, not just the current one.
+                for (const sub of Object.values(yearBlock)) {
+                    if (typeof sub === "object" && sub !== null) collect(sub);
                 }
             }
+        }
+
+        const todayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+        const dayMs = 24 * 60 * 60 * 1000;
+
+        for (const entry of dated) {
+            const isToday = (!Number.isNaN(entry.ts) && entry.ts === todayStart) ||
+                entry.key === todayFormattedDate || entry.key === todayDayKey;
+            if (isToday) {
+                todayCelebration = `🎉 ${entry.name}`;
+            }
+        }
+
+        const future = dated
+            .filter(e => !Number.isNaN(e.ts) && e.ts > todayStart)
+            .sort((a, b) => a.ts - b.ts);
+        for (const entry of future) {
+            if (upcomingFestivals.length >= 4) break;
+            if (!upcomingFestivals.includes(entry.name)) upcomingFestivals.push(entry.name);
         }
     } catch (/** @type {unknown} */ err) {
         console.warn("[Environment] Calendar Bharat fetch failed, using seasonal defaults:", err);
