@@ -101,6 +101,25 @@ export default class GeminiClient {
         return this.defaultModel;
     }
 
+    /**
+     * Resolves the best available Gemma model for Tier-2 tasks (situation
+     * distillation, memory compression). Falls back to the standard active
+     * text model when no Gemma checkpoint is supported or all are cooling.
+     *
+     * @returns {Promise<string>}
+     */
+    async resolveGemmaModel() {
+        if (this.modelPool && typeof this.modelPool.getGemmaModel === "function") {
+            try {
+                const gemma = await this.modelPool.getGemmaModel();
+                if (gemma) return gemma;
+            } catch (err) {
+                this.logger.warn("Gemma resolution from pool failed:", err);
+            }
+        }
+        return await this.resolveModel();
+    }
+
     get circuitState() {
         return sharedCircuitBreaker.state;
     }

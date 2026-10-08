@@ -218,6 +218,32 @@ describe("filterTextGenerationModels", () => {
         expect(filterTextGenerationModels(/** @type {any} */ (null))).toEqual([]);
         expect(filterTextGenerationModels(/** @type {any} */ ("nope"))).toEqual([]);
     });
+
+    it("rejects nano / vision / banana / aqa / learnlm / bison and non-instruction Gemma checkpoints", () => {
+        const ids = filterTextGenerationModels([
+            { name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-nano", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-1.0-pro-vision", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-experimental-banana", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/aqa", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/learnlm-1.5-experimental", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-1.5-pro-exp-bison", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemma-2-27b", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemma-3-27b-it", supportedGenerationMethods: ["generateContent"] }
+        ]);
+
+        expect(ids).toEqual(["gemini-2.5-flash", "gemma-3-27b-it"]);
+    });
+
+    it("keeps only the gemini- / gemma- families", () => {
+        const ids = filterTextGenerationModels([
+            { name: "models/other-vendor-model", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemma-2-9b-it", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-2.5-flash-lite", supportedGenerationMethods: ["generateContent"] }
+        ]);
+
+        expect(ids).toEqual(["gemma-2-9b-it", "gemini-2.5-flash-lite"]);
+    });
 });
 
 // =========================================================================
@@ -267,6 +293,20 @@ describe("Gemini model pool — dynamic tiered priority", () => {
     it("drops non-text models from the pool", () => {
         const ranked = prioritizeGeminiModels(normalizeGeminiModels(RAW)).map(m => m.id);
         expect(ranked).not.toContain("text-embedding-004");
+    });
+
+    it("drops nano / vision / experimental markers and base (non -it) Gemma checkpoints", () => {
+        const ranked = normalizeGeminiModels([
+            { name: "models/gemini-2.5-flash-lite", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-nano", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-1.0-pro-vision", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemini-experimental-banana", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/learnlm-1.5", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemma-2-27b", supportedGenerationMethods: ["generateContent"] },
+            { name: "models/gemma-2-27b-it", supportedGenerationMethods: ["generateContent"] }
+        ]).map(m => m.id);
+
+        expect(ranked).toEqual(["gemini-2.5-flash-lite", "gemma-2-27b-it"]);
     });
 
     it("drops locally blocked models", () => {
@@ -363,6 +403,7 @@ describe("GeminiModelPool", () => {
         const pool = new GeminiModelPool(makeFakeLogger());
         expect(await pool.getCandidates()).toEqual([]);
         expect(await pool.getActiveModel()).toBeNull();
+        expect(await pool.getGemmaModel()).toBeNull();
     });
 
     it("discovers and ranks models dynamically (no hardcoded ids)", async () => {
@@ -378,6 +419,25 @@ describe("GeminiModelPool", () => {
         expect(ids).not.toContain("imagen-3.0-generate-002");
         expect(ids.every(id => typeof id === "string" && id.length > 0)).toBe(true);
         expect(await pool.getActiveModel()).toBe(candidates[0].id);
+    });
+
+    it("getGemmaModel() returns the active Gemma model and falls back to the top Gemini model", async () => {
+        setGeminiApiKey("AIzaSyTestValidKey123");
+        const pool = new GeminiModelPool(makeFakeLogger());
+
+        const candidates = await pool.getCandidates();
+        const gemma = candidates.find(c => c.id.toLowerCase().includes("gemma"));
+        expect(gemma).toBeTruthy();
+        expect(await pool.getGemmaModel()).toBe(gemma && gemma.id);
+
+        // Every Gemma model cooling down → highest-priority active text model.
+        pool.reportFailure(String(gemma && gemma.id), 429);
+        const remaining = await pool.getCandidates();
+        expect(remaining.some(c => c.id.toLowerCase().includes("gemma"))).toBe(false);
+        expect(remaining.length).toBeGreaterThan(0);
+        // Fallback is the top-ranked Gemini text model (Flash-Lite, tier 1).
+        expect(remaining[0].isFlashLite).toBe(true);
+        expect(await pool.getGemmaModel()).toBe(remaining[0].id);
     });
 
     it("ejects a 429 model into cooldown for 5 minutes and restores it after success", async () => {
@@ -532,6 +592,13 @@ describe("Constants", () => {
         expect(NON_TEXT_MODEL_MARKERS).toContain("veo");
         expect(NON_TEXT_MODEL_MARKERS).toContain("tts");
         expect(NON_TEXT_MODEL_MARKERS).toContain("audio");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("nano");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("vision");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("aqa");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("learnlm");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("banana");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("bison");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("gecko");
     });
 
     it("should use a 5 minute self-healing cooldown window", () => {

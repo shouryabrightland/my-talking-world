@@ -227,9 +227,15 @@ export default class UnifiedMemory {
         ].join("\n");
 
         try {
+            const targetModel = typeof gemmaClient.resolveGemmaModel === "function"
+                ? await gemmaClient.resolveGemmaModel()
+                : (typeof gemmaClient.resolveModel === "function"
+                    ? await gemmaClient.resolveModel()
+                    : "gemini-2.5-flash-lite");
+
             const result = await gemmaClient.streamGenerate(
                 [{ role: "user", content: prompt }],
-                { model: "gemma-2-27b-it", thinkingBudget: 0 }
+                { model: targetModel, thinkingBudget: 0 }
             );
 
             const matches = [
@@ -258,5 +264,68 @@ export default class UnifiedMemory {
             this.isCompressing = false;
         }
         return false;
+    }
+
+    /**
+     * Synchronizes real-world environmental grounding (weather, festivals, Google News)
+     * into the UnifiedMemory stack. Replaces outdated environment entries to avoid duplicates.
+     *
+     * @param {import("../types/World.types").EnvironmentSnapshot} env
+     * @returns {Promise<void>}
+     */
+    async syncEnvironment(env) {
+        if (!env || typeof env !== "object") return;
+
+        // 1. Purge previous environment and news entries so they don't accumulate
+        this.entries = this.entries.filter(
+            e => !e.tags.includes("environment") && !e.tags.includes("news")
+        );
+
+        const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+
+        // 2. Weather & temperature fact (1h TTL)
+        if (env.weather) {
+            this.entries.push({
+                id: crypto.randomUUID(),
+                datetime: stamp,
+                tags: ["environment", "weather", "lucknow", "temperature"],
+                data: `Current weather in ${env.city || "Lucknow"}: ${env.temperature || "32°C"}, ${env.weather} (Humidity: ${env.humidity || "55%"})`,
+                expiry: "1h"
+            });
+        }
+
+        // 3. Indian holiday / festival fact (24h TTL)
+        if (env.todayCelebration && !env.todayCelebration.toLowerCase().includes("regular day")) {
+            this.entries.push({
+                id: crypto.randomUUID(),
+                datetime: stamp,
+                tags: ["environment", "occasion", "festival", "celebration", "lucknow"],
+                data: `Today's celebration: ${env.todayCelebration}`,
+                expiry: "24h"
+            });
+        }
+
+        // 4. Top Google News headlines (24h TTL)
+        if (Array.isArray(env.newsHeadlines)) {
+            for (const headline of env.newsHeadlines.slice(0, 3)) {
+                const words = String(headline)
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, " ")
+                    .split(/\s+/)
+                    .filter(w => w.length > 3)
+                    .slice(0, 3);
+
+                this.entries.push({
+                    id: crypto.randomUUID(),
+                    datetime: stamp,
+                    tags: ["news", "india", ...words],
+                    data: `Headlines: ${headline}`,
+                    expiry: "24h"
+                });
+            }
+        }
+
+        await this.persist();
+        this.logger.info("Synchronized real-world environment & news into UnifiedMemory.");
     }
 }

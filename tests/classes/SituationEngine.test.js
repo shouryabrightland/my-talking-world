@@ -3,8 +3,8 @@
 /**
  * @file SituationEngine.test.js
  * Covers the Tier-2 trigger rules (>=10 messages OR >=10 minutes), the Gemma
- * XML parsing contract (<=500-char situation + tagged memory records) and the
- * non-fatal retry behaviour on failure.
+ * XML parsing contract (<=500-char situation + tagged memory records), the
+ * non-fatal retry behaviour on failure, reset behavior, and force-run execution.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -14,21 +14,27 @@ import Logger from "../../src/classes/lib/Logger.js";
 
 /**
  * Builds an engine wired to a controllable Gemma stub.
- * @returns {{ engine: SituationEngine, geminiClient: { streamGenerate: ReturnType<typeof vi.fn> }, unifiedMemory: UnifiedMemory, ctx: import("../../src/classes/SituationEngine.js").SituationContext }}
+ * @returns {{ engine: SituationEngine, geminiClient: { streamGenerate: ReturnType<typeof vi.fn>, resolveGemmaModel: ReturnType<typeof vi.fn>, resolveModel: ReturnType<typeof vi.fn> }, unifiedMemory: UnifiedMemory, ctx: import("../../src/classes/SituationEngine.js").SituationContext }}
  */
 function makeEngine() {
     const logger = new Logger("Test");
     const unifiedMemory = new UnifiedMemory(logger);
     unifiedMemory.storageKey = `test_situation_memory_${crypto.randomUUID()}`;
 
-    const geminiClient = { streamGenerate: vi.fn() };
+    const geminiClient = {
+        streamGenerate: vi.fn(),
+        resolveGemmaModel: vi.fn().mockResolvedValue("gemma-3-27b-it"),
+        resolveModel: vi.fn().mockResolvedValue("gemini-2.5-flash-lite")
+    };
     const engine = new SituationEngine({ logger, geminiClient, unifiedMemory });
 
     const ctx = {
         currentDateTime: "Tue Oct 07 2026 at 14:30",
         environmentSummary: "32°C, Warm",
+        location: "Gomti Nagar Rooftop",
         activeSceneTopic: "Rooftop drone repair",
         activeSceneGoal: "Finish the rotor before sunset",
+        castStates: "Tom [Mood: Excited, Goal: Lead the repair] · Angela [Mood: Default, Goal: Fix rotor]",
         recentDialogue: "Tom: Chai laao yaar\nAngela: Rotor ka screw gayab hai"
     };
 
@@ -71,6 +77,18 @@ describe("SituationEngine — Tier-2 trigger rules", () => {
         expect(engine.shouldRun()).toBe(false);
     });
 
+    it("runs immediately when force is true even below thresholds (init / reset)", async () => {
+        const { engine, geminiClient, ctx } = makeEngine();
+        geminiClient.streamGenerate.mockResolvedValue({ text: SUCCESS_XML });
+
+        expect(engine.shouldRun()).toBe(false);
+
+        await expect(engine.executeIfDue(ctx, true)).resolves.toBe(true);
+        expect(geminiClient.streamGenerate).toHaveBeenCalledTimes(1);
+        expect(engine.unreadMessagesCount).toBe(0);
+        expect(engine.situationText).toContain("Gomti Nagar rooftop");
+    });
+
     it("runs once the 10-minute window has elapsed", () => {
         const { engine } = makeEngine();
 
@@ -91,6 +109,36 @@ describe("SituationEngine — Tier-2 trigger rules", () => {
 });
 
 describe("SituationEngine — Gemma output parsing", () => {
+    it("resolves the Gemma model dynamically instead of hardcoding a checkpoint", async () => {
+        const { engine, geminiClient, ctx } = makeEngine();
+        geminiClient.streamGenerate.mockResolvedValue({ text: SUCCESS_XML });
+        engine.unreadMessagesCount = 10;
+
+        await expect(engine.executeIfDue(ctx)).resolves.toBe(true);
+
+        expect(geminiClient.resolveGemmaModel).toHaveBeenCalledTimes(1);
+        expect(geminiClient.streamGenerate).toHaveBeenCalledWith(
+            [{ role: "user", content: expect.any(String) }],
+            expect.objectContaining({ model: "gemma-3-27b-it", promptType: "situation" })
+        );
+    });
+
+    it("falls back to resolveModel when no Gemma resolver is exposed", async () => {
+        const { engine, geminiClient, ctx } = makeEngine();
+        const looseClient = /** @type {any} */ (geminiClient);
+        looseClient.resolveGemmaModel = null;
+        looseClient.streamGenerate.mockResolvedValue({ text: SUCCESS_XML });
+        engine.unreadMessagesCount = 10;
+
+        await expect(engine.executeIfDue(ctx)).resolves.toBe(true);
+
+        expect(geminiClient.resolveModel).toHaveBeenCalledTimes(1);
+        expect(geminiClient.streamGenerate).toHaveBeenCalledWith(
+            [{ role: "user", content: expect.any(String) }],
+            expect.objectContaining({ model: "gemini-2.5-flash-lite" })
+        );
+    });
+
     it("updates the situation paragraph, writes tagged memories and resets counters", async () => {
         const { engine, geminiClient, unifiedMemory, ctx } = makeEngine();
         geminiClient.streamGenerate.mockResolvedValue({ text: SUCCESS_XML });
@@ -158,7 +206,7 @@ describe("SituationEngine — failure handling", () => {
     });
 });
 
-describe("SituationEngine — persistence", () => {
+describe("SituationEngine — persistence & reset", () => {
     it("hydrates the saved situation paragraph on init()", async () => {
         const { engine } = makeEngine();
         await engine.storage.setItem("situation_summary_paragraph", "Restored paragraph from storage.");
@@ -173,5 +221,18 @@ describe("SituationEngine — persistence", () => {
         await engine2.init();
 
         expect(engine2.situationText).toBe("Restored paragraph from storage.");
+    });
+
+    it("resets to DEFAULT_SITUATION and clears storage on reset()", async () => {
+        const { engine } = makeEngine();
+        engine.situationText = "Custom situation text";
+        engine.unreadMessagesCount = 8;
+        await engine.storage.setItem("situation_summary_paragraph", "Custom situation text");
+
+        await engine.reset();
+
+        expect(engine.situationText).toContain("Lucknow");
+        expect(engine.unreadMessagesCount).toBe(0);
+        await expect(engine.storage.getItem("situation_summary_paragraph")).resolves.toBeNull();
     });
 });

@@ -3,37 +3,46 @@
 /**
  * @file apiKeys.js
  * API key management for Groq and Gemini providers.
- * Handles storage, lightweight verification, and dual-key enforcement.
  *
  * Responsibilities:
- * - Groq key verification via a single 1-token generation request (proves the
- *   key can actually generate tokens, not merely that it exists).
- * - Gemini key verification via a single GET /models discovery request.
- *   Zero generation tokens are burned during onboarding — no probe loops.
+ * - Dynamically searches and verifies model lists directly from provider endpoints.
+ * - Enforces models >= 12B for Groq chat generation (sub-12B models are filtered out).
+ * - Enforces text-generation models only for Google AI Studio (Gemini/Gemma).
+ * - Zero hardcoded model fallback chains or static default models.
  */
 
 import {
     GROQ_API_BASE_URL,
     GEMINI_API_BASE_URL,
-    DEFAULT_CHAT_MODEL,
     STORAGE_API_KEY_NAME,
     STORAGE_GEMINI_API_KEY_NAME
 } from "./config";
 
 // =========================================================================
-// CONSTANTS
+// CONSTANTS & MARKERS
 // =========================================================================
 
 /**
- * Substrings marking non text-generation Gemini models (media / embedding).
+ * Substrings marking non-text or incompatible Gemini models.
  * @readonly @type {readonly string[]}
  */
-export const NON_TEXT_MODEL_MARKERS = Object.freeze(["embedding", "imagen", "veo", "tts", "audio"]);
+export const NON_TEXT_MODEL_MARKERS = Object.freeze([
+    "embedding",
+    "imagen",
+    "veo",
+    "tts",
+    "audio",
+    "nano",
+    "vision",
+    "aqa",
+    "learnlm",
+    "banana",
+    "bison",
+    "gecko"
+]);
 
 /**
- * Substrings marking Groq models that are NOT text chat models. Safeguard /
- * prompt-guard models and audio (whisper / orpheus / tts) models crash chat
- * completions with HTTP 400, so GroqModelPool filters them out at discovery.
+ * Substrings marking Groq models that are NOT text chat models.
  * @readonly @type {readonly string[]}
  */
 export const GROQ_NON_CHAT_MODEL_MARKERS = Object.freeze([
@@ -63,7 +72,7 @@ export const GROQ_NON_CHAT_MODEL_MARKERS = Object.freeze([
  * @property {boolean} valid True if key is valid AND >=1 text model discovered.
  * @property {string|null} error Error description if verification failed.
  * @property {string[]} models Text-generation model IDs discovered via GET /models.
- * @property {ModelProbeResult[]} probeResults Always empty — onboarding never probes.
+ * @property {ModelProbeResult[]} probeResults Always empty (onboarding does not burn tokens).
  * @property {number} workingModels Count of discovered text-generation models.
  */
 
@@ -71,8 +80,56 @@ export const GROQ_NON_CHAT_MODEL_MARKERS = Object.freeze([
  * @typedef {Object} ApiKeyVerificationResult
  * @property {boolean} valid True if the API key was verified by servers.
  * @property {string|null} error Error description if verification failed.
- * @property {string[]} models List of model IDs accessible by this key.
+ * @property {string[]} models List of model IDs (>=12B) accessible by this key.
  */
+
+// =========================================================================
+// GROQ MODEL FILTERING (>= 12B Requirement)
+// =========================================================================
+
+/**
+ * Filters a raw Groq `data[]` array down to text chat models with >= 12B parameters.
+ *
+ * @param {any[]} rawModels
+ * @returns {string[]} Filtered model IDs.
+ */
+export function filterGroqChatModels(rawModels) {
+    if (!Array.isArray(rawModels)) return [];
+
+    /** @type {string[]} */
+    const ids = [];
+
+    for (const model of rawModels) {
+        if (!model || typeof model !== "object") continue;
+
+        const id = typeof model.id === "string" ? model.id.trim() : "";
+        if (!id) continue;
+
+        const lowered = id.toLowerCase();
+
+        // 1. Exclude safeguard, audio, vision, embedding
+        if (GROQ_NON_CHAT_MODEL_MARKERS.some(marker => lowered.includes(marker))) continue;
+
+        // 2. Exclude models below 12B
+        const moe = /(\d+)x(\d+)b/.exec(lowered);
+        if (moe) {
+            const totalParams = Number(moe[1]) * Number(moe[2]);
+            if (totalParams < 12) continue; // Skip sub-12B MoE
+        } else {
+            const size = /(?:^|\D)(\d+(?:\.\d+)?)b(?:\D|$)/.exec(lowered);
+            if (size) {
+                const params = parseFloat(size[1]);
+                if (params < 12) continue; // Skip sub-12B dense models (8b, 7b, 3b, 1b)
+            } else if (lowered.includes("instant")) {
+                continue; // Instant models are sub-12B
+            }
+        }
+
+        ids.push(id);
+    }
+
+    return ids;
+}
 
 // =========================================================================
 // GROQ API KEY HELPERS
@@ -80,7 +137,7 @@ export const GROQ_NON_CHAT_MODEL_MARKERS = Object.freeze([
 
 /**
  * Retrieves the currently active Groq API key from localStorage.
- * @returns {string} Clean API key string or empty string.
+ * @returns {string}
  */
 export function getApiKey() {
     if (typeof window === "undefined") return "";
@@ -93,8 +150,8 @@ export function getApiKey() {
 
 /**
  * Persists a Groq API key to localStorage.
- * @param {string} key Raw API key string.
- * @returns {boolean} True if successfully saved.
+ * @param {string} key
+ * @returns {boolean}
  */
 export function setApiKey(key) {
     if (typeof window === "undefined") return false;
@@ -130,10 +187,8 @@ export function hasApiKey() {
 }
 
 /**
- * Verifies the provided Groq API key with a single 1-token generation request.
- *
- * Unlike `GET /models` (which only proves the key exists), this proves the key
- * has active token-generation quota — and it does so in one round trip.
+ * Verifies the Groq API key by querying the live model list from `GET /openai/v1/models`.
+ * Discovers accessible models and validates that at least one chat model >= 12B is present.
  *
  * @param {string} key API key to verify.
  * @returns {Promise<ApiKeyVerificationResult>}
@@ -143,19 +198,12 @@ export async function verifyApiKey(key) {
     if (!cleanKey) return { valid: false, error: "API key cannot be empty.", models: [] };
 
     try {
-        const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
-            method: "POST",
+        const response = await fetch(`${GROQ_API_BASE_URL}/models`, {
+            method: "GET",
             headers: {
                 "Authorization": `Bearer ${cleanKey}`,
                 "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                model: DEFAULT_CHAT_MODEL,
-                messages: [{ role: "user", content: "hi" }],
-                max_tokens: 1,
-                temperature: 0,
-                stream: false
-            })
+            }
         });
 
         if (!response.ok) {
@@ -167,8 +215,15 @@ export async function verifyApiKey(key) {
             return { valid: false, error: errorMsg, models: [] };
         }
 
-        // 200 on a max_tokens:1 generation => key is authentic AND generating.
-        return { valid: true, error: null, models: [] };
+        const data = await response.json();
+        const models = filterGroqChatModels(Array.isArray(data?.data) ? data.data : []);
+        const valid = models.length > 0;
+
+        return {
+            valid,
+            error: valid ? null : "No chat models (>=12B) are available for this Groq key.",
+            models
+        };
     } catch (err) {
         const error = /** @type {Error & {message?: string}} */ (err);
         return {
@@ -198,7 +253,7 @@ export function getGeminiApiKey() {
 
 /**
  * Persists a Gemini API key to localStorage.
- * @param {string} key Raw API key string.
+ * @param {string} key
  * @returns {boolean}
  */
 export function setGeminiApiKey(key) {
@@ -235,16 +290,51 @@ export function hasGeminiApiKey() {
 }
 
 /**
- * Verifies the provided Gemini API key with EXACTLY ONE network request:
- * `GET /v1beta/models?key=...`. No `generateContent` probes are issued, so
- * zero generation tokens are burned and the 15 RPM free-tier quota is left
- * untouched.
+ * Extracts usable text-generation model IDs from a raw `GET /v1beta/models` payload.
  *
- * The key is considered valid when the model list contains at least one
- * text-generation model (`supportedGenerationMethods` includes
- * `generateContent`).
+ * @param {any[]} rawModels
+ * @returns {string[]}
+ */
+export function filterTextGenerationModels(rawModels) {
+    if (!Array.isArray(rawModels)) return [];
+
+    /** @type {string[]} */
+    const ids = [];
+
+    for (const model of rawModels) {
+        if (!model || typeof model !== "object") continue;
+
+        const rawName = typeof model.name === "string" ? model.name : "";
+        const id = rawName.replace(/^models\//, "") || String(model.baseModelId || "");
+        if (!id) continue;
+
+        const lowered = id.toLowerCase();
+
+        // 1. Must be a gemini or gemma family model
+        if (!/^(?:gemini|gemma)-/i.test(lowered)) continue;
+
+        // 2. Filter non-text/media/experimental markers
+        if (NON_TEXT_MODEL_MARKERS.some(marker => lowered.includes(marker))) continue;
+
+        // 3. Gemma models must be instruction-tuned (-it)
+        if (lowered.includes("gemma") && !lowered.includes("-it")) continue;
+
+        // 4. Must support generateContent
+        const methods = Array.isArray(model.supportedGenerationMethods)
+            ? model.supportedGenerationMethods
+            : [];
+        if (!methods.includes("generateContent")) continue;
+
+        ids.push(id);
+    }
+
+    return ids;
+}
+
+/**
+ * Verifies the Gemini API key by discovering accessible models from `GET /models`.
  *
- * @param {string} key API key to verify.
+ * @param {string} key
  * @returns {Promise<GeminiVerificationResult>}
  */
 export async function verifyGeminiApiKey(key) {
@@ -292,62 +382,20 @@ export async function verifyGeminiApiKey(key) {
 }
 
 // =========================================================================
-// MODEL DISCOVERY FILTERING (shared with GeminiModelPool)
+// FULL DUAL-KEY VERIFICATION (Dynamic Discovery)
 // =========================================================================
 
 /**
- * Extracts usable text-generation model IDs from a raw `GET /v1beta/models`
- * payload. Non-text models (embedding / imagen / veo / tts / audio) and any
- * model without `generateContent` support are discarded.
+ * Verifies BOTH keys in parallel by discovering accessible model lists from both APIs.
  *
- * @param {any[]} rawModels Raw `models[]` array from the Gemini REST API.
- * @returns {string[]} Ordered model IDs (without the `models/` prefix).
- */
-export function filterTextGenerationModels(rawModels) {
-    if (!Array.isArray(rawModels)) return [];
-
-    /** @type {string[]} */
-    const ids = [];
-
-    for (const model of rawModels) {
-        if (!model || typeof model !== "object") continue;
-
-        const rawName = typeof model.name === "string" ? model.name : "";
-        const id = rawName.replace(/^models\//, "") || String(model.baseModelId || "");
-        if (!id) continue;
-
-        const lowered = id.toLowerCase();
-        if (NON_TEXT_MODEL_MARKERS.some(marker => lowered.includes(marker))) continue;
-
-        const methods = Array.isArray(model.supportedGenerationMethods)
-            ? model.supportedGenerationMethods
-            : [];
-        if (!methods.includes("generateContent")) continue;
-
-        ids.push(id);
-    }
-
-    return ids;
-}
-
-// =========================================================================
-// FULL DUAL-KEY VERIFICATION (NO PROBING — ZERO GENERATION TOKENS)
-// =========================================================================
-
-/**
- * Verifies BOTH Groq and Gemini API keys with exactly two lightweight
- * requests (1-token Groq generation + Gemini model discovery). No Gemini
- * model is ever probed, so onboarding cannot self-DoS the 15 RPM quota.
- *
- * @param {string} groqKey Groq API key.
- * @param {string} geminiKey Gemini API key.
+ * @param {string} groqKey
+ * @param {string} geminiKey
  * @returns {Promise<{groq: ApiKeyVerificationResult, gemini: GeminiVerificationResult, success: boolean, error: string|null}>}
  */
 export async function verifyAndProbeDualKeys(groqKey, geminiKey) {
     const cleanGroq = String(groqKey || "").trim();
     const cleanGemini = String(geminiKey || "").trim();
 
-    // Dual-key enforcement
     if (!cleanGroq) {
         return {
             groq: { valid: false, error: "Groq API key is required.", models: [] },
@@ -366,7 +414,6 @@ export async function verifyAndProbeDualKeys(groqKey, geminiKey) {
         };
     }
 
-    // Both verifications run in parallel — two lightweight requests total.
     const [groqResult, geminiResult] = await Promise.all([
         verifyApiKey(cleanGroq),
         verifyGeminiApiKey(cleanGemini)
@@ -399,14 +446,12 @@ export async function verifyAndProbeDualKeys(groqKey, geminiKey) {
 }
 
 // =========================================================================
-// BLOCKED MODEL STORAGE (localStorage-based for onboarding)
+// BLOCKED MODEL STORAGE
 // =========================================================================
 
-/** @readonly @type {string} localStorage key for blocked models. */
 const BLOCKED_MODELS_KEY = "tgf:blocked_gemini_models";
 
 /**
- * Returns blocked Gemini model IDs from localStorage.
  * @returns {string[]}
  */
 export function getBlockedGeminiModels() {
@@ -420,9 +465,7 @@ export function getBlockedGeminiModels() {
 }
 
 /**
- * Adds a model to the blocked list in localStorage.
- * @param {string} modelId Model ID to block.
- * @returns {void}
+ * @param {string} modelId
  */
 export function blockGeminiModel(modelId) {
     if (typeof window === "undefined") return;
@@ -435,42 +478,35 @@ export function blockGeminiModel(modelId) {
     } catch {}
 }
 
-/**
- * Clears all blocked models from localStorage.
- * @returns {void}
- */
 export function clearBlockedGeminiModels() {
     if (typeof window === "undefined") return;
     try { localStorage.removeItem(BLOCKED_MODELS_KEY); } catch {}
 }
 
 // =========================================================================
-// PER-MODEL HEALTH PROBES (DevTools "Verify" buttons — Task 4)
+// PER-MODEL HEALTH PROBES (DevTools)
 // =========================================================================
 
 /**
  * @typedef {Object} ModelVerifyResult
- * @property {boolean} ok Whether the model answered the probe.
- * @property {number} ms Wall-clock latency in milliseconds.
- * @property {string} label Inline feedback (e.g. "✓ 182ms" / "✕ HTTP 429").
- * @property {number|null} status HTTP status code (null for network errors).
- * @property {string|null} error Human-readable failure reason.
+ * @property {boolean} ok
+ * @property {number} ms
+ * @property {string} label
+ * @property {number|null} status
+ * @property {string|null} error
  */
 
 /**
- * Optional pool interface used to feed probe outcomes back into health state.
  * @typedef {Object} ModelPoolReporter
  * @property {(modelId: string) => void} [reportSuccess]
  * @property {(modelId: string, status?: number|null) => void} [reportFailure]
  */
 
 /**
- * Sends a minimal **1-token** probe to ONE specific Groq chat model and feeds
- * the outcome back into the pool (`reportSuccess` / `reportFailure`).
- * Latency is measured wall-clock around the single round trip.
+ * Sends a minimal 1-token probe to a specific Groq model.
  *
- * @param {string} modelId Target Groq model id.
- * @param {ModelPoolReporter|null} [pool] Pool to update with the outcome.
+ * @param {string} modelId
+ * @param {ModelPoolReporter|null} [pool]
  * @returns {Promise<ModelVerifyResult>}
  */
 export async function probeGroqModel(modelId, pool = null) {
@@ -525,11 +561,10 @@ export async function probeGroqModel(modelId, pool = null) {
 }
 
 /**
- * Sends a minimal **1-token** probe to ONE specific Gemini model and feeds the
- * outcome back into the pool (`reportSuccess` / `reportFailure`).
+ * Sends a minimal 1-token probe to a specific Gemini model.
  *
- * @param {string} modelId Target Gemini model id (with or without `models/`).
- * @param {ModelPoolReporter|null} [pool] Pool to update with the outcome.
+ * @param {string} modelId
+ * @param {ModelPoolReporter|null} [pool]
  * @returns {Promise<ModelVerifyResult>}
  */
 export async function probeGeminiModel(modelId, pool = null) {

@@ -1,22 +1,9 @@
 // @ts-check
 
-/**
- * Backward-compatible barrel re-export.
- * All constants are now defined in focused modules:
- *   - config.js: Pure configuration constants
- *   - prompts.js: Prompt templates and rules
- *   - apiKeys.js: API key management helpers
- *
- * This file re-exports everything so existing imports continue to work.
- * New code should import directly from the focused modules.
- */
-
 export {
     // Config
     GROQ_API_BASE_URL,
     GROQ_CONSOLE_KEYS_URL,
-    DEFAULT_CHAT_MODEL,
-    CHAT_MODEL_FALLBACK_CHAIN,
     GEMINI_API_BASE_URL,
     GEMINI_CONSOLE_KEYS_URL,
     DEFAULT_GEMINI_MODEL,

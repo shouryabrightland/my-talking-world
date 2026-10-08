@@ -4,10 +4,14 @@
  * @file SituationEngine.js
  * Tier-2 Situation & Memory engine (Gemma via Google AI Studio).
  *
- * Runs a distillation pass when the conversation accumulates >= 10 new
- * messages OR >= 10 minutes have elapsed since the last pass, and produces:
- * - A single <= 500 character situation paragraph injected into every Tier-4
- *   dialogue prompt.
+ * Runs a distillation pass:
+ * - Once immediately at app init / boot
+ * - Once immediately whenever the chat session is reset
+ * - Periodically when >= 10 messages accumulate OR >= 10 minutes elapse
+ *
+ * Produces:
+ * - A rich <= 500 character stage description detailing the physical location,
+ *   active character postures, props, and group dynamics.
  * - Tagged memory records written into the shared UnifiedMemory stack with
  *   per-entry TTLs ('15m', '1h', '24h', 'forever').
  *
@@ -17,6 +21,8 @@
  * @property {string} activeSceneTopic Topic of the currently active block.
  * @property {string} activeSceneGoal Main goal of the currently active block.
  * @property {string} recentDialogue Recent dialogue batch (raw text).
+ * @property {string} [location] Specific setting or room label.
+ * @property {string} [castStates] Current character moods, postures, and active goals.
  */
 
 import Storage from "./lib/Storage";
@@ -25,7 +31,28 @@ const SITUATION_STORAGE_KEY = "situation_summary_paragraph";
 const SITUATION_MAX_CHARS = 500;
 const MESSAGE_THRESHOLD = 10;
 const TIME_THRESHOLD_MS = 10 * 60 * 1000;
-const DEFAULT_SITUATION = "Cast is relaxing in the Lucknow garage, sharing casual banter over afternoon chai.";
+
+/**
+ * Generates an active, clock-aware baseline situation without fixed clichés.
+ *
+ * @param {Date} [date=new Date()]
+ * @param {string} [location="Lucknow"]
+ * @returns {string}
+ */
+export function getDefaultSituation(date = new Date(), location = "Lucknow") {
+    const hour = date.getHours();
+
+    if (hour >= 6 && hour < 12) {
+        return `Morning in ${location}. The group is starting their day, checking in on each other and talking through upcoming plans.`;
+    }
+    if (hour >= 12 && hour < 17) {
+        return `Afternoon in ${location}. The group is together between activities, sharing stories and bantering casually.`;
+    }
+    if (hour >= 17 && hour < 22) {
+        return `Evening in ${location}. The group is hanging out together, unwinding from the day and catching up.`;
+    }
+    return `Late night in ${location}. The atmosphere is relaxed and quiet as the group chats and winds down for the night.`;
+}
 
 export default class SituationEngine {
 
@@ -42,7 +69,7 @@ export default class SituationEngine {
         this.storage = new Storage("Memories", this.logger);
 
         /** @type {string} Current <=500-char situation paragraph. */
-        this.situationText = DEFAULT_SITUATION;
+        this.situationText = getDefaultSituation();
 
         /** @type {number} Epoch of the last successful distillation pass. */
         this.lastRunTime = Date.now();
@@ -66,6 +93,22 @@ export default class SituationEngine {
         }
     }
 
+    /**
+     * Resets the situation state and purges the saved paragraph on session reset.
+     * @returns {Promise<void>}
+     */
+    async reset() {
+        this.situationText = getDefaultSituation();
+        this.unreadMessagesCount = 0;
+        this.lastRunTime = Date.now();
+        this.isProcessing = false;
+        try {
+            await this.storage.removeItem(SITUATION_STORAGE_KEY);
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Failed to clear saved situation paragraph on reset:", err);
+        }
+    }
+
     /** Counts a newly observed conversation message. @returns {void} */
     recordMessage() {
         this.unreadMessagesCount++;
@@ -84,15 +127,14 @@ export default class SituationEngine {
     }
 
     /**
-     * Executes the Gemma distillation pass when a trigger condition holds.
-     * Failures are non-fatal: counters only reset on success so the next
-     * eligible turn retries automatically.
+     * Executes the Gemma distillation pass when a trigger condition holds or forced.
      *
      * @param {SituationContext} ctx
+     * @param {boolean} [force=false] Force run regardless of message/time thresholds.
      * @returns {Promise<boolean>} Whether the pass ran successfully.
      */
-    async executeIfDue(ctx) {
-        if (!this.shouldRun()) return false;
+    async executeIfDue(ctx, force = false) {
+        if (!force && !this.shouldRun()) return false;
         if (!this.geminiClient || !this.unifiedMemory) return false;
 
         this.isProcessing = true;
@@ -100,25 +142,30 @@ export default class SituationEngine {
 
         const prompt = [
             "# Ambient Situation Distiller & Memory Extractor",
-            'You are an analytical assistant observing "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
+            'You are the Scene Director and Observer for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
             "",
             "## Inputs",
-            `- Time: ${ctx.currentDateTime}`,
-            `- Environment: ${ctx.environmentSummary}`,
+            `- Clock: ${ctx.currentDateTime}`,
+            `- Location & Weather: ${ctx.location || "Lucknow Studio"} (${ctx.environmentSummary})`,
             `- Active Scene: ${ctx.activeSceneTopic} (Goal: ${ctx.activeSceneGoal})`,
+            `- Cast Roster & Ongoing States:`,
+            `  ${ctx.castStates || "Cast members are hanging out."}`,
             "",
             "## Recent Dialogue Batch",
-            ctx.recentDialogue,
+            ctx.recentDialogue || "No messages yet. Scene is just beginning.",
             "",
             "## Instructions",
-            "1. Write a single concise situation summary paragraph under 500 characters describing physical location, props in use, and ongoing atmosphere.",
+            "1. Write a vivid, cinematic stage description under 500 characters that captures:",
+            "   - The physical location and atmospheric room vibe.",
+            "   - Current physical actions and postures of key characters (who is holding what prop, who is sitting, who is pacing).",
+            "   - Active emotional friction or group focus, especially regarding what the human user said.",
             "2. Extract any important commitments, secrets, facts, or relationship milestones into memory records with member tags and an expiry ('15m', '1h', '24h', 'forever').",
             "3. Do not record trivial chit-chat or temporary physical movements.",
             "",
             "## Output Format",
             "Output strictly valid XML matching this structure:",
             "<analysis>",
-            "  <situation>Concise physical atmosphere and situation summary under 500 characters.</situation>",
+            "  <situation>Vivid scene description under 500 characters detailing setting, character physical postures, props in hand, and active group dynamic.</situation>",
             "  <new_memories>",
             '    <memory tags="ben, gadget" expiry="forever">Ben completed his solar charging circuit.</memory>',
             "  </new_memories>",
@@ -126,9 +173,15 @@ export default class SituationEngine {
         ].join("\n");
 
         try {
+            const targetModel = typeof this.geminiClient.resolveGemmaModel === "function"
+                ? await this.geminiClient.resolveGemmaModel()
+                : await this.geminiClient.resolveModel();
+
+            this.logger.info(`Running SituationEngine with model: "${targetModel}"`);
+
             const result = await this.geminiClient.streamGenerate(
                 [{ role: "user", content: prompt }],
-                { model: "gemma-2-27b-it", thinkingBudget: 0, promptType: "situation" }
+                { model: targetModel, thinkingBudget: 0, promptType: "situation" }
             );
 
             const output = String(result?.text || "");
@@ -152,7 +205,6 @@ export default class SituationEngine {
                 });
             }
 
-            // Tier-3 stack compression once the 20k budget is reached.
             await this.unifiedMemory.compressIfExceeded(this.geminiClient);
 
             this.unreadMessagesCount = 0;

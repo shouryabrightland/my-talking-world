@@ -28,7 +28,20 @@ const STORAGE_KEY = "gemini_model_pool";
 
 const COOLDOWN_STATUSES = Object.freeze([429, 503]);
 export const PERMANENT_EJECT_STATUSES = Object.freeze([400, 404]);
-const NON_TEXT_MARKERS = Object.freeze(["embedding", "imagen", "veo", "tts", "audio"]);
+const NON_TEXT_MARKERS = Object.freeze([
+    "embedding",
+    "imagen",
+    "veo",
+    "tts",
+    "audio",
+    "nano",
+    "vision",
+    "aqa",
+    "learnlm",
+    "banana",
+    "bison",
+    "gecko"
+]);
 
 /**
  * @param {string} id
@@ -73,7 +86,16 @@ export function normalizeGeminiModels(rawModels, blockedIds = []) {
         if (!id) continue;
 
         const lowered = id.toLowerCase();
+
+        // 1. Must be a gemini or gemma family model
+        if (!/^(?:gemini|gemma)-/i.test(lowered)) continue;
+
+        // 2. Reject non-text / experimental / media markers
         if (NON_TEXT_MARKERS.some(marker => lowered.includes(marker))) continue;
+
+        // 3. Gemma models must be instruction-tuned (-it)
+        if (lowered.includes("gemma") && !lowered.includes("-it")) continue;
+
         if (blocked.has(id)) continue;
 
         const methods = Array.isArray(model.supportedGenerationMethods)
@@ -144,6 +166,25 @@ export default class GeminiModelPool {
 
     async getActiveModel() {
         const candidates = await this.getCandidates();
+        return candidates.length > 0 ? candidates[0].id : null;
+    }
+
+    /**
+     * Resolves the best available Gemma model from the active pool.
+     * If no Gemma model is supported on the key, or every Gemma model is
+     * cooling down, falls back to the top active Gemini text model
+     * (e.g. Flash-Lite / Flash).
+     *
+     * @returns {Promise<string|null>}
+     */
+    async getGemmaModel() {
+        const candidates = await this.getCandidates();
+
+        // Tier 4 is the Gemma tier; the id check covers direct matches too.
+        const gemma = candidates.find(c => c.tier === 4 || c.id.toLowerCase().includes("gemma"));
+        if (gemma) return gemma.id;
+
+        // Fallback to the highest-priority active text model.
         return candidates.length > 0 ? candidates[0].id : null;
     }
 

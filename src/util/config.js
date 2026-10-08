@@ -15,21 +15,6 @@ export const GROQ_API_BASE_URL = "https://api.groq.com/openai/v1";
 /** @readonly @type {string} */
 export const GROQ_CONSOLE_KEYS_URL = "https://console.groq.com/keys";
 
-/** @readonly @type {string} */
-export const DEFAULT_CHAT_MODEL = "openai/gpt-oss-120b";
-
-/**
- * Static last-resort seed used ONLY when dynamic Groq model discovery fails
- * (GroqModelPool filters, ranks, and serves live models otherwise).
- * @readonly @type {readonly string[]}
- */
-export const CHAT_MODEL_FALLBACK_CHAIN = Object.freeze([
-    "openai/gpt-oss-120b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
-]);
-
 // =========================================================================
 // GEMINI API
 // =========================================================================

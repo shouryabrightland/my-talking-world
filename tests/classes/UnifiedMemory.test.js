@@ -133,6 +133,8 @@ describe("UnifiedMemory — deterministic relevance search", () => {
 describe("UnifiedMemory — Gemma compression", () => {
     it("only compresses once the 20,000-character budget is reached", async () => {
         const gemmaClient = {
+            resolveGemmaModel: vi.fn().mockResolvedValue("gemma-3-27b-it"),
+            resolveModel: vi.fn().mockResolvedValue("gemini-2.5-flash-lite"),
             streamGenerate: vi.fn().mockResolvedValue({
                 text: [
                     "```xml",
@@ -150,7 +152,12 @@ describe("UnifiedMemory — Gemma compression", () => {
         memory.entries.push(entry("big", "x".repeat(20_000), ["tom"], "forever"));
 
         await expect(memory.compressIfExceeded(gemmaClient)).resolves.toBe(true);
+        expect(gemmaClient.resolveGemmaModel).toHaveBeenCalledTimes(1);
         expect(gemmaClient.streamGenerate).toHaveBeenCalledTimes(1);
+        expect(gemmaClient.streamGenerate).toHaveBeenCalledWith(
+            [{ role: "user", content: expect.any(String) }],
+            expect.objectContaining({ model: "gemma-3-27b-it" })
+        );
         expect(memory.entries).toHaveLength(1);
         expect(memory.entries[0].data).toBe("Consolidated drone memory");
         expect(memory.entries[0].tags).toEqual(["tom", "drone"]);
@@ -168,5 +175,18 @@ describe("UnifiedMemory — Gemma compression", () => {
         expect(memory.entries).toHaveLength(1);
         expect(memory.entries[0].id).toBe(original.id);
         expect(memory.isCompressing).toBe(false);
+    });
+
+    it("falls back to a default text model when the client exposes no resolvers", async () => {
+        memory.entries.push(entry("big", "x".repeat(20_000), ["tom"], "forever"));
+
+        const bareClient = { streamGenerate: vi.fn().mockResolvedValue({ text: "" }) };
+
+        await expect(memory.compressIfExceeded(bareClient)).resolves.toBe(false);
+
+        expect(bareClient.streamGenerate).toHaveBeenCalledWith(
+            [{ role: "user", content: expect.any(String) }],
+            expect.objectContaining({ model: "gemini-2.5-flash-lite" })
+        );
     });
 });
