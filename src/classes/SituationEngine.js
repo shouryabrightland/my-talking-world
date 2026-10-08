@@ -146,6 +146,15 @@ export default class SituationEngine {
         this.isProcessing = true;
         this.logger.info("Executing Situation & Memory extraction pass via Gemma...");
 
+        // Snapshot of the stack at prompt time: the model references entries
+        // for deletion by their position in this snapshot, and we map them
+        // back by id so concurrent additions during the await can never
+        // mis-target a delete.
+        const memSnapshot = [...this.unifiedMemory.entries];
+        const numberedStack = memSnapshot
+            .map((e, i) => `${i}: [${e.datetime} | tags: ${e.tags.join(", ")}] ${e.data}`)
+            .join("\n");
+
         const prompt = [
             "# Ambient Situation Distiller & Memory Extractor",
             'You are the Scene Director and Observer for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
@@ -160,14 +169,18 @@ export default class SituationEngine {
             "## Recent Dialogue Batch",
             ctx.recentDialogue || "No messages yet. Scene is just beginning.",
             "",
+            "## Current Memory Stack (numbered for deletion)",
+            numberedStack || "(empty)",
+            "",
             "## Instructions",
             "1. Write a vivid, cinematic stage description under 500 characters that captures:",
             "   - The physical location and atmospheric room vibe.",
             "   - Current physical actions and postures of key characters (who is holding what prop, who is sitting, who is pacing).",
             "   - Active emotional friction or group focus, especially regarding what the human user said.",
             "2. Extract any important commitments, secrets, facts, or relationship milestones into memory records with member tags and an expiry ('15m', '1h', '24h', 'forever').",
-            "3. Do not record trivial chit-chat or temporary physical movements.",
-            "4. Apply the <age_factor> block below: describe every character acting exactly at their age band, and only extract memories that fit their life stage (a teen's crush confession is a memory; a teen discussing loan EMIs is a continuity error to avoid).",
+            "3. Review the numbered memory stack above. Storage must not only grow: DELETE every entry that is stale, contradicted by newer events, expired in spirit, or no longer relevant by listing its index inside <deletions> (e.g. <delete index=\"3\"/>). Prefer deleting stale facts over adding new ones.",
+            "4. Do not record trivial chit-chat or temporary physical movements, and never re-add a memory that already exists in the stack verbatim.",
+            "5. Apply the <age_factor> block below: describe every character acting exactly at their age band, and only extract memories that fit their life stage (a teen's crush confession is a memory; a teen discussing loan EMIs is a continuity error to avoid).",
             "",
             "## Age Factor",
             PROMPT_AGE_MANDATE,
@@ -179,6 +192,9 @@ export default class SituationEngine {
             "  <new_memories>",
             '    <memory tags="ben, gadget" expiry="forever">Ben completed his solar charging circuit.</memory>',
             "  </new_memories>",
+            "  <deletions>",
+            '    <delete index="3"/>',
+            "  </deletions>",
             "</analysis>"
         ].join("\n");
 
@@ -205,21 +221,41 @@ export default class SituationEngine {
             const memMatches = [
                 ...output.matchAll(/<memory\s+tags="([^"]*)"(?:\s+expiry="([^"]*)")?[^>]*>([\s\S]*?)<\/memory>/gi)
             ];
+            const existingData = new Set(this.unifiedMemory.entries.map(e => e.data));
+            let addedCount = 0;
             for (const m of memMatches) {
                 const data = (m[3] || "").trim();
-                if (!data) continue;
+                // Skip empties and records the stack already holds verbatim.
+                if (!data || existingData.has(data)) continue;
+                existingData.add(data);
                 await this.unifiedMemory.add({
                     tags: (m[1] || "").split(",").map(t => t.trim()).filter(Boolean),
                     expiry: m[2] || "forever",
                     data
                 });
+                addedCount++;
+            }
+
+            // Apply deletions by snapshot index → stable id (see snapshot above).
+            const delMatches = [...output.matchAll(/<delete\s+index="(\d+)"\s*\/?>/gi)];
+            let deletedCount = 0;
+            for (const dm of delMatches) {
+                const target = memSnapshot[Number(dm[1])];
+                if (!target) continue;
+                await this.unifiedMemory.remove(target.id);
+                deletedCount++;
+            }
+            if (deletedCount > 0) {
+                this.logger.info(`Pruned ${deletedCount} stale memor${deletedCount === 1 ? "y" : "ies"} from the unified stack.`);
             }
 
             await this.unifiedMemory.compressIfExceeded(this.geminiClient);
 
             this.unreadMessagesCount = 0;
             this.lastRunTime = Date.now();
-            this.logger.info("Situation and memories updated successfully.");
+            this.logger.info(
+                `Situation and memories updated successfully (+${addedCount} added, -${deletedCount} deleted).`
+            );
             return true;
         } catch (/** @type {unknown} */ err) {
             this.logger.warn("Situation extraction pass failed (will retry on next trigger):", err);

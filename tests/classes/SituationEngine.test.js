@@ -239,10 +239,85 @@ describe("SituationEngine — persistence & reset", () => {
         engine.unreadMessagesCount = 8;
         await engine.storage.setItem("situation_summary_paragraph", "Custom situation text");
 
-        await engine.reset();
-
-        expect(engine.situationText).toContain("Lucknow");
+        await engine.reset();        expect(engine.situationText).toContain("Lucknow");
         expect(engine.unreadMessagesCount).toBe(0);
         await expect(engine.storage.getItem("situation_summary_paragraph")).resolves.toBeNull();
+    });
+});
+
+describe("SituationEngine — memory deletions & dedupe", () => {
+    it("deletes stale entries listed in <deletions> by snapshot index", async () => {
+        const { engine, geminiClient, unifiedMemory, ctx } = makeEngine();
+        engine.unreadMessagesCount = 10;
+
+        // Two stale entries the model should prune by index.
+        unifiedMemory.entries.push(
+            { id: "stale-1", datetime: "2026-10-01 09:00", tags: ["tom"], data: "Old fact to delete", expiry: "forever" },
+            { id: "keep-1", datetime: "2026-10-02 09:00", tags: ["ben"], data: "Fact to keep", expiry: "forever" }
+        );
+
+        geminiClient.streamGenerate.mockResolvedValue({
+            text: [
+                "<analysis>",
+                "  <situation>Cast is on the rooftop.</situation>",
+                "  <new_memories>",
+                '    <memory tags="angela" expiry="forever">Angela landed the shoot.</memory>',
+                "  </new_memories>",
+                "  <deletions>",
+                '    <delete index="0"/>',
+                "  </deletions>",
+                "</analysis>"
+            ].join("\n")
+        });
+
+        await expect(engine.executeIfDue(ctx)).resolves.toBe(true);
+
+        const datas = unifiedMemory.entries.map(e => e.data);
+        expect(datas).not.toContain("Old fact to delete");
+        expect(datas).toContain("Fact to keep");
+        expect(datas).toContain("Angela landed the shoot.");
+        expect(unifiedMemory.entries.map(e => e.id)).toContain("keep-1");
+    });
+
+    it("ignores out-of-range deletion indices (concurrent stack changes are safe)", async () => {
+        const { engine, geminiClient, unifiedMemory, ctx } = makeEngine();
+        engine.unreadMessagesCount = 10;
+        unifiedMemory.entries.push({
+            id: "only", datetime: "2026-10-01 09:00", tags: ["tom"], data: "Only entry", expiry: "forever"
+        });
+
+        geminiClient.streamGenerate.mockResolvedValue({
+            text: '<analysis><situation>ok.</situation><deletions><delete index="42"/></deletions></analysis>'
+        });
+
+        await expect(engine.executeIfDue(ctx)).resolves.toBe(true);
+        expect(unifiedMemory.entries).toHaveLength(1);
+        expect(unifiedMemory.entries[0].id).toBe("only");
+    });
+
+    it("never re-adds a memory the stack already holds verbatim", async () => {
+        const { engine, geminiClient, unifiedMemory, ctx } = makeEngine();
+        engine.unreadMessagesCount = 10;
+        unifiedMemory.entries.push({
+            id: "existing", datetime: "2026-10-01 09:00", tags: ["tom"],
+            data: "Tom repaired the drone rotor", expiry: "forever"
+        });
+
+        geminiClient.streamGenerate.mockResolvedValue({
+            text: [
+                "<analysis>",
+                "  <situation>Cast is on the rooftop.</situation>",
+                "  <new_memories>",
+                '    <memory tags="tom" expiry="forever">Tom repaired the drone rotor</memory>',
+                "  </new_memories>",
+                "</analysis>"
+            ].join("\n")
+        });
+
+        await expect(engine.executeIfDue(ctx)).resolves.toBe(true);
+
+        const matches = unifiedMemory.entries.filter(e => e.data === "Tom repaired the drone rotor");
+        expect(matches).toHaveLength(1);
+        expect(matches[0].id).toBe("existing");
     });
 });
