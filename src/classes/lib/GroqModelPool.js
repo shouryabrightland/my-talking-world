@@ -215,6 +215,14 @@ export default class GroqModelPool {
         return candidates.length > 0 ? candidates[0].id : null;
     }
 
+    /**
+     * Records a failed call for a model, cooling it down or ejecting it.
+     *
+     * @param {string} modelId
+     * @param {number|null} [status=null] HTTP status of the failure, if any.
+     * @param {number|null} [resetMs=null] Exact server-provided reset window in ms.
+     * @returns {boolean} True when the model was ejected or put on cooldown.
+     */
     reportFailure(modelId, status = null, resetMs = null) {
         if (!modelId) return false;
 
@@ -241,6 +249,10 @@ export default class GroqModelPool {
         return true;
     }
 
+    /**
+     * @param {string} modelId
+     * @returns {void}
+     */
     reportSuccess(modelId) {
         if (!modelId) return;
         if (this.#ejected.has(modelId)) return;
@@ -253,6 +265,11 @@ export default class GroqModelPool {
         }
     }
 
+    /**
+     * @param {string} modelId
+     * @param {{ remainingRequests: string|null, remainingTokens: string|null, resetRequests: string|null, resetTokens: string|null, retryAfter: string|null }} rateInfo
+     * @returns {number|null} Reset window in ms when the rate window is exhausted, else null.
+     */
     observeRateLimit(modelId, rateInfo) {
         if (!modelId || !rateInfo) return null;
 
@@ -279,6 +296,10 @@ export default class GroqModelPool {
         return resetMs;
     }
 
+    /**
+     * @param {string} modelId
+     * @returns {number|null} Remaining cooldown/pause in ms, or null when not cooling.
+     */
     cooldownRemaining(modelId) {
         const failureUntil = this.#cooldownMap.get(modelId);
         const serverUntil = this.#serverPauseMap.get(modelId);
@@ -345,6 +366,10 @@ export default class GroqModelPool {
         });
     }
 
+    /**
+     * @param {string} modelId
+     * @returns {boolean}
+     */
     isEjected(modelId) {
         return this.#ejected.has(modelId);
     }
@@ -417,6 +442,10 @@ export default class GroqModelPool {
         if (this.#stack.length === 0) await this.#loadFromCache();
     }
 
+    /**
+     * @param {string} apiKey
+     * @returns {Promise<void>}
+     */
     async #fetchAndCache(apiKey) {
         try {
             const response = await fetch(`${GROQ_API_BASE_URL}/models`, {

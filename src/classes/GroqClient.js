@@ -170,6 +170,18 @@ export default class GroqClient {
         return sharedCircuitBreaker.state === "open";
     }
 
+    /**
+     * Streams a chat completion across the discovered model pool.
+     *
+     * @param {Array<{ role: string, content: string }>} messages
+     * @param {Object} [options]
+     * @param {number} [options.temperature=0.85]
+     * @param {number} [options.maxTokens=1200]
+     * @param {string|null} [options.model=null]
+     * @param {PromptType} [options.promptType="dialogue"]
+     * @param {number} [options.maxRetries=2]
+     * @returns {Promise<string>}
+     */
     async streamChat(messages, {
         temperature = 0.85,
         maxTokens = 1200,
@@ -210,6 +222,19 @@ export default class GroqClient {
         }
     }
 
+    /**
+     * Generates a non-streaming completion across the discovered model pool.
+     *
+     * @param {Array<{ role: string, content: string }>} messages
+     * @param {Object} [options]
+     * @param {number} [options.temperature=0.8]
+     * @param {number} [options.maxTokens=2000]
+     * @param {string|null} [options.model=null]
+     * @param {boolean} [options.jsonMode=false]
+     * @param {PromptType} [options.promptType="scheduler"]
+     * @param {number} [options.maxRetries=2]
+     * @returns {Promise<{ text: string, model: string, thinking: string|null, usage?: any }>}
+     */
     async generateText(messages, {
         temperature = 0.8,
         maxTokens = 2000,
@@ -247,6 +272,18 @@ export default class GroqClient {
         }
     }
 
+    /**
+     * @param {Array<{ role: string, content: string }>} messages
+     * @param {Object} options
+     * @param {number} options.temperature
+     * @param {number} options.maxTokens
+     * @param {string|null} options.model
+     * @param {string} options.activeKey
+     * @param {number} options.startTime
+     * @param {PromptType} options.promptType
+     * @param {number} options.maxRetries
+     * @returns {Promise<string>}
+     */
     async #streamWithFallback(messages, { temperature, maxTokens, model, activeKey, startTime, promptType, maxRetries }) {
         const candidateModels = await this.#resolveCandidateModels(model);
         let lastError = null;
@@ -339,6 +376,19 @@ export default class GroqClient {
         this.events.emit(GroqClientEvents.COOLDOWN_ACTIVE, { remainingMs });
     }
 
+    /**
+     * @param {Array<{ role: string, content: string }>} messages
+     * @param {Object} options
+     * @param {number} options.temperature
+     * @param {number} options.maxTokens
+     * @param {string|null} options.model
+     * @param {boolean} options.jsonMode
+     * @param {string} options.activeKey
+     * @param {number} options.startTime
+     * @param {PromptType} options.promptType
+     * @param {number} options.maxRetries
+     * @returns {Promise<{ text: string, model: string, thinking: string|null, usage?: any }>}
+     */
     async #generateWithFallback(messages, { temperature, maxTokens, model, jsonMode, activeKey, startTime, promptType, maxRetries }) {
         const candidateModels = await this.#resolveCandidateModels(model);
         let lastError = null;
@@ -438,6 +488,14 @@ export default class GroqClient {
         throw new Error(`All generation attempts failed across discovered Groq models. Last error: ${lastError?.message}`, { cause: lastError });
     }
 
+    /**
+     * @param {string} model
+     * @param {Array<{ role: string, content: string }>} messages
+     * @param {number} temperature
+     * @param {number} maxTokens
+     * @param {string} key
+     * @returns {Promise<{ text: string, usage: { prompt_tokens?: number, completion_tokens?: number }|null, finishReason: string|null }>}
+     */
     async #executeStream(model, messages, temperature, maxTokens, key) {
         const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
             method: "POST",
@@ -527,6 +585,11 @@ export default class GroqClient {
         return { text: fullText, usage, finishReason };
     }
 
+    /**
+     * @param {{ status?: number, retryAfter?: string|number|null, rateLimitResetMs?: number|null, name?: string, message?: string }} err
+     * @param {number} attempt
+     * @returns {number|null} Delay in ms, or null when the error is not retryable.
+     */
     #getRetryDelay(err, attempt) {
         if (typeof err.rateLimitResetMs === "number" && err.rateLimitResetMs > 0) {
             return err.rateLimitResetMs;
@@ -539,7 +602,7 @@ export default class GroqClient {
 
         if (err.status === 429) return this.#exponentialBackoff(attempt, 5_000, 60_000);
         if (err.status === 503) return this.#exponentialBackoff(attempt, 10_000, 120_000);
-        if ([500, 502, 504].includes(err.status)) return this.#exponentialBackoff(attempt, 3_000, 30_000);
+        if (typeof err.status === "number" && [500, 502, 504].includes(err.status)) return this.#exponentialBackoff(attempt, 3_000, 30_000);
         if (!err.status && (err.name === "TypeError" || err.message?.includes("fetch"))) {
             return this.#exponentialBackoff(attempt, 2_000, 15_000);
         }
@@ -547,6 +610,11 @@ export default class GroqClient {
         return null;
     }
 
+    /**
+     * @param {Response} response
+     * @param {number} attempt
+     * @returns {number|null}
+     */
     #getRetryFromResponse(response, attempt) {
         const exact = this.#exactRateLimitResetMs(response);
         if (exact !== null && exact > 0) return exact;
@@ -557,6 +625,10 @@ export default class GroqClient {
         return null;
     }
 
+    /**
+     * @param {Response} response
+     * @returns {{ remainingRequests: string|null, resetRequests: string|null, remainingTokens: string|null, resetTokens: string|null, retryAfter: string|null }}
+     */
     #parseRateLimitHeaders(response) {
         const headers = response.headers;
         return {
@@ -568,6 +640,10 @@ export default class GroqClient {
         };
     }
 
+    /**
+     * @param {Response} response
+     * @returns {number|null}
+     */
     #exactRateLimitResetMs(response) {
         const info = this.#parseRateLimitHeaders(response);
         return (
@@ -577,6 +653,12 @@ export default class GroqClient {
         );
     }
 
+    /**
+     * @param {number} attempt
+     * @param {number} baseMs
+     * @param {number} maxMs
+     * @returns {number}
+     */
     #exponentialBackoff(attempt, baseMs, maxMs) {
         const exponential = baseMs * Math.pow(2, attempt - 1);
         const jitter = Math.random() * baseMs * 0.5;
@@ -617,6 +699,10 @@ export default class GroqClient {
         this.isStreaming = false;
     }
 
+    /**
+     * @param {number} ms
+     * @returns {Promise<void>}
+     */
     #sleep(ms) {
         return new Promise(r => setTimeout(r, ms));
     }

@@ -202,7 +202,7 @@ function extractSystemState(conv) {
                 const timeline = m?.scheduler?.getTimeline ? m.scheduler.getTimeline() : [];
                 return acc + (Array.isArray(timeline) ? timeline.length : 0);
             }, 0),
-            activeModel: conv.client?.activeModel || conv.client?.defaultModel || ""
+            activeModel: conv.client?.activeModel || ""
         },
         groqModelPool: {
             activeModel: conv.client?.activeModel || null,

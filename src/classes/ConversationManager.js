@@ -221,6 +221,12 @@ export default class ConversationManager {
         );
     }
 
+    /**
+     * Injects a Stage Directive from Director Mode into the live conversation.
+     *
+     * @param {string} plotText
+     * @returns {Promise<void>}
+     */
     async injectDirectorPlot(plotText) {
         if (!plotText || typeof plotText !== "string" || !plotText.trim()) return;
         if (!navigator.onLine) {
@@ -460,7 +466,7 @@ export default class ConversationManager {
         return {
             currentDateTime: this.world.dateTime,
             environmentSummary: `${this.world.environment?.temperature || "32°C"}, ${this.world.environment?.weather || "Warm"}`,
-            location: activeSchedule?.setting || this.world.environment?.city || "Lucknow Studio",
+            location: this.world.environment?.city || "Lucknow Studio",
             activeSceneTopic: activeSchedule?.topic || "Casual hangout",
             activeSceneGoal: activeSchedule?.mainGoal || "Chat naturally",
             castStates: castSummary || "Cast members are hanging out.",
