@@ -321,3 +321,28 @@ describe("SituationEngine — memory deletions & dedupe", () => {
         expect(matches[0].id).toBe("existing");
     });
 });
+
+describe("SituationEngine — human-message priority over the situation", () => {
+    it("feeds the latest human message and the priority rule into the Gemma prompt", async () => {
+        const { engine, geminiClient, ctx } = makeEngine();
+        geminiClient.streamGenerate.mockResolvedValue({ text: SUCCESS_XML });
+
+        await expect(
+            engine.executeIfDue({ ...ctx, latestHumanMessage: "drone rotor turant theek karo" }, true)
+        ).resolves.toBe(true);
+
+        const prompt = String(geminiClient.streamGenerate.mock.calls[0][0][0].content);
+        expect(prompt).toContain("Latest Human Message: drone rotor turant theek karo");
+        expect(prompt).toContain("PRIORITY: the human's latest message outranks");
+    });
+
+    it("marks an explicit '(none …)' input on autonomous passes", async () => {
+        const { engine, geminiClient, ctx } = makeEngine();
+        geminiClient.streamGenerate.mockResolvedValue({ text: SUCCESS_XML });
+
+        await engine.executeIfDue(ctx, true);
+
+        const prompt = String(geminiClient.streamGenerate.mock.calls[0][0][0].content);
+        expect(prompt).toContain("Latest Human Message: (none right now");
+    });
+});

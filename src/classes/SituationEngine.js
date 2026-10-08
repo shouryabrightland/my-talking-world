@@ -23,6 +23,7 @@
  * @property {string} recentDialogue Recent dialogue batch (raw text).
  * @property {string} [location] Specific setting or room label.
  * @property {string} [castStates] Current character moods, postures, and active goals.
+ * @property {string} [latestHumanMessage] Fresh human utterance the scene must stay anchored to.
  */
 
 import Storage from "./lib/Storage";
@@ -163,6 +164,7 @@ export default class SituationEngine {
             `- Clock: ${ctx.currentDateTime}`,
             `- Location & Weather: ${ctx.location || "Lucknow Studio"} (${ctx.environmentSummary})`,
             `- Active Scene: ${ctx.activeSceneTopic} (Goal: ${ctx.activeSceneGoal})`,
+            `- Latest Human Message: ${ctx.latestHumanMessage || "(none right now — autonomous scene pass)"}`,
             `- Cast Roster & Ongoing States:`,
             `  ${ctx.castStates || "Cast members are hanging out."}`,
             "",
@@ -173,6 +175,7 @@ export default class SituationEngine {
             numberedStack || "(empty)",
             "",
             "## Instructions",
+            "0. PRIORITY: the human's latest message outranks the ambient situation. When one is present, the new situation MUST keep the group anchored on what the human just said — never invent a competing scene focus that pulls characters away from answering the human.",
             "1. Write a vivid, cinematic stage description under 500 characters that captures:",
             "   - The physical location and atmospheric room vibe.",
             "   - Current physical actions and postures of key characters (who is holding what prop, who is sitting, who is pacing).",

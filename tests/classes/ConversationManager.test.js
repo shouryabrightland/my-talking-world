@@ -864,7 +864,7 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
         expect(captured.system).toContain("Tom promised the group chai");
     });
 
-    it("skips the lookup for autonomous turns (no human utterance)", async () => {
+    it("skips the lookup only when there is nothing to route (no chat, no human)", async () => {
         const { manager } = createManager();
         manager.initialized = true;
         manager.unifiedMemory.entries.push({
@@ -881,6 +881,49 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
 
         expect(captured.system).not.toContain("## Active Memories");
         expect(captured.system).toContain("## Ambient Setting");
+    });
+
+    it("routes autonomous turns through the recent chat window (not the user alone)", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        manager.unifiedMemory.entries.push({
+            id: crypto.randomUUID(),
+            datetime: "2026-10-07 14:00",
+            tags: ["tom", "chai"],
+            data: "Tom promised the group chai at the Gomti Nagar stall.",
+            expiry: "forever"
+        });
+
+        // The topic lives ONLY in the recent chat — no human utterance this turn.
+        manager.getRecentMessages = () => [
+            { id: "m1", deleted: false, sender: { id: "angela", name: "Angela" }, text: "Tom, kal ke chai plan ke baare mein batao na" },
+            { id: "m2", deleted: false, sender: { id: "tom", name: "Tom" }, text: "Chai wale plan? Gomti Nagar stall par milte hain" }
+        ];
+
+        const captured = captureBuildOn(manager);
+
+        await manager.requestTurn();
+
+        expect(captured.system).toContain("## Active Memories");
+        expect(captured.system).toContain("Tom promised the group chai");
+    });
+
+    it("leads the Needle query with the human message, then the recent chat", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        const route = vi.spyOn(manager.needleRouter, "route").mockResolvedValue({ keywords: [], member: "any" });
+
+        manager.getRecentMessages = () => [
+            { id: "m1", deleted: false, sender: { id: "angela", name: "Angela" }, text: "Angela: rotor ka screw gayab hai" }
+        ];
+
+        await manager.requestTurn(true, "drone ke rotor ke baare mein batao");
+
+        expect(route).toHaveBeenCalledTimes(1);
+        const query = String(route.mock.calls[0][0]);
+        // Human words first so the deterministic extractor ranks them highest.
+        expect(query.indexOf("drone ke rotor")).toBeGreaterThanOrEqual(0);
+        expect(query.indexOf("drone ke rotor")).toBeLessThan(query.indexOf("screw gayab"));
     });
 
     it("captures the human utterance from MESSAGE_ADD and routes the next turn through it", async () => {
@@ -906,6 +949,37 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
 
         expect(captured.system).toContain("## Active Memories");
         expect(captured.system).toContain("Tom promised the group chai");
+    });
+
+    it("ranks the human's latest message above the situation (Turn Priority block)", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+
+        const captured = captureBuildOn(manager);
+        await manager.requestTurn(true, "aaj ka scene kya hai?");
+
+        // System: explicit priority ladder with the human first.
+        expect(captured.system).toContain("## Turn Priority");
+        expect(captured.system).toContain("1) The human's LATEST message — answer it first.");
+        expect(captured.system).toContain("3) Ambient setting is background only.");
+
+        // User: fresh utterance appended LAST (strongest recency position).
+        expect(captured.user).toContain("## The Human Just Said");
+        expect(captured.user).toContain("aaj ka scene kya hai?");
+        expect(captured.user.indexOf("## The Human Just Said"))
+            .toBeGreaterThan(captured.user.indexOf("## Recent Chat"));
+    });
+
+    it("omits the human-priority block on autonomous turns", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+
+        const captured = captureBuildOn(manager);
+        await manager.requestTurn();
+
+        expect(captured.user).not.toContain("## The Human Just Said");
+        // The priority ladder still frames autonomous turns.
+        expect(captured.system).toContain("## Turn Priority");
     });
 });
 

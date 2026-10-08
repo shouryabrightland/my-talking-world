@@ -16,7 +16,7 @@
  * 3. <current_scene>: Active topic, main session goal, individual character motivations, temporal phase (opening/core/transition),
  *    pre-plot guidance (if first 10% elapsed), post-plot transition (if last 10% elapsed), and context facts.
  * 4. <characters>: Biographies, computed ages, and participant types.
- * 5. ## Active Memories: 0-2 Tier-3 UnifiedMemory lines (tag/keyword match from Needle) for the human utterance.
+ * 5. ## Active Memories: 0-2 Tier-3 UnifiedMemory lines (tag/keyword match from Needle) for the live chat — human message first, then the recent window.
  * 6. <recent_dialogue>: Last 20 messages with IDs, reactions, quote links, and <stage_directive> overrides.
  */
 export const PROMPT_DIALOGUE_TASK =

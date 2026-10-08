@@ -119,6 +119,7 @@ export default class ConversationManager {
     /** @type {string} */ #lastUserMessageText = "";
     /** @type {boolean} */ #userTurnPending = false;
     /** @type {string} */ #pendingMemorySnippet = "";
+    /** @type {string} Fresh human utterance for the ACTIVE turn (empty on autonomous turns). */ #activeHumanUtterance = "";
     /** @type {number|null} */ #pendingDelayMs = null;
     /** @type {string|null} */ #pendingNextTime = null;
 
@@ -161,6 +162,7 @@ export default class ConversationManager {
         this.#lastUserMessageText = "";
         this.#userTurnPending = false;
         this.#pendingMemorySnippet = "";
+        this.#activeHumanUtterance = "";
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
         this.pendingDirectorPlot = null;
@@ -361,10 +363,16 @@ export default class ConversationManager {
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
         this.#pendingMemorySnippet = "";
+        // Fresh human utterance for THIS turn — captured before the Tier-3
+        // lookup consumes #userTurnPending. Drives the prompt's "Human Just
+        // Said" priority block and the SituationEngine's scene anchoring.
+        this.#activeHumanUtterance = (isUserInitiated || this.#userTurnPending)
+            ? String(userMessageText || this.#lastUserMessageText || "").trim()
+            : "";
         this.logger.info("Requesting fresh conversational turn from Groq...");
 
         try {
-            // Tier 3: route the human utterance through Needle → UnifiedMemory.
+            // Tier 3: route the live chat (human message first) through Needle → UnifiedMemory.
             await this.#resolveMemorySnippet(isUserInitiated, userMessageText);
 
             const promptPayload = await this.promptBuilder.build({
@@ -404,31 +412,40 @@ export default class ConversationManager {
             this.protocolBuffer = "";
             this.requesting = false;
             this.#pendingMemorySnippet = "";
+            this.#activeHumanUtterance = "";
         }
 
         this.scheduleNextRequest();
     }
 
     /**
-     * Tier-3 lookup: routes the HUMAN UTTERANCE through Needle so 0-2
+     * Tier-3 lookup: routes the LIVE CHAT through Needle so 0-2
      * relevant UnifiedMemory lines are injected for the active topic.
-     * Autonomous turns (nothing human pending) skip the lookup entirely —
-     * routing the whole noisy transcript would only surface junk matches.
-     * Never throws — a routing failure silently degrades to an empty snippet.
+     * The human's latest message leads the query (highest keyword priority)
+     * with the recent chat window supplying conversational context after it;
+     * autonomous turns route the recent chat on its own so memory follows
+     * the conversation instead of only the user. Never throws — a routing
+     * failure silently degrades to an empty snippet.
      *
      * @param {boolean} isUserInitiated Whether this turn answers a human message.
-     * @param {string} userMessageText The human utterance to route through Needle.
+     * @param {string} userMessageText The human utterance to lead the lookup with.
      * @returns {Promise<void>}
      */
     async #resolveMemorySnippet(isUserInitiated, userMessageText) {
-        const wantsLookup = isUserInitiated || this.#userTurnPending;
-        if (!wantsLookup) return;
+        const humanTurn = isUserInitiated || this.#userTurnPending;
 
         // Consume the flag even when the lookup fails so autonomous turns
         // never keep re-querying with a stale utterance.
         this.#userTurnPending = false;
 
-        const queryText = String(userMessageText || this.#lastUserMessageText || "").trim();
+        // Human turn → their latest words LEAD the query (the deterministic
+        // extractors pick keywords in order of appearance, so the user's
+        // topic wins); autonomous turn → the recent chat alone drives it.
+        const humanText = humanTurn
+            ? String(userMessageText || this.#lastUserMessageText || "").trim()
+            : "";
+        const chatText = this.#getRecentChatHistory();
+        const queryText = [humanText, chatText].filter(Boolean).join("\n").trim();
         if (!queryText) return;
 
         try {
@@ -470,7 +487,10 @@ export default class ConversationManager {
             activeSceneTopic: activeSchedule?.topic || "Casual hangout",
             activeSceneGoal: activeSchedule?.mainGoal || "Chat naturally",
             castStates: castSummary || "Cast members are hanging out.",
-            recentDialogue: this.#getRecentChatHistory()
+            recentDialogue: this.#getRecentChatHistory(),
+            // Fresh human utterance (if any) — the situation must stay
+            // anchored on it rather than drifting to its own scene focus.
+            latestHumanMessage: this.#activeHumanUtterance
         };
     }
 
@@ -863,6 +883,7 @@ export default class ConversationManager {
         this.#lastUserMessageText = "";
         this.#userTurnPending = false;
         this.#pendingMemorySnippet = "";
+        this.#activeHumanUtterance = "";
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
         this.lastNeedleRoute = null;
@@ -926,23 +947,27 @@ export default class ConversationManager {
                 "",
                 "## Cast:",
                 castIds,
-                "- Speak each cast member at their listed age (mental maturity, slang, tone).",
+                "- Speak each cast member at their listed age.",
                 "",
                 "## Ambient Setting",
                 `- Time: ${this.world.dateTime}`,
                 `- Atmosphere: ${situation}`,
                 memorySection,
+                "## Turn Priority",
+                "1) The human's LATEST message — answer it first.",
+                "2) The recent chat flow.",
+                "3) Ambient setting is background only.",
+                "",
                 "## Dialogue Instructions",
                 "- Language: Natural Lucknow Hinglish (Roman/Latin script only).",
-                `- Characters: speak only as the AI cast; never answer for the human user ("me") — they speak for themselves.`,
-                "- Reply to the human directly first; ambient setting is background.",
-                "- Output 1 to 3 messages using:",
+                `- Characters: only the AI cast; never answer for the human ("me").`,
+                "- Output 1-3 messages:",
                 '<msg sender="id" reaction="ReactionName">message text</msg>',
                 `- Valid reactions (exact): {${Reaction.EMOTION.map(e => e.name).join(", ")}}. Use Default if unsure.`,
                 "- After all messages, output exactly one pacing tag:",
-                '  * For active banter: <delay ms="3000"/> to <delay ms="5000"/>',
-                '  * For thoughtful pause / waiting for user: <delay ms="20000"/> to <delay ms="60000"/>',
-                '  * When wrapping up the scene, saying good night / signing off, or agreeing to meet at a later hour: <next time="HH:MM"/> (e.g. <next time="18:30"/> or <next time="07:30"/>). Use <next> (not <delay>) when pausing until later.'
+                '  * Banter: <delay ms="3000"/> to <delay ms="5000"/>',
+                '  * Thinking / waiting on the human: <delay ms="20000"/> to <delay ms="60000"/>',
+                '  * Wrapping up, signing off, or meeting later: <next time="HH:MM"/> (e.g. <next time="18:30"/>). Use <next> (not <delay>) for time jumps.'
             ].filter(Boolean).join("\n"));
         });
 
@@ -959,6 +984,15 @@ export default class ConversationManager {
             this.#getRecentChatHistory() || "Chat begins now.",
             "```"
         ].join("\n")));
+
+        // Strongest position (end of context): the fresh human utterance,
+        // explicitly flagged as the thing to answer first.
+        builder.useUser(() => this.#activeHumanUtterance
+            ? builder.part([
+                "## The Human Just Said — respond to THIS first",
+                this.#activeHumanUtterance
+            ].join("\n"))
+            : null);
     }
 
     #getRecentChatHistory() {
