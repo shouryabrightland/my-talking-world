@@ -266,64 +266,6 @@ export default function DevToolsStateTab({
                             onVerify={handleVerify}
                         />
 
-                        {/* Card 6: Unified Memory Stack (20,000 Chars Budget) */}
-                        {validState.unifiedMemory && (
-                        <div className={styles.stateCard}>
-                            <div className={styles.stateCardHeader}>
-                                <h4 className={styles.stateCardTitle}>🧠 Unified Memory Stack</h4>
-                                <span className={styles.badgeSecondary}>
-                                    {validState.unifiedMemory.characterCount}/{validState.unifiedMemory.maxCharacters} chars
-                                </span>
-                            </div>
-
-                            <div className={styles.cardContentList}>
-                                <div className={styles.metricGrid}>
-                                    <div className={styles.metricBox}>
-                                        <span className={styles.metricNumber}>{validState.unifiedMemory.totalEntries}</span>
-                                        <span className={styles.metricLabel}>Entries</span>
-                                    </div>
-                                    <div className={styles.metricBox}>
-                                        <span className={styles.metricNumber}>
-                                            {Math.round((validState.unifiedMemory.characterCount / validState.unifiedMemory.maxCharacters) * 100)}%
-                                        </span>
-                                        <span className={styles.metricLabel}>Budget Used</span>
-                                    </div>
-                                </div>
-
-                                {/* Character budget progress bar */}
-                                <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.12)", borderRadius: "3px", overflow: "hidden" }}>
-                                    <div
-                                        style={{
-                                            width: `${Math.min(100, Math.round((validState.unifiedMemory.characterCount / validState.unifiedMemory.maxCharacters) * 100))}%`,
-                                            height: "100%",
-                                            background: validState.unifiedMemory.characterCount / validState.unifiedMemory.maxCharacters > 0.9
-                                                ? "#ef4444"
-                                                : "#22c55e"
-                                        }}
-                                    />
-                                </div>
-
-                                {validState.unifiedMemory.entries.length === 0 ? (
-                                    <span className={styles.emptyNote}>No episodic memories stored yet.</span>
-                                ) : (
-                                    <div className={styles.charMemoriesList}>
-                                        {validState.unifiedMemory.entries.map((entry) => (
-                                            <div key={entry.id} className={styles.charMemoryChip}>
-                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                                    <span>{entry.data}</span>
-                                                    <span className={styles.fieldSubValue}>🗓️ {entry.datetime} · 🏷️ {entry.tags || "untagged"}</span>
-                                                </div>
-                                                <span className={entry.expiry === "forever" ? styles.permTag : styles.ttlTag}>
-                                                    {entry.expiry}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        )}
-
                         {/* Card 7: Ambient Situation Engine (Tier 2) */}
                         {validState.situationEngine && (
                         <div className={styles.stateCard}>

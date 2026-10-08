@@ -42,13 +42,11 @@ vi.mock("../../src/classes/ChatMember.js", () => ({
             this.id = id; this.name = name; this.isAI = isAI;
             this.isOnline = true; this.isTyping = false;
             this.scheduler = { clear() {}, getTimeline() { return []; } };
-            this.memory = { set() {}, delete() {}, clear() {}, values() { return []; } };
             this.stateMemory = { clear() {} };
             this.events = { on() { return () => {}; }, emit() {} };
         }
         setTransientState() {}
         resetState() {}
-        saveMemory() { return Promise.resolve(); }
     },
     ChatMemberEvents: { TYPING: "typing", READING: "reading", THINKING: "thinking", ACTIVE: "active" }
 }));
@@ -210,12 +208,10 @@ function makeMockMember(id, name, isAI) {
         id, name, isAI,
         isOnline: true, isTyping: false,
         scheduler: { clear() {}, getTimeline() { return []; } },
-        memory: { set() {}, delete() {}, clear() {}, values() { return []; } },
         stateMemory: { clear() {} },
         events: { on() { return () => {}; }, emit() {} },
         setTransientState() {},
-        resetState() {},
-        saveMemory() { return Promise.resolve(); }
+        resetState() {}
     };
 }
 
@@ -504,29 +500,26 @@ describe("ConversationManager — Streaming <record> Extraction", () => {
         const { turnPromise, finish } = await startHangingTurn();
         const spy = vi.spyOn(manager, "handleProtocolRecord");
 
-        manager.onStreamToken('<record type="memory-set" member="tom" expiry="1h"><key>Mood</key><value>Calm</value></record>');
+        manager.onStreamToken('<record type="message" id="42" sender="tom"><text>Arre waah!</text></record>');
 
         expect(spy).toHaveBeenCalledTimes(1);
-        expect(spy.mock.calls[0][0].recordType).toBe("memory-set");
+        expect(spy.mock.calls[0][0].recordType).toBe("message");
         expect(manager.protocolBuffer).toBe("");
 
         finish();
         await turnPromise;
     });
 
-    it("extracts self-closing <record ... /> tags so memories are not trapped in the buffer", async () => {
+    it("extracts self-closing <record ... /> tags so they are not trapped in the buffer", async () => {
         const { turnPromise, finish } = await startHangingTurn();
         const spy = vi.spyOn(manager, "handleProtocolRecord");
 
-        manager.onStreamToken('<record type="memory-set" member="tom" expiry="15m" key="Posture" value="Leaning back" />');
+        manager.onStreamToken('<record type="message" id="7" sender="ben" reaction="Default" />');
 
-        expect(spy).toHaveBeenCalledTimes(1);
-        const record = spy.mock.calls[0][0];
-        expect(record.recordType).toBe("memory-set");
-        expect(record.member).toBe("tom");
-        expect(record.key).toBe("Posture");
-        // Nothing left behind in protocolBuffer — the tag was fully consumed.
+        // A self-closing tag is fully consumed from the buffer even when it
+        // yields no record (legacy memory-set records no longer exist).
         expect(manager.protocolBuffer).toBe("");
+        expect(spy).not.toHaveBeenCalled();
 
         finish();
         await turnPromise;
@@ -829,21 +822,6 @@ function buildSystemParts(manager) {
         .filter(t => typeof t === "string");
 }
 
-/**
- * Adds a plain character stub to the mock world's member map.
- * @param {ConversationManager} manager
- * @param {{ id: string, name: string, age?: number, about?: string, memory?: { values: () => unknown[] } }} spec
- */
-function addWorldMember(manager, spec) {
-    manager.world.members.set(spec.id, {
-        id: spec.id,
-        name: spec.name,
-        age: spec.age ?? 20,
-        about: spec.about ?? "",
-        isAI: true,
-        memory: spec.memory ?? { values: () => [] }
-    });
-}
 
 describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", () => {
     /** Captures the prompt exactly as requestTurn() compiles it. */
@@ -928,39 +906,6 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
 
         expect(captured.system).toContain("## Active Memories");
         expect(captured.system).toContain("Tom promised the group chai");
-    });
-});
-
-describe("ConversationManager — per-member memory clock (legacy Memory table)", () => {
-    it("drops memories already expired on the active simulation clock", () => {
-        const { manager } = createManager();
-        manager.world.now = new Date();
-
-        const memory = new Memory(new Logger("Test"), "tom");
-        memory.set("Mood", "excited about the trip", new Date(Date.now() + 900_000));
-        memory.set("Stale Gossip", "already forgotten", new Date(Date.now() - 1_000));
-        addWorldMember(manager, { id: "tom", name: "Tom", memory });
-
-        const usable = memory.values().filter(k => k.isUsable(manager.world.now));
-
-        expect(usable.map(k => k.name)).toContain("Mood");
-        // Expired memory is filtered out on the simulation clock.
-        expect(usable.map(k => k.name)).not.toContain("Stale Gossip");
-    });
-
-    it("passes this.world.now (not wall-clock) into every isUsable() check", () => {
-        const { manager } = createManager();
-        // Sim clock frozen one hour in the past: a memory that expired 10
-        // minutes ago in REAL time is still valid on the simulation clock.
-        manager.world.now = new Date(Date.now() - 3_600_000);
-
-        const memory = new Memory(new Logger("Test"), "tom");
-        memory.set("Recent Fact", "just happened", new Date(Date.now() - 600_000));
-        addWorldMember(manager, { id: "tom", name: "Tom", memory });
-
-        const usable = memory.values().filter(k => k.isUsable(manager.world.now));
-
-        expect(usable.map(k => k.name)).toContain("Recent Fact");
     });
 });
 

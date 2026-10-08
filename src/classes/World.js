@@ -22,14 +22,12 @@
 
 import EventManager from "./EventManager";
 import Logger from "./lib/Logger";
-import Memory from "./lib/Memory";
 import Chat from "./Chat";
 import WorldSetter from "./WorldSetter";
 import XmlEncoder from "./lib/XmlEncoder";
 import { Members } from "../util/member";
 import {
-    SIMULATION_LOCATION_FULL,
-    SIMULATION_TIMEZONE
+    SIMULATION_LOCATION_FULL
 } from "../util/Constants";
 
 /**
@@ -67,12 +65,6 @@ export default class World {
 
         /** @readonly @type {EventManager} */
         this.events = new EventManager(this.logger);
-
-        /** 
-         * Persistent environmental database.
-         * @readonly @type {Memory} 
-         */
-        this.memory = new Memory(this.logger, "World");
 
         /** 
          * The active WorldSetter controller managing 4-hour plans and live data.
@@ -159,17 +151,6 @@ export default class World {
          * @type {string|null}
          */
         this.birthdayCheckDate = null;
-
-        this.#initializeDefaults();
-    }
-
-    /**
-     * Declares baseline environment parameters using centralized constants.
-     * @returns {void}
-     */
-    #initializeDefaults() {
-        this.memory.set("Location", SIMULATION_LOCATION_FULL, -1);
-        this.memory.set("Timezone", SIMULATION_TIMEZONE, -1);
     }
 
     /**
@@ -209,7 +190,7 @@ export default class World {
 
     /**
      * Initializes the World environment, binds participants,
-     * restores memories, starts the 30s heartbeat, and triggers initial schedule planning.
+     * starts the 30s heartbeat, and triggers initial schedule planning.
      *
      * @returns {Promise<void>}
      */
@@ -227,12 +208,6 @@ export default class World {
         this.logger.info("Initializing World state container and participants...");
 
         this.registerMembers();
-
-        try {
-            await this.memory.load();
-        } catch (/** @type {unknown} */ err) {
-            this.logger.warn("Failed to load world memory:", err);
-        }
 
         try {
             await this.chat.init();

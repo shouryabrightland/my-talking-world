@@ -83,7 +83,8 @@ function makeWorld() {
         events: makeEventBus(),
         environment: null,
         activeSchedule: null,
-        User: { memory: { values: () => [] } },
+        User: { id: "me", name: "Player" },
+        unifiedMemory: { getEntriesForMember: () => [], toTextStack: () => "" },
     };
 }
 

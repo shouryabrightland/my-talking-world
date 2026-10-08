@@ -93,8 +93,6 @@ vi.mock("../../src/util/Constants.js", () => ({
     DEFAULT_GEMINI_MODEL: "mock-gemini",
     DEFAULT_CHAT_MODEL: "mock-groq",
     GEMINI_MAX_OUTPUT_TOKENS: 4096,
-    PROMPT_SCHEDULER_TASK: "mock task",
-    PROMPT_SCHEDULER_RULES: ["rule1"],
     PROMPT_DEMAND_TASK: "mock demand task",
     PROMPT_DEMAND_RULES: ["rule1"],
     PROMPT_RESTABILIZER_TASK: "mock restab task",
@@ -122,7 +120,8 @@ function makeMockWorld() {
         date: "Sat Aug 25 2026",
         time: "14:00",
         environment: null,
-        User: { memory: { values() { return []; } } },
+        User: { id: "me", name: "Player" },
+        unifiedMemory: { getEntriesForMember: () => [], toTextStack: () => "" },
         members: new Map(),
         tick() {}
     };

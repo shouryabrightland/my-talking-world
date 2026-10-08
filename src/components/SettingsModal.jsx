@@ -17,11 +17,14 @@ import {
     GEMINI_CONSOLE_KEYS_URL
 } from "../util/Constants";
 import Avatar from "./Avatar";
+import UnifiedMemory from "../classes/lib/UnifiedMemory";
+import MemoryExpiryParser from "../classes/lib/MemoryExpiryParser";
 
 /**
  * @typedef {import("../classes/types/UI.types").ApiKeyVerificationResult} ApiKeyVerificationResult
  * @typedef {import("../classes/ChatMember").default} ChatMember
- * @typedef {"general" | "advanced"} SettingsTab
+ * @typedef {import("../classes/lib/UnifiedMemory").UnifiedMemoryEntry} UnifiedMemoryEntry
+ * @typedef {"general" | "cast" | "memory"} SettingsTab
  */
 
 /**
@@ -53,8 +56,41 @@ function formatLocalDate(str) {
 }
 
 /**
+ * Splits a comma-separated tag string into deduped lowercase tags.
+ * @param {string} raw Raw comma-separated input.
+ * @returns {string[]} Normalized tags.
+ */
+function splitTags(raw) {
+    return [...new Set(String(raw || "").split(",").map(t => t.trim().toLowerCase()).filter(Boolean))];
+}
+
+/**
+ * Renders a UnifiedMemory entry expiry as a short human-readable badge.
+ * @param {string|null|undefined} expiry "forever", "-1", "15m"/"2h"/"7d", or ISO.
+ * @returns {{ permanent: boolean, label: string, cls: string }} Label + CSS class key.
+ */
+function formatUnifiedExpiry(expiry) {
+    const raw = String(expiry || "forever");
+    if (raw === "forever" || raw === "-1") return { permanent: true, label: "♾️ Perm", cls: "foreverTag" };
+
+    const parsed = MemoryExpiryParser.parse(raw);
+    if (!(parsed instanceof Date)) return { permanent: true, label: "♾️ Perm", cls: "foreverTag" };
+
+    const msLeft = parsed.getTime() - Date.now();
+    if (msLeft <= 0) return { permanent: false, label: "⚠️ Exp", cls: "expiredTag" };
+
+    const minsLeft = Math.max(1, Math.round(msLeft / 60000));
+    return {
+        permanent: false,
+        label: `⏱️ ${minsLeft > 60 ? `${Math.round(minsLeft / 60)}h` : `${minsLeft}m`}`,
+        cls: "ttlTag"
+    };
+}
+
+/**
  * Responsive Dual-Key Settings Modal Scalable down to 200px screens.
- * Contains Groq Key Manager, Google AI Studio Key Manager, Audio Mixer, and Memory Manager.
+ * 3 tabs: General & Keys, Cast Profiles (locked AI names + tagged memories),
+ * and the Unified Memory manager (20k budget gauge, search, list, compress).
  *
  * @param {Object} props
  * @param {boolean} props.isOpen
@@ -115,7 +151,7 @@ export default function SettingsModal({ isOpen, onClose }) {
     const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
 
     // =========================================================================
-    // CAST & MEMORY MANAGER STATE
+    // CAST PROFILE STATE (AI names are strictly read-only)
     // =========================================================================
     /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
     const [selectedMemberId, setSelectedMemberId] = useState("me");
@@ -131,18 +167,23 @@ export default function SettingsModal({ isOpen, onClose }) {
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-    /** @type {[{ key: string, value: string, expiryOption: string }, React.Dispatch<React.SetStateAction<{ key: string, value: string, expiryOption: string }>>]} */
-    const [newMemoryForm, setNewMemoryForm] = useState({
-        key: "",
-        value: "",
-        expiryOption: "forever"
-    });
+    // =========================================================================
+    // UNIFIED MEMORY STATE (shared by Cast + Unified Memory tabs)
+    // =========================================================================
+    /** @type {[{ data: string, tags: string, expiryOption: string }, React.Dispatch<React.SetStateAction<{ data: string, tags: string, expiryOption: string }>>]} */
+    const [memoryForm, setMemoryForm] = useState({ data: "", tags: "", expiryOption: "forever" });
 
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [isAddMemoryOpen, setIsAddMemoryOpen] = useState(false);
 
     /** @type {[number, React.Dispatch<React.SetStateAction<number>>]} */
     const [memoryChangeCounter, setMemoryChangeCounter] = useState(0);
+
+    /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
+    const [memorySearch, setMemorySearch] = useState("");
+
+    /** @type {[string|null, React.Dispatch<React.SetStateAction<string|null>>]} */
+    const [compressStatus, setCompressStatus] = useState(/** @type {string|null} */ (null));
 
     const handleToggleSFX = useCallback(() => {
         const state = Sound.toggleSFX();
@@ -224,6 +265,12 @@ export default function SettingsModal({ isOpen, onClose }) {
         }
     }, [conv, onClose]);
 
+    // =========================================================================
+    // UNIFIED MEMORY ACCESS (reference-based; no legacy member.memory)
+    // =========================================================================
+    /** @type {import("../classes/lib/UnifiedMemory").default|null} */
+    const unifiedMemory = conv.unifiedMemory || null;
+
     const allMembers = useMemo(() => {
         return conv.world ? conv.world.getMembers() : [conv.User];
     }, [conv.world, conv.User]);
@@ -242,12 +289,19 @@ export default function SettingsModal({ isOpen, onClose }) {
         });
         setIsEditingProfile(false);
         setIsAddMemoryOpen(false);
+        setMemoryForm({ data: "", tags: "", expiryOption: "forever" });
     }, []);
 
     const handleSaveProfile = useCallback(() => {
         if (!activeSelectedMember) return;
 
-        activeSelectedMember.name = memberForm.name.trim() || activeSelectedMember.name;
+        // AI character names are strictly locked: only the human user may
+        // rename their own display name (messages reference the member object,
+        // so nothing in history is rewritten).
+        if (!activeSelectedMember.isAI) {
+            activeSelectedMember.name = memberForm.name.trim() || activeSelectedMember.name;
+        }
+
         activeSelectedMember.setBirthday(memberForm.birthday);
         activeSelectedMember.about = memberForm.about.trim() || activeSelectedMember.about;
 
@@ -272,47 +326,103 @@ export default function SettingsModal({ isOpen, onClose }) {
         return Math.max(1, age);
     }, [memberForm.birthday]);
 
-    const handleAddMemory = useCallback(async () => {
-        if (!activeSelectedMember || !newMemoryForm.key.trim() || !newMemoryForm.value.trim()) return;
+    /** Memories tagged with the currently selected member. */
+    const memberMemories = useMemo(() => {
+        void memoryChangeCounter;
+        if (!unifiedMemory || !activeSelectedMember) return [];
+        return unifiedMemory.getEntriesForMember(activeSelectedMember.id);
+    }, [unifiedMemory, activeSelectedMember, memoryChangeCounter]);
 
-        /** @type {-1|null|Date} */
-        let expiry = null;
-        const now = Date.now();
+    /** Whole stack (recomputed after every mutation), newest first. */
+    const allUnifiedEntries = useMemo(() => {
+        void memoryChangeCounter;
+        return unifiedMemory ? [...unifiedMemory.entries].reverse() : [];
+    }, [unifiedMemory, memoryChangeCounter]);
 
-        switch (newMemoryForm.expiryOption) {
-            case "forever":
-                expiry = -1;
-                break;
-            case "1h":
-                expiry = new Date(now + 3600 * 1000);
-                break;
-            case "24h":
-                expiry = new Date(now + 24 * 3600 * 1000);
-                break;
-            case "7d":
-                expiry = new Date(now + 7 * 24 * 3600 * 1000);
-                break;
-            case "30d":
-                expiry = new Date(now + 30 * 24 * 3600 * 1000);
-                break;
-            default:
-                expiry = -1;
-        }
+    /** Live text/tag search filter over the whole stack. */
+    const filteredUnifiedEntries = useMemo(() => {
+        const q = memorySearch.trim().toLowerCase();
+        if (!q) return allUnifiedEntries;
+        return allUnifiedEntries.filter(entry =>
+            entry.data.toLowerCase().includes(q) ||
+            entry.tags.some(t => t.includes(q))
+        );
+    }, [allUnifiedEntries, memorySearch]);
 
-        activeSelectedMember.memory.set(newMemoryForm.key.trim(), newMemoryForm.value.trim(), expiry);
-        await activeSelectedMember.saveMemory();
+    /** Current character footprint of the rendered stack. */
+    const unifiedCharCount = useMemo(() => {
+        void memoryChangeCounter;
+        if (!unifiedMemory) return 0;
+        return unifiedMemory.getCharacterCount();
+    }, [unifiedMemory, memoryChangeCounter]);
 
-        setNewMemoryForm({ key: "", value: "", expiryOption: "forever" });
+    const budgetPercent = Math.min(
+        100,
+        Math.round((unifiedCharCount / UnifiedMemory.MAX_CHARACTERS) * 100)
+    );
+
+    const handleAddMemberMemory = useCallback(async () => {
+        if (!unifiedMemory || !activeSelectedMember) return;
+        const data = memoryForm.data.trim();
+        if (!data) return;
+
+        await unifiedMemory.add({
+            tags: [activeSelectedMember.id],
+            data,
+            expiry: memoryForm.expiryOption
+        });
+
+        setMemoryForm({ data: "", tags: "", expiryOption: "forever" });
         setIsAddMemoryOpen(false);
         setMemoryChangeCounter(c => c + 1);
-    }, [activeSelectedMember, newMemoryForm]);
+    }, [unifiedMemory, activeSelectedMember, memoryForm]);
 
-    const handleDeleteMemory = useCallback(async (/** @type {string} */ keyName) => {
-        if (!activeSelectedMember) return;
-        activeSelectedMember.memory.delete(keyName);
-        await activeSelectedMember.saveMemory();
+    const handleAddUnifiedMemory = useCallback(async () => {
+        if (!unifiedMemory) return;
+        const data = memoryForm.data.trim();
+        if (!data) return;
+
+        await unifiedMemory.add({
+            tags: splitTags(memoryForm.tags),
+            data,
+            expiry: memoryForm.expiryOption
+        });
+
+        setMemoryForm({ data: "", tags: "", expiryOption: "forever" });
         setMemoryChangeCounter(c => c + 1);
-    }, [activeSelectedMember]);
+    }, [unifiedMemory, memoryForm]);
+
+    const handleDeleteEntry = useCallback(async (/** @type {string} */ entryId) => {
+        if (!unifiedMemory) return;
+        await unifiedMemory.remove(entryId);
+        setMemoryChangeCounter(c => c + 1);
+    }, [unifiedMemory]);
+
+    const handleCompressStack = useCallback(async () => {
+        if (!unifiedMemory || unifiedMemory.isCompressing) return;
+
+        setCompressStatus("running");
+        try {
+            const result = await conv.compressUnifiedMemory();
+            setCompressStatus(
+                result === "compressed" ? "compressed"
+                    : result === "skipped" ? "skipped"
+                        : "failed"
+            );
+        } catch (/** @type {unknown} */ err) {
+            console.error("[Settings] Unified memory compression failed:", err);
+            setCompressStatus("failed");
+        } finally {
+            setMemoryChangeCounter(c => c + 1);
+        }
+    }, [conv, unifiedMemory]);
+
+    const compressStatusText = {
+        running: "🗜️ Compressing stack with Gemma… (watch the Background Bar)",
+        compressed: "✅ Stack compressed successfully.",
+        skipped: "ℹ️ Under the 20,000-char budget (or a pass is already running) — nothing to compress.",
+        failed: "❌ Compression failed — the original stack is untouched."
+    }[compressStatus || ""] || null;
 
     const currentGroqKey = getApiKey();
     const maskedGroqPreview = currentGroqKey.length > 8
@@ -324,11 +434,37 @@ export default function SettingsModal({ isOpen, onClose }) {
         ? `${currentGeminiKey.slice(0, 5)}••••${currentGeminiKey.slice(-3)}`
         : "No Key Saved";
 
-    const memberMemories = useMemo(() => {
-        if (!activeSelectedMember) return [];
-        void memoryChangeCounter;
-        return activeSelectedMember.memory.values();
-    }, [activeSelectedMember, memoryChangeCounter]);
+    /**
+     * Renders one UnifiedMemory entry as a list row (tag chips + data + meta).
+     * @param {UnifiedMemoryEntry} entry
+     * @param {React.ReactNode} [suffix] Optional trailing control (e.g. delete).
+     * @returns {React.JSX.Element}
+     */
+    const renderUnifiedEntry = (entry, suffix) => {
+        const expiry = formatUnifiedExpiry(entry.expiry);
+
+        return (
+            <div key={entry.id} className={styles.memoryFactItem}>
+                <div className={styles.unifiedItemBody}>
+                    {entry.tags.length > 0 && (
+                        <div className={styles.tagChipRow}>
+                            {entry.tags.map(tag => (
+                                <span key={tag} className={styles.tagChip}>{tag}</span>
+                            ))}
+                        </div>
+                    )}
+                    <span className={styles.memoryValueText}>{entry.data}</span>
+                    <div className={styles.unifiedItemMeta}>
+                        <span className={styles.memoryTimestamp}>🕒 {entry.datetime}</span>
+                        <span className={styles[expiry.cls]}>
+                            {expiry.label}
+                        </span>
+                    </div>
+                </div>
+                {suffix}
+            </div>
+        );
+    };
 
     return (
         <div className={`${styles.modalOverlay} ${isOpen ? styles.modalOverlayVisible : ""}`} onClick={onClose}>
@@ -356,20 +492,28 @@ export default function SettingsModal({ isOpen, onClose }) {
                     </button>
                     <button
                         onClick={() => {
-                            setActiveTab("advanced");
+                            setActiveTab("cast");
                             handleSelectMember(activeSelectedMember);
                         }}
-                        className={activeTab === "advanced" ? styles.tabActive : styles.tab}
+                        className={activeTab === "cast" ? styles.tabActive : styles.tab}
                     >
-                        <span className={styles.tabIcon}>🔬</span>
-                        <span className={styles.tabLabelFull}>Cast & Memories</span>
+                        <span className={styles.tabIcon}>🎭</span>
+                        <span className={styles.tabLabelFull}>Cast Profiles</span>
                         <span className={styles.tabLabelShort}>Cast</span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("memory")}
+                        className={activeTab === "memory" ? styles.tabActive : styles.tab}
+                    >
+                        <span className={styles.tabIcon}>🧠</span>
+                        <span className={styles.tabLabelFull}>Unified Memory</span>
+                        <span className={styles.tabLabelShort}>Memory</span>
                     </button>
                 </div>
 
                 {/* Fluid Scrollable Body */}
                 <div className={styles.modalBody}>
-                    {activeTab === "general" ? (
+                    {activeTab === "general" && (
                         <>
                             {/* 1. Theme & Sound */}
                             <div className={styles.section}>
@@ -606,8 +750,9 @@ export default function SettingsModal({ isOpen, onClose }) {
                                 </div>
                             </div>
                         </>
-                    ) : (
-                        /* Cast & Memory Manager Tab */
+                    )}
+
+                    {activeTab === "cast" && (
                         <div className={styles.advancedContainer}>
                             <div className={styles.memberSelectorTrack}>
                                 {allMembers.map(m => (
@@ -616,7 +761,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         onClick={() => handleSelectMember(m)}
                                         className={selectedMemberId === m.id ? styles.memberSelectBtnActive : styles.memberSelectBtn}
                                     >
-                                        {m.id === "me" ? "👤 Me (You)" : m.name}
+                                        {m.isAI ? m.name : "👤 Me (You)"}
                                     </button>
                                 ))}
                             </div>
@@ -634,6 +779,15 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         <div className={styles.memberTextGroup}>
                                             <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
                                                 <span className={styles.memberName}>{activeSelectedMember.name}</span>
+                                                {activeSelectedMember.isAI ? (
+                                                    <span className={styles.lockBadge} title="AI character names are read-only">
+                                                        🔒 Locked
+                                                    </span>
+                                                ) : (
+                                                    <span className={styles.editableBadge} title="You can rename your own display name">
+                                                        ✏️ Editable
+                                                    </span>
+                                                )}
                                                 <span className={styles.ageBadge}>
                                                     🎂 {activeSelectedMember.age}y
                                                 </span>
@@ -664,12 +818,25 @@ export default function SettingsModal({ isOpen, onClose }) {
 
                                 {isEditingProfile ? (
                                     <div className={styles.memberEditForm}>
-                                        <label className={styles.formLabel}>Display Name:</label>
+                                        <label className={styles.formLabel}>
+                                            Display Name: {activeSelectedMember.isAI && "🔒 (locked for AI characters)"}
+                                        </label>
                                         <input
                                             value={memberForm.name}
                                             onChange={(e) => setMemberForm(prev => ({ ...prev, name: e.target.value }))}
                                             className={styles.formInput}
+                                            disabled={activeSelectedMember.isAI}
+                                            readOnly={activeSelectedMember.isAI}
                                         />
+                                        {activeSelectedMember.isAI ? (
+                                            <span className={styles.lockedHintText}>
+                                                🔒 AI character names are strictly read-only so the cast stays consistent.
+                                            </span>
+                                        ) : (
+                                            <span className={styles.lockedHintText}>
+                                                Your display name updates everywhere instantly — chat history is never rewritten.
+                                            </span>
+                                        )}
 
                                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "6px", flexWrap: "wrap" }}>
                                             <div style={{ flex: "1 1 120px" }}>
@@ -727,12 +894,12 @@ export default function SettingsModal({ isOpen, onClose }) {
                                 )}
                             </div>
 
-                            {/* Dynamic Memory Manager Section */}
+                            {/* UnifiedMemory entries tagged for the selected member */}
                             <div className={styles.memoryManagerSection}>
                                 <div className={styles.memoryHeaderRow}>
                                     <div>
-                                        <span className={styles.sectionTitle}>🧠 Dynamic Memories & States</span>
-                                        <span className={styles.memoryCountBadge}>{memberMemories.length} Facts & States</span>
+                                        <span className={styles.sectionTitle}>🧠 Memories Tagged for {activeSelectedMember.name}</span>
+                                        <span className={styles.memoryCountBadge}>{memberMemories.length} Entries</span>
                                     </div>
                                     <button
                                         onClick={() => setIsAddMemoryOpen(prev => !prev)}
@@ -744,29 +911,22 @@ export default function SettingsModal({ isOpen, onClose }) {
 
                                 {isAddMemoryOpen && (
                                     <div className={styles.addMemoryForm}>
-                                        <label className={styles.formLabel}>Memory Key (e.g. Reminder, Current Spot, Secret):</label>
-                                        <input
-                                            placeholder="e.g. Active Reminder, Hidden Thought"
-                                            value={newMemoryForm.key}
-                                            onChange={(e) => setNewMemoryForm(prev => ({ ...prev, key: e.target.value }))}
-                                            className={styles.formInput}
-                                        />
-
                                         <label className={styles.formLabel}>Memory Content:</label>
                                         <input
                                             placeholder="e.g. Check on the project in 20m"
-                                            value={newMemoryForm.value}
-                                            onChange={(e) => setNewMemoryForm(prev => ({ ...prev, value: e.target.value }))}
+                                            value={memoryForm.data}
+                                            onChange={(e) => setMemoryForm(prev => ({ ...prev, data: e.target.value }))}
                                             className={styles.formInput}
                                         />
 
                                         <label className={styles.formLabel}>Expiration TTL:</label>
                                         <select
-                                            value={newMemoryForm.expiryOption}
-                                            onChange={(e) => setNewMemoryForm(prev => ({ ...prev, expiryOption: e.target.value }))}
+                                            value={memoryForm.expiryOption}
+                                            onChange={(e) => setMemoryForm(prev => ({ ...prev, expiryOption: e.target.value }))}
                                             className={styles.formSelect}
                                         >
                                             <option value="forever">Permanent (Never expires)</option>
+                                            <option value="15m">15 Minutes (Short session)</option>
                                             <option value="1h">1 Hour (Short session)</option>
                                             <option value="24h">24 Hours (Today)</option>
                                             <option value="7d">7 Days (Week)</option>
@@ -774,7 +934,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         </select>
 
                                         <div className={styles.editBtnRow}>
-                                            <button onClick={handleAddMemory} className={styles.saveBtn}>
+                                            <button onClick={handleAddMemberMemory} className={styles.saveBtn}>
                                                 Save to Brain 🧠
                                             </button>
                                         </div>
@@ -784,47 +944,165 @@ export default function SettingsModal({ isOpen, onClose }) {
                                 <div className={styles.memoryList}>
                                     {memberMemories.length === 0 ? (
                                         <div className={styles.emptyMemoryBox}>
-                                            <span>No dynamic memories stored. The model will autonomously save states during conversation, or you can add them above.</span>
+                                            <span>No memories tagged for this member yet. The SituationEngine saves them automatically, or you can add them above.</span>
                                         </div>
                                     ) : (
-                                        memberMemories.map(memKey => {
-                                            const isForever = memKey.isForever();
-                                            const isUsable = memKey.isUsable();
-                                            let expiryBadge = "Permanent";
-
-                                            if (memKey.expiry instanceof Date) {
-                                                const msLeft = memKey.expiry.getTime() - Date.now();
-                                                const minsLeft = Math.max(1, Math.round(msLeft / (60 * 1000)));
-                                                expiryBadge = minsLeft > 60
-                                                    ? `${Math.round(minsLeft / 60)}h`
-                                                    : `${minsLeft}m`;
-                                            }
-
-                                            return (
-                                                <div key={memKey.name} className={styles.memoryFactItem}>
-                                                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1, minWidth: 0 }}>
-                                                        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
-                                                            <span className={styles.memoryKeyTitle}>{memKey.name}</span>
-                                                            <span className={isForever ? styles.foreverTag : (isUsable ? styles.ttlTag : styles.expiredTag)}>
-                                                                {isForever ? "♾️ Perm" : (isUsable ? `⏱️ ${expiryBadge}` : "⚠️ Exp")}
-                                                            </span>
-                                                        </div>
-                                                        <span className={styles.memoryValueText}>
-                                                            {Array.isArray(memKey.value) ? memKey.value.join(", ") : String(memKey.value)}
+                                        memberMemories.map(entry => (
+                                            <div key={entry.id} className={styles.memoryFactItem}>
+                                                <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                                                        <span className={styles.memoryKeyTitle}>
+                                                            {entry.tags.filter(t => t !== activeSelectedMember.id).join(", ") || "Memory"}
+                                                        </span>
+                                                        <span className={styles[formatUnifiedExpiry(entry.expiry).cls]}>
+                                                            {formatUnifiedExpiry(entry.expiry).label}
                                                         </span>
                                                     </div>
-
-                                                    <button
-                                                        onClick={() => handleDeleteMemory(memKey.name)}
-                                                        className={styles.deleteMemoryBtn}
-                                                        title="Delete memory"
-                                                        aria-label="Delete memory"
-                                                    >
-                                                        🗑️
-                                                    </button>
+                                                    <span className={styles.memoryValueText}>{entry.data}</span>
                                                 </div>
-                                            );
-                                        })
+
+                                                <button
+                                                    onClick={() => handleDeleteEntry(entry.id)}
+                                                    className={styles.deleteMemoryBtn}
+                                                    title="Delete memory"
+                                                    aria-label="Delete memory"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === "memory" && (
+                        <div className={styles.advancedContainer}>
+                            {/* 20,000-char budget gauge */}
+                            <div className={styles.section}>
+                                <div className={styles.sectionHeaderRow}>
+                                    <h5 className={styles.sectionTitle}>📊 Unified Memory Budget</h5>
+                                    <span className={styles.keyPreviewTag}>
+                                        {unifiedCharCount.toLocaleString()} / {UnifiedMemory.MAX_CHARACTERS.toLocaleString()} chars
+                                    </span>
+                                </div>
+                                <div
+                                    className={styles.gaugeTrack}
+                                    role="progressbar"
+                                    aria-valuenow={budgetPercent}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-label="Unified memory budget usage"
+                                >
+                                    <div
+                                        className={`${styles.gaugeFill} ${budgetPercent > 90
+                                            ? styles.gaugeFillDanger
+                                            : budgetPercent > 70
+                                                ? styles.gaugeFillWarn
+                                                : ""}`}
+                                        style={{ width: `${budgetPercent}%` }}
+                                    />
+                                </div>
+                                <div className={styles.gaugeMetaRow}>
+                                    <span className={styles.gaugeMetaText}>
+                                        {budgetPercent}% used • {allUnifiedEntries.length} entries stored
+                                    </span>
+                                    <button
+                                        onClick={handleCompressStack}
+                                        disabled={Boolean(unifiedMemory?.isCompressing) || compressStatus === "running"}
+                                        className={styles.compressBtn}
+                                        title="Compress the stack with Gemma once it exceeds the 20,000-char budget"
+                                    >
+                                        {compressStatus === "running" ? "🗜️ Compressing…" : "🗜️ Compress Stack"}
+                                    </button>
+                                </div>
+                                {compressStatusText && (
+                                    <span className={styles.compressStatusText}>{compressStatusText}</span>
+                                )}
+                            </div>
+
+                            {/* Manual add-memory form */}
+                            <div className={styles.section}>
+                                <div className={styles.sectionHeaderRow}>
+                                    <h5 className={styles.sectionTitle}>➕ Add Memory Manually</h5>
+                                </div>
+                                <label className={styles.formLabel}>Memory Content:</label>
+                                <input
+                                    placeholder="e.g. Tom promised chai at the Gomti Nagar stall"
+                                    value={memoryForm.data}
+                                    onChange={(e) => setMemoryForm(prev => ({ ...prev, data: e.target.value }))}
+                                    className={styles.formInput}
+                                />
+                                <label className={styles.formLabel}>Tags (comma-separated):</label>
+                                <input
+                                    placeholder="e.g. tom, chai, promise"
+                                    value={memoryForm.tags}
+                                    onChange={(e) => setMemoryForm(prev => ({ ...prev, tags: e.target.value }))}
+                                    className={styles.formInput}
+                                />
+                                <label className={styles.formLabel}>Expiration TTL:</label>
+                                <select
+                                    value={memoryForm.expiryOption}
+                                    onChange={(e) => setMemoryForm(prev => ({ ...prev, expiryOption: e.target.value }))}
+                                    className={styles.formSelect}
+                                >
+                                    <option value="forever">Permanent (Never expires)</option>
+                                    <option value="15m">15 Minutes (Short session)</option>
+                                    <option value="1h">1 Hour (Short session)</option>
+                                    <option value="24h">24 Hours (Today)</option>
+                                    <option value="7d">7 Days (Week)</option>
+                                    <option value="30d">30 Days (Month)</option>
+                                </select>
+                                <div className={styles.editBtnRow}>
+                                    <button onClick={handleAddUnifiedMemory} className={styles.saveBtn}>
+                                        Add to Stack 🧠
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Live text/tag search */}
+                            <div className={styles.section}>
+                                <h5 className={styles.sectionTitle}>🔍 Search (text or tags)</h5>
+                                <input
+                                    placeholder="e.g. chai, tom, drone..."
+                                    value={memorySearch}
+                                    onChange={(e) => setMemorySearch(e.target.value)}
+                                    className={styles.formInput}
+                                />
+                            </div>
+
+                            {/* Full memory list */}
+                            <div className={styles.memoryManagerSection}>
+                                <div className={styles.memoryHeaderRow}>
+                                    <span className={styles.sectionTitle}>🗂️ All Memory Items</span>
+                                    <span className={styles.memoryCountBadge}>
+                                        {filteredUnifiedEntries.length} / {allUnifiedEntries.length} shown
+                                    </span>
+                                </div>
+                                <div className={styles.memoryListWide}>
+                                    {filteredUnifiedEntries.length === 0 ? (
+                                        <div className={styles.emptyMemoryBox}>
+                                            <span>
+                                                {allUnifiedEntries.length === 0
+                                                    ? "The unified memory stack is empty. Add memories above or let the SituationEngine extract them."
+                                                    : "No entries match this search."}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        filteredUnifiedEntries.map(entry => (
+                                            renderUnifiedEntry(
+                                                entry,
+                                                <button
+                                                    onClick={() => handleDeleteEntry(entry.id)}
+                                                    className={styles.deleteMemoryBtn}
+                                                    title="Delete memory"
+                                                    aria-label="Delete memory"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            )
+                                        ))
                                     )}
                                 </div>
                             </div>

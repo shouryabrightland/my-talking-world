@@ -8,8 +8,6 @@
 /** @typedef {import("./PromptBuilder").default} PromptBuilder */
 /** @typedef {import("./types/Protocol.types").ProtocolRecord} ProtocolRecord */
 /** @typedef {import("./types/Protocol.types").MessageProtocolRecord} MessageProtocolRecord */
-/** @typedef {import("./types/Protocol.types").MemorySetProtocolRecord} MemorySetProtocolRecord */
-/** @typedef {import("./types/Protocol.types").MemoryRemoveProtocolRecord} MemoryRemoveProtocolRecord */
 /** @typedef {import("./ChatMember").default} ChatMember */
 
 import Chat, { ChatEvents } from "./Chat";
@@ -26,7 +24,6 @@ import UnifiedMemory from "./lib/UnifiedMemory";
 import NeedleRouter from "./lib/NeedleRouter";
 import SituationEngine from "./SituationEngine";
 import World, { WorldEvents } from "./World";
-import MemoryExpiryParser from "./lib/MemoryExpiryParser";
 import UserInterruptHandler from "./lib/UserInterruptHandler";
 import { Members } from "../util/member";
 import { AmbientAudio } from "../util/sound";
@@ -38,7 +35,9 @@ export const ConversationEvents = {
     SCHEDULE_SYNC: "conversation:schedule:sync",
     DIRECTOR_EVENT: "conversation:director:event",
     DIRECTOR_RESPONSE_START: "conversation:director:response:start",
-    MEMORY_UPDATE: "conversation:memory:update",
+    MEMORY_COMPRESS_START: "conversation:memory:compress:start",
+    MEMORY_COMPRESS_DONE: "conversation:memory:compress:done",
+    MEMORY_COMPRESS_ERROR: "conversation:memory:compress:error",
     LOGOUT: "conversation:logout"
 };
 
@@ -627,8 +626,6 @@ export default class ConversationManager {
     handleProtocolRecord(protocol) {
         switch (protocol.recordType) {
             case "message": this.handleMessage(protocol); break;
-            case "memory-set": this.handleMemorySet(protocol); break;
-            case "memory-remove": this.handleMemoryRemove(protocol); break;
             default: break;
         }
     }
@@ -694,34 +691,44 @@ export default class ConversationManager {
     }
 
     /**
-     * @param {MemorySetProtocolRecord} protocol
-     * @returns {void}
+     * Manually runs the UnifiedMemory Gemma compression pass (Settings →
+     * Unified Memory → "Compress Stack") and reports its lifecycle on the
+     * conversation event bus so the Background Bar can visualize progress.
+     *
+     * @returns {Promise<"compressed"|"skipped"|"error"|"busy">} Outcome.
      */
-    handleMemorySet(protocol) {
-        const targetMember = this.chat.getMember(protocol.member) || this.User;
-        if (!targetMember) return;
+    async compressUnifiedMemory() {
+        const memory = this.unifiedMemory;
+        if (!memory || memory.isCompressing) return "busy";
 
-        const expiryDate = MemoryExpiryParser.parse(protocol.expiry);
-        targetMember.memory.set(protocol.key, protocol.value, expiryDate);
-        void targetMember.saveMemory();
+        this.events.emit(ConversationEvents.MEMORY_COMPRESS_START, {
+            characterCount: memory.getCharacterCount(),
+            entryCount: memory.entries.length
+        });
 
-        this.logger.info(`[Dynamic Memory Set] Saved fact for ${targetMember.name}: "${protocol.key}" -> "${protocol.value}" (Expiry: ${protocol.expiry})`);
-        this.events.emit(ConversationEvents.MEMORY_UPDATE, { memberId: targetMember.id, key: protocol.key, action: "set" });
-    }
+        const gemmaClient = this.world?.worldSetter?.geminiClient || null;
+        if (!gemmaClient) {
+            this.events.emit(ConversationEvents.MEMORY_COMPRESS_ERROR, {
+                message: "Gemini client unavailable — start a session first."
+            });
+            return "error";
+        }
 
-    /**
-     * @param {MemoryRemoveProtocolRecord} protocol
-     * @returns {void}
-     */
-    handleMemoryRemove(protocol) {
-        const targetMember = this.chat.getMember(protocol.member) || this.User;
-        if (!targetMember) return;
-
-        targetMember.memory.delete(protocol.key);
-        void targetMember.saveMemory();
-
-        this.logger.info(`[Memory Remove] Deleted fact for ${targetMember.name}: "${protocol.key}"`);
-        this.events.emit(ConversationEvents.MEMORY_UPDATE, { memberId: targetMember.id, key: protocol.key, action: "remove" });
+        try {
+            const compressed = await memory.compressIfExceeded(gemmaClient);
+            this.events.emit(ConversationEvents.MEMORY_COMPRESS_DONE, {
+                compressed,
+                entryCount: memory.entries.length,
+                characterCount: memory.getCharacterCount()
+            });
+            return compressed ? "compressed" : "skipped";
+        } catch (/** @type {unknown} */ err) {
+            this.logger.error("Unified memory compression failed:", err);
+            this.events.emit(ConversationEvents.MEMORY_COMPRESS_ERROR, {
+                message: err instanceof Error ? err.message : String(err)
+            });
+            return "error";
+        }
     }
 
     scheduleNextRequest() {
@@ -845,9 +852,9 @@ export default class ConversationManager {
             member.resetState();
             if (member.isAI) {
                 try {
+                    // Purge legacy per-member memory rows (old keyed-memory arch).
                     await memoriesStorage.removeItem(`memory:${member.id}`);
                     await memoriesStorage.removeItem(`state:${member.id}`);
-                    member.memory.clear();
                     member.stateMemory.clear();
                 } catch (/** @type {unknown} */ err) {
                     this.logger.warn(`Failed to purge memory for ${member.id}:`, err);

@@ -3,8 +3,6 @@
 /** @typedef {import("./lib/Logger").default} Logger */
 /** @typedef {import("./types/Protocol.types").ProtocolRecord} ProtocolRecord */
 /** @typedef {import("./types/Protocol.types").MessageProtocolRecord} MessageProtocolRecord */
-/** @typedef {import("./types/Protocol.types").MemorySetProtocolRecord} MemorySetProtocolRecord */
-/** @typedef {import("./types/Protocol.types").MemoryRemoveProtocolRecord} MemoryRemoveProtocolRecord */
 
 /**
  * Hardened XML Tag Protocol Codec for Streaming & Reasoning Models.
@@ -118,16 +116,6 @@ export default class ProtocolCodec {
                     if (record) results.push(record);
                     break;
                 }
-                case "memory-set": {
-                    const record = this.#parseMemorySetTag(attributes, innerContent);
-                    if (record) results.push(record);
-                    break;
-                }
-                case "memory-remove": {
-                    const record = this.#parseMemoryRemoveTag(attributes, innerContent);
-                    if (record) results.push(record);
-                    break;
-                }
                 default:
                     this.logger.warn(`Ignored unrecognized <record type="${recordType}"> tag.`);
                     break;
@@ -143,16 +131,6 @@ export default class ProtocolCodec {
             switch (recordType) {
                 case "message": {
                     const record = this.#parseMessageTag(attributes, "");
-                    if (record) results.push(record);
-                    break;
-                }
-                case "memory-set": {
-                    const record = this.#parseMemorySetTag(attributes, "");
-                    if (record) results.push(record);
-                    break;
-                }
-                case "memory-remove": {
-                    const record = this.#parseMemoryRemoveTag(attributes, "");
                     if (record) results.push(record);
                     break;
                 }
@@ -245,57 +223,6 @@ export default class ProtocolCodec {
     }
 
     /**
-     * Parses `<record type="memory-set">` tag supporting flexible dynamic TTL expiries.
-     *
-     * @param {Record<string, string>} attributes
-     * @param {string} content
-     * @returns {MemorySetProtocolRecord|null}
-     */
-    #parseMemorySetTag(attributes, content) {
-        const member = (attributes.member || attributes.sender || "me").toLowerCase().trim();
-        const key = this.#extractTagContent(content, "key") || attributes.key;
-
-        if (!key) {
-            this.logger.warn("<record type='memory-set'> missing required <key> content.");
-            return null;
-        }
-
-        const rawValue = this.#extractTagContent(content, "value") || attributes.value;
-        const expiry = attributes.expiry || this.#extractTagContent(content, "expiry") || "forever";
-
-        return {
-            recordType: "memory-set",
-            member,
-            key,
-            value: this._parseValue(rawValue),
-            expiry: this._parseExpiry(expiry)
-        };
-    }
-
-    /**
-     * Parses `<record type="memory-remove">` tag.
-     *
-     * @param {Record<string, string>} attributes
-     * @param {string} content
-     * @returns {MemoryRemoveProtocolRecord|null}
-     */
-    #parseMemoryRemoveTag(attributes, content) {
-        const member = (attributes.member || attributes.sender || "me").toLowerCase().trim();
-        const key = this.#extractTagContent(content, "key") || attributes.key;
-
-        if (!key) {
-            this.logger.warn("<record type='memory-remove'> missing required <key> content.");
-            return null;
-        }
-
-        return {
-            recordType: "memory-remove",
-            member,
-            key
-        };
-    }
-
-    /**
      * @param {string} str
      * @returns {string}
      */
@@ -338,33 +265,4 @@ export default class ProtocolCodec {
         return trimmed;
     }
 
-    /**
-     * @param {string|null|undefined} value
-     * @returns {any}
-     */
-    _parseValue(value) {
-        if (value === undefined || value === null) return null;
-        const trimmed = value.trim();
-        if (trimmed === "" || trimmed.toLowerCase() === "null") return null;
-        if (trimmed.toLowerCase() === "undefined") return undefined;
-
-        try {
-            return JSON.parse(trimmed);
-        } catch {
-            return trimmed;
-        }
-    }
-
-    /**
-     * @param {string|null|undefined} value
-     * @returns {string|null}
-     */
-    _parseExpiry(value) {
-        if (value === undefined || value === null) return null;
-        const trimmed = value.trim();
-        if (!trimmed || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "notset") {
-            return null;
-        }
-        return trimmed;
-    }
 }

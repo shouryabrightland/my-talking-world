@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Logger from "../classes/lib/Logger";
 import PromptLogger from "../classes/lib/PromptLogger";
+import MemoryExpiryParser from "../classes/lib/MemoryExpiryParser";
 import { useChat } from "./ChatContext";
 import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
 
@@ -69,17 +70,8 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
  * }} chatEngine Engine metrics.
  * @property {ModelPoolState} groqModelPool Snapshot of conv.client.modelPool.
  * @property {ModelPoolState} geminiModelPool Snapshot of conv.world.worldSetter.modelPool.
- * @property {DevToolsUnifiedMemoryState} unifiedMemory Tier-3 episodic stack snapshot.
  * @property {DevToolsSituationEngineState} situationEngine Tier-2 situation distiller snapshot.
  * @property {DevToolsNeedleRouterState} needleRouter Tier-3 Needle query router snapshot.
- */
-
-/**
- * @typedef {Object} DevToolsUnifiedMemoryState
- * @property {number} totalEntries Number of stored episodic entries.
- * @property {number} characterCount Current rendered character footprint.
- * @property {number} maxCharacters Hard 20,000-char budget.
- * @property {Array<{ id: string, datetime: string, tags: string, data: string, expiry: string }>} entries Most recent 10 entries.
  */
 
 /**
@@ -116,18 +108,21 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
 const STORAGE_DEVTOOLS_ENABLED_KEY = "tgf:devtools:enabled";
 
 /**
- * Formats memory expiry time safely into a readable label.
- * @param {Date | unknown} expiry
+ * Formats a UnifiedMemory TTL directive ("forever", "1h", ISO…) into a label.
+ * @param {string|Date|null|-1} expiry
  * @returns {string}
  */
 function formatMemoryExpiry(expiry) {
-    if (expiry instanceof Date) {
-        const msLeft = expiry.getTime() - Date.now();
-        if (msLeft <= 0) return "Expired";
-        const minsLeft = Math.max(1, Math.round(msLeft / (60 * 1000)));
-        return minsLeft > 60 ? `${Math.round(minsLeft / 60)}h left` : `${minsLeft}m left`;
-    }
-    return "Permanent";
+    // UnifiedMemory entries store TTL directives ("forever", "1h", ISO...).
+    if (!expiry || expiry === "forever" || expiry === "-1") return "Permanent";
+
+    const parsed = MemoryExpiryParser.parse(expiry);
+    if (!(parsed instanceof Date)) return "Permanent";
+
+    const msLeft = parsed.getTime() - Date.now();
+    if (msLeft <= 0) return "Expired";
+    const minsLeft = Math.max(1, Math.round(msLeft / (60 * 1000)));
+    return minsLeft > 60 ? `${Math.round(minsLeft / 60)}h left` : `${minsLeft}m left`;
 }
 
 /**
@@ -177,19 +172,13 @@ function extractSystemState(conv) {
         } : null,
         environment: env || null,
         characters: membersList.map((m) => {
-            // Safely iterate memories (m.memory may be a Map or custom container)
+            // Reference-based query: UnifiedMemory entries tagged with this member id.
             /** @type {Array<{key: string, value: string, expiry: string}>} */
-            let usableMemories = [];
-            if (m?.memory?.values) {
-                const memEntries = Array.from(m.memory.values());
-                usableMemories = memEntries
-                    .filter((k) => typeof k?.isUsable === "function" ? k.isUsable() : true)
-                    .map((k) => ({
-                        key: String(k?.name || "unnamed"),
-                        value: Array.isArray(k?.value) ? k.value.join(", ") : String(k?.value ?? ""),
-                        expiry: formatMemoryExpiry(k?.expiry)
-                    }));
-            }
+            const memberMemories = (conv.unifiedMemory?.getEntriesForMember(m.id) || []).map((entry) => ({
+                key: entry.tags.filter((t) => t !== String(m.id).toLowerCase()).join(", ") || "memory",
+                value: entry.data,
+                expiry: formatMemoryExpiry(entry.expiry)
+            }));
 
             return {
                 id: m.id,
@@ -203,7 +192,7 @@ function extractSystemState(conv) {
                     isThinking: Boolean(m.isThinking),
                     isActive: Boolean(m.isActive)
                 },
-                memories: usableMemories
+                memories: memberMemories
             };
         }),
         chatEngine: {
@@ -222,18 +211,6 @@ function extractSystemState(conv) {
         geminiModelPool: {
             activeModel: conv.world?.worldSetter?.modelPool?.getActiveModelSync?.() || null,
             models: extractModelPool(conv.world?.worldSetter?.modelPool)
-        },
-        unifiedMemory: {
-            totalEntries: conv.unifiedMemory?.entries?.length || 0,
-            characterCount: conv.unifiedMemory?.getCharacterCount?.() || 0,
-            maxCharacters: 20000,
-            entries: (conv.unifiedMemory?.entries || []).slice(-10).map((e) => ({
-                id: e.id,
-                datetime: e.datetime,
-                tags: e.tags.join(", "),
-                data: e.data,
-                expiry: e.expiry || "forever"
-            }))
         },
         situationEngine: {
             situationText: conv.situationEngine?.situationText || "Not loaded",

@@ -939,6 +939,159 @@
     }
 }
 
+/* =====================================================================
+   CAST PROFILE LOCK BADGES
+   ===================================================================== */
+
+.lockBadge,
+.editableBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10.5px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.lockBadge {
+    color: var(--warning, #f59e0b);
+    background-color: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.editableBadge {
+    color: var(--success);
+    background-color: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.lockedHintText {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+    line-height: 1.45;
+}
+
+/* =====================================================================
+   UNIFIED MEMORY TAB (budget gauge / search / tag chips / compress)
+   ===================================================================== */
+
+.gaugeTrack {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.gaugeFill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--primary-gradient);
+    transition: width 0.25s ease;
+}
+
+.gaugeFillWarn {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.gaugeFillDanger {
+    background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.gaugeMetaRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.gaugeMetaText {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.compressBtn {
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--primary);
+    background-color: var(--primary-light);
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.compressBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.compressStatusText {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.tagChipRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.tagChip {
+    font-size: 10.5px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    text-transform: lowercase;
+    white-space: nowrap;
+}
+
+.unifiedItemBody {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.unifiedItemMeta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.memoryTimestamp {
+    font-size: 10.5px;
+    font-family: monospace;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+}
+
+.memoryListWide {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
 @media (max-width: 220px) {
     .modalCard {
         padding: 12px;

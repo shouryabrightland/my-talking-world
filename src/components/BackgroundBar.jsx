@@ -329,6 +329,74 @@ export default function BackgroundBar() {
         };
     }, [conversationEvents]);
 
+    // ── Unified Memory Compression Lifecycle (Settings → Compress Stack) ──
+    // ConversationManager.compressUnifiedMemory() reports START/DONE/ERROR on
+    // the event bus; surface the pass as a live Background Bar notification.
+    useEffect(() => {
+        if (!conversationEvents || typeof conversationEvents.on !== "function") return;
+
+        /** @type {string|null} */
+        let compressNotifId = null;
+
+        const offStart = conversationEvents.on(
+            ConversationEvents.MEMORY_COMPRESS_START,
+            (/** @type {{characterCount?: number, entryCount?: number}} */ data) => {
+                compressNotifId = ctxRef.current.addNotification(
+                    "stream",
+                    "🗜️ Compressing unified memory...",
+                    {
+                        id: "unified-memory-compress",
+                        details: `${data?.entryCount ?? 0} entries • ${data?.characterCount ?? 0}/20,000 chars`,
+                        dismissable: false
+                    }
+                );
+                ctxRef.current.updateNotification(compressNotifId, {
+                    phase: "Gemma is condensing the memory stack..."
+                });
+            },
+            "BackgroundBar: memory compress start"
+        );
+
+        const offDone = conversationEvents.on(
+            ConversationEvents.MEMORY_COMPRESS_DONE,
+            (/** @type {{compressed?: boolean, entryCount?: number, characterCount?: number}} */ data) => {
+                const id = compressNotifId || "unified-memory-compress";
+                compressNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: data?.compressed
+                        ? `✅ Memory stack compressed to ${data.entryCount} entries`
+                        : "ℹ️ Memory stack is under the 20,000-char budget",
+                    phase: data?.compressed
+                        ? `${data.characterCount} chars remaining`
+                        : "Nothing to compress",
+                    status: "completed"
+                });
+            },
+            "BackgroundBar: memory compress done"
+        );
+
+        const offError = conversationEvents.on(
+            ConversationEvents.MEMORY_COMPRESS_ERROR,
+            (/** @type {{message?: string}} */ data) => {
+                const id = compressNotifId || "unified-memory-compress";
+                compressNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: "❌ Memory compression failed",
+                    phase: data?.message || "Unknown error",
+                    status: "error"
+                });
+            },
+            "BackgroundBar: memory compress error"
+        );
+
+        return () => {
+            offStart();
+            offDone();
+            offError();
+            compressNotifId = null;
+        };
+    }, [conversationEvents]);
+
     // ── All-Models Cooldown / Rate-Limit Ticker (Task 3) ────────────────
     // When every Groq chat model is cooling down (or the shared rate window is
     // exhausted) the engine looks frozen. Surface an active notification with a

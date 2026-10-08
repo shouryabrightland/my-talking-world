@@ -565,9 +565,11 @@ export default class WorldSetter {
         const now = this.world.now;
         const currentHour = now.getHours();
 
-        const userMemories = this.world.User.memory.values()
-            .filter(k => k.isUsable())
-            .map(k => `${k.name}: ${Array.isArray(k.value) ? k.value.join(", ") : String(k.value)}`);
+        // Reference-based user memories: tag-indexed UnifiedMemory entries.
+        const unifiedMemory = this.world.unifiedMemory;
+        const userMemories = unifiedMemory && typeof unifiedMemory.getEntriesForMember === "function"
+            ? unifiedMemory.getEntriesForMember(this.world.User.id).map(e => e.data)
+            : [];
 
         const existingBlocksXml = this.schedule.map(b => (
             `    <block start="${b.startHour}" end="${b.endHour}">\n` +

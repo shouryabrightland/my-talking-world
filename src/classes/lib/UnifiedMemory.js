@@ -130,6 +130,20 @@ export default class UnifiedMemory {
     }
 
     /**
+     * Reference-based per-member query: returns every entry tagged with the
+     * given member id (case-insensitive). Replaces the legacy per-character
+     * `member.memory` table.
+     *
+     * @param {string} memberId Lowercase member id (e.g. "tom", "me").
+     * @returns {UnifiedMemoryEntry[]} Matching entries (never null).
+     */
+    getEntriesForMember(memberId) {
+        const id = String(memberId || "").toLowerCase().trim();
+        if (!id) return [];
+        return this.entries.filter(entry => Array.isArray(entry.tags) && entry.tags.includes(id));
+    }
+
+    /**
      * Renders the whole stack as newline-delimited prompt-ready lines.
      * @returns {string}
      */

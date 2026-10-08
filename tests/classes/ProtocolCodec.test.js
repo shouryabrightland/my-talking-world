@@ -95,12 +95,19 @@ describe("ProtocolCodec — Buffer Lifecycle", () => {
             const text =
                 '<record type="message" id="1" sender="tom"><text>First</text></record>' +
                 '<record type="message" id="2" sender="lily"><text>Second</text></record>' +
-                '<record type="memory-set" member="tom" expiry="30m"><key>Mood</key><value>Happy</value></record>';
+                '<record type="message" id="3" sender="ben"><text>Third</text></record>';
             const records = codec.parseRecords(text);
             expect(records).toHaveLength(3);
             expect(records[0].recordType).toBe("message");
             expect(records[1].recordType).toBe("message");
-            expect(records[2].recordType).toBe("memory-set");
+            expect(records[2].recordType).toBe("message");
+        });
+
+        it("ignores legacy memory-set / memory-remove records (old memory arch removed)", () => {
+            const text =
+                '<record type="memory-set" member="tom" expiry="30m"><key>Mood</key><value>Happy</value></record>' +
+                '<record type="memory-remove" member="tom"><key>Mood</key></record>';
+            expect(codec.parseRecords(text)).toEqual([]);
         });
 
         it("returns empty array for empty/whitespace input", () => {

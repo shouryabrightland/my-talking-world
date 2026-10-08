@@ -10,7 +10,7 @@ import { render, screen, act } from "@testing-library/react";
 
 vi.mock("../../src/contexts/ChatContext.jsx", () => ({
     useChat: () => ({
-        world: { events: { on: () => () => {}, emit: () => {} }, now: new Date(), User: { memory: { values: () => [] } } },
+        world: { events: { on: () => () => {}, emit: () => {} }, now: new Date(), User: { id: "me" } },
         chat: { getMessages: () => [] },
     }),
     ChatProvider: ({ children }) => children,

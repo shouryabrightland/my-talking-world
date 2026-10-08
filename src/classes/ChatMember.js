@@ -6,8 +6,10 @@
  *
  * Responsibilities:
  * - Stores personality bio, dynamic birthday, and computed age.
- * - Manages versatile short-term & long-term memory with TTL expiries.
  * - Handles transient visual states (isTyping, isReading, isThinking, isActive, emotion).
+ *
+ * NOTE: Long-term factual memory lives entirely in UnifiedMemory (tag-indexed
+ * by member id). ChatMember only owns the transient `stateMemory` table.
  * - Calculates human-like typing and reading pacing delays.
  * - Persists state to IndexedDB via Storage.
  * - Connects/disconnects from Chat room context.
@@ -44,7 +46,7 @@ export const ChatMemberEvents = {
 /**
  * Represents a single participant in the room (human user or AI character).
  * Encapsulates personality bio, dynamic birthday & computed age,
- * versatile short-term & long-term memory with TTL expiries, and timeline scheduling.
+ * transient visual state, and timeline scheduling.
  */
 export default class ChatMember {
 
@@ -137,17 +139,6 @@ export default class ChatMember {
          * @type {Chat|null} 
          */
         this.chat = null;
-
-        /** 
-         * Dynamic versatile memory table holding short-term reminders, postures, unsaid thoughts,
-         * and permanent facts with TTL expiries.
-         * @readonly 
-         * @type {Memory} 
-         */
-        this.memory = new Memory(
-            this.logger,
-            `memory:${this.id}`
-        );
 
         /** 
          * Reload-resistant transient state store (isTyping, isReading, isActive, emotion).
@@ -270,13 +261,6 @@ export default class ChatMember {
         }
 
         this.logger.info("Initializing member state data...");
-
-        try {
-            await this.memory.load();
-        } catch (/** @type {unknown} */ error) {
-            this.logger.error("Database error loading memory:", error);
-            throw error;
-        }
 
         try {
             await this.stateMemory.load();
@@ -527,46 +511,12 @@ export default class ChatMember {
     /**
      * @returns {Promise<void>}
      */
-    async saveMemory() {
-        try {
-            await this.memory.save();
-        } catch (/** @type {unknown} */ error) {
-            this.logger.error("Failed to save memory:", error);
-            throw error;
-        }
-    }
-
-    /**
-     * @returns {Promise<void>}
-     */
     async saveStateMemory() {
         try {
             await this.stateMemory.save();
         } catch (/** @type {unknown} */ error) {
             this.logger.warn("Failed to save stateMemory:", error);
         }
-    }
-
-    /**
-     * @returns {Promise<boolean>}
-     */
-    async loadMemory() {
-        try {
-            return await this.memory.load();
-        } catch (/** @type {unknown} */ error) {
-            this.logger.error("Failed to load memory:", error);
-            throw error;
-        }
-    }
-
-    /**
-     * @returns {Promise<void>}
-     */
-    async clearMemory() {
-        this.memory.clear();
-        this.stateMemory.clear();
-        await this.memory.destroy();
-        await this.stateMemory.destroy();
     }
 
     /**

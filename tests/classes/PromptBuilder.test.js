@@ -119,7 +119,10 @@ describe("Prompt Templates — Hinglish Language Mandate", () => {
 
         it("still contains the original dialogue rules", () => {
             expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("5 dialogue"))).toBe(true);
-            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("memory-set"))).toBe(true);
+            // Legacy keyed-memory instructions were removed with the old
+            // per-character memory arch (memories now come from UnifiedMemory).
+            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("memory-set"))).toBe(false);
+            expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("memory-remove"))).toBe(false);
         });
 
         it("carries NO <thought> instruction (thought system eliminated)", () => {

@@ -89,7 +89,8 @@ function makeFakeWorld() {
         events: { emit: vi.fn(), on: vi.fn().mockReturnValue(() => {}) },
         environment: { city: "Lucknow", weather: "Sunny", temperature: "32°C", humidity: "55%", todayCelebration: "", newsHeadlines: [], upcomingFestivals: [] },
         activeSchedule: null,
-        User: { memory: { values: () => [], set: vi.fn() } },
+        User: { id: "me", name: "Player" },
+        unifiedMemory: { getEntriesForMember: () => [], toTextStack: () => "" },
         getActiveSchedule: () => null,
     };
 }

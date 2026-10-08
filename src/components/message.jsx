@@ -4,6 +4,8 @@ import React, { memo, useEffect, useMemo, useState } from "react";
 import styles from "./message.module.css";
 import Avatar from "./Avatar";
 import { useInputBox } from "../contexts/InputBoxContext";
+import { useOptionalChat } from "../contexts/ChatContext";
+import MemoryExpiryParser from "../classes/lib/MemoryExpiryParser";
 import { Sound } from "../util/sound";
 
 /**
@@ -73,11 +75,6 @@ export const MessageUX = memo(
             ? `${styles.msgRowLeft} ${isLiveArrival ? styles.popIn : ""}`.trim()
             : `${styles.msgRowRight} ${isLiveArrival ? styles.popIn : ""}`.trim();
 
-        // Dynamic Posture or Prop from short-term memory if present
-        const activePosture = isOther && message.sender.memory
-            ? message.sender.memory.getValue("Current Posture") || message.sender.memory.getValue("Current Prop")
-            : null;
-
         return (
             <>
                 <div className={rowClass}>
@@ -110,11 +107,6 @@ export const MessageUX = memo(
                                 >
                                     {message.sender.name}
                                 </span>
-                                {typeof activePosture === "string" && activePosture.trim() && (
-                                    <span className={styles.propTag} title={`Dynamic State: ${activePosture}`}>
-                                        🏃 {activePosture.split(",")[0]}
-                                    </span>
-                                )}
                             </div>
                         )}
 
@@ -205,8 +197,31 @@ export function ReplyBox({ message }) {
 }
 
 /**
- * Dynamic Memory Inspector Modal.
- * Scans all active unexpired memories (reminders, postures, facts) with live TTL countdowns.
+ * Renders a UnifiedMemory entry expiry as a short human-readable badge.
+ *
+ * @param {string|null|undefined} expiry "forever", "-1", "15m"/"2h"/"7d", or ISO.
+ * @returns {{ permanent: boolean, label: string }}
+ */
+function formatUnifiedExpiry(expiry) {
+    const raw = String(expiry || "forever");
+    if (raw === "forever" || raw === "-1") return { permanent: true, label: "♾️ Forever" };
+
+    const parsed = MemoryExpiryParser.parse(raw);
+    if (!(parsed instanceof Date)) return { permanent: true, label: "♾️ Forever" };
+
+    const msLeft = parsed.getTime() - Date.now();
+    if (msLeft <= 0) return { permanent: false, label: "⚠️ Expired" };
+
+    const minsLeft = Math.max(1, Math.round(msLeft / 60000));
+    return {
+        permanent: false,
+        label: `⏱️ ${minsLeft > 60 ? `${Math.round(minsLeft / 60)}h left` : `${minsLeft}m left`}`
+    };
+}
+
+/**
+ * Unified Memory Inspector Modal.
+ * Reads reference-based memories tagged for this member from UnifiedMemory.
  *
  * @param {Object} props
  * @param {boolean} props.isOpen
@@ -216,11 +231,12 @@ export function ReplyBox({ message }) {
  */
 function CharacterInspectorModal({ isOpen, member, onClose }) {
     const memberId = String(member?.id || "tom").toLowerCase();
+    const conv = useOptionalChat();
 
     const activeMemories = useMemo(() => {
-        if (!member?.memory) return [];
-        return member.memory.values().filter(k => k.isUsable());
-    }, [member, isOpen]);
+        if (!conv?.unifiedMemory) return [];
+        return conv.unifiedMemory.getEntriesForMember(memberId);
+    }, [conv, memberId, isOpen]);
 
     return (
         <div
@@ -256,39 +272,31 @@ function CharacterInspectorModal({ isOpen, member, onClose }) {
                         <span className={styles.inspectorValue}>{member.about}</span>
                     </div>
 
-                    {/* Active Dynamic Short-Term & Long-Term Memories */}
+                    {/* Reference-Based Unified Memories Tagged for this Member */}
                     <div className={styles.inspectorRow}>
-                        <span className={styles.inspectorLabel}>🧠 Active Dynamic Memories & States:</span>
+                        <span className={styles.inspectorLabel}>🧠 Tagged Memories:</span>
                         {activeMemories.length === 0 ? (
-                            <span className={styles.inspectorValueMuted}>No dynamic states or facts currently active in memory.</span>
+                            <span className={styles.inspectorValueMuted}>No unified memory entries are tagged for this character yet.</span>
                         ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
-                                {activeMemories.map(memKey => {
-                                    const isForever = memKey.isForever();
-                                    let expiryBadge = "Permanent";
-
-                                    if (memKey.expiry instanceof Date) {
-                                        const msLeft = memKey.expiry.getTime() - Date.now();
-                                        const minsLeft = Math.max(1, Math.round(msLeft / (60 * 1000)));
-                                        expiryBadge = minsLeft > 60
-                                            ? `${Math.round(minsLeft / 60)}h left`
-                                            : `${minsLeft}m left`;
-                                    }
+                                {activeMemories.map(entry => {
+                                    const expiry = formatUnifiedExpiry(entry.expiry);
+                                    const entryTitle = entry.tags.filter(t => t !== memberId).join(", ") || "Memory";
 
                                     return (
                                         <div
-                                            key={memKey.name}
+                                            key={entry.id}
                                             className={styles.memoryNotebookCard}
                                             style={{ borderLeftColor: `var(--char-${memberId}, var(--primary))` }}
                                         >
                                             <div className={styles.memoryCardTopRow}>
-                                                <span className={styles.memoryCardTitle}>📌 {memKey.name}</span>
-                                                <span className={isForever ? styles.memoryCardExpiryTagPermanent : styles.memoryCardExpiryTag}>
-                                                    {isForever ? "♾️ Forever" : `⏱️ ${expiryBadge}`}
+                                                <span className={styles.memoryCardTitle}>📌 {entryTitle}</span>
+                                                <span className={expiry.permanent ? styles.memoryCardExpiryTagPermanent : styles.memoryCardExpiryTag}>
+                                                    {expiry.label}
                                                 </span>
                                             </div>
                                             <span className={styles.memoryCardContent}>
-                                                {Array.isArray(memKey.value) ? memKey.value.join(", ") : String(memKey.value)}
+                                                {entry.data}
                                             </span>
                                         </div>
                                     );

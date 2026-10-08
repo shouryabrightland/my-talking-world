@@ -103,7 +103,6 @@ describe("DevTools — getSystemState() structured JSON", () => {
                 id: "tom", name: "Tom", age: 22, isAI: true,
                 currentEmotion: { name: "Excited" },
                 isTyping: false, isReading: false, isThinking: true, isActive: true,
-                memory: { values: () => [{ name: "Current Posture", value: "leaning back", expiry: new Date(Date.now() + 900_000), isUsable: () => true }] },
                 scheduler: { getTimeline: () => [{}] },
             }],
         ]);

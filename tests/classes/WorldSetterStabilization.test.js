@@ -93,8 +93,6 @@ vi.mock("../../src/util/Constants.js", () => ({
     DEFAULT_GEMINI_MODEL: "gemini-3.7-flash",
     DEFAULT_CHAT_MODEL: "llama-3.3-70b-versatile",
     GEMINI_MAX_OUTPUT_TOKENS: 65000,
-    PROMPT_SCHEDULER_TASK: "Test scheduler task",
-    PROMPT_SCHEDULER_RULES: ["Rule 1", "Rule 2"],
     PROMPT_DEMAND_TASK: "Test demand task",
     PROMPT_DEMAND_RULES: ["Rule A"],
     PROMPT_RESTABILIZER_TASK: "Review and connect blocks for smooth storyline flow.",
@@ -116,7 +114,8 @@ function makeFakeWorld() {
         events: { emit: vi.fn(), on: vi.fn().mockReturnValue(() => {}) },
         environment: { city: "Lucknow", weather: "Sunny", temperature: "32°C", humidity: "45%", todayCelebration: "", newsHeadlines: [] },
         activeSchedule: null,
-        User: { memory: { values: () => [], set: vi.fn() } },
+        User: { id: "me", name: "Player" },
+        unifiedMemory: { getEntriesForMember: () => [], toTextStack: () => "" },
     };
 }
 

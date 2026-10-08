@@ -3,9 +3,10 @@
 /**
  * @file DevToolsStateTab.test.jsx
  * Verifies the intermediate-state inspection cards added for DevTools
- * transparency: UnifiedMemory (20k budget), SituationEngine (Tier 2) and
- * the Needle query router (Tier 3) — plus graceful rendering of legacy
- * state payloads that predate those cards.
+ * transparency: SituationEngine (Tier 2) and the Needle query router
+ * (Tier 3) — plus graceful rendering of legacy state payloads that
+ * predate those cards. (The Unified Memory stack moved to the Settings
+ * → Unified Memory tab, so DevTools no longer renders it.)
  */
 
 import React from "react";
@@ -40,27 +41,6 @@ function makeFullState() {
         },
         groqModelPool: { activeModel: null, models: [] },
         geminiModelPool: { activeModel: null, models: [] },
-        unifiedMemory: {
-            totalEntries: 4,
-            characterCount: 8000,
-            maxCharacters: 20000,
-            entries: [
-                {
-                    id: "e1",
-                    datetime: "2026-10-07 09:12",
-                    tags: "tom, chai",
-                    data: "Tom promised the group chai at the Gomti Nagar stall.",
-                    expiry: "forever"
-                },
-                {
-                    id: "e2",
-                    datetime: "2026-10-07 09:40",
-                    tags: "angela, drone",
-                    data: "Angela's drone lost a rotor blade.",
-                    expiry: "1h"
-                }
-            ]
-        },
         situationEngine: {
             situationText: "Cast is on the rooftop repairing Angela's drone.",
             unreadCount: 7,
@@ -78,19 +58,6 @@ function makeFullState() {
 describe("DevToolsStateTab — intermediate state inspection cards", () => {
     afterEach(() => {
         vi.clearAllMocks();
-    });
-
-    it("renders the Unified Memory Stack card with budget usage and recent entries", () => {
-        render(<DevToolsStateTab liveState={makeFullState()} handleCopyState={() => {}} copied={false} />);
-
-        expect(screen.getByText("🧠 Unified Memory Stack")).toBeTruthy();
-        expect(screen.getByText("8000/20000 chars")).toBeTruthy();
-        expect(screen.getByText("40%")).toBeTruthy();
-        expect(screen.getByText("Tom promised the group chai at the Gomti Nagar stall.")).toBeTruthy();
-        expect(screen.getByText("Angela's drone lost a rotor blade.")).toBeTruthy();
-        expect(screen.getByText(/2026-10-07 09:12/)).toBeTruthy();
-        expect(screen.getByText("forever")).toBeTruthy();
-        expect(screen.getByText("1h")).toBeTruthy();
     });
 
     it("renders the Ambient Situation Engine card with unread progress and last run", () => {
@@ -114,13 +81,11 @@ describe("DevToolsStateTab — intermediate state inspection cards", () => {
 
     it("falls back cleanly when the state payload predates the new cards", () => {
         const legacyState = makeFullState();
-        delete legacyState.unifiedMemory;
         delete legacyState.situationEngine;
         delete legacyState.needleRouter;
 
         render(<DevToolsStateTab liveState={legacyState} handleCopyState={() => {}} copied={false} />);
 
-        expect(screen.queryByText("🧠 Unified Memory Stack")).toBeNull();
         expect(screen.queryByText("🌫️ Ambient Situation Engine")).toBeNull();
         expect(screen.queryByText("🎯 Needle Query Router")).toBeNull();
         // Pre-existing cards still render.

@@ -16,7 +16,7 @@
  * 3. <current_scene>: Active topic, main session goal, individual character motivations, temporal phase (opening/core/transition),
  *    pre-plot guidance (if first 10% elapsed), post-plot transition (if last 10% elapsed), and context facts.
  * 4. <characters>: Biographies, computed ages, and participant types.
- * 5. <saved_memories>: Active short-term and long-term memories with TTLs.
+ * 5. ## Active Memories: 0-2 Tier-3 UnifiedMemory lines (tag/keyword match from Needle) for the human utterance.
  * 6. <recent_dialogue>: Last 20 messages with IDs, reactions, quote links, and <stage_directive> overrides.
  */
 export const PROMPT_DIALOGUE_TASK =
@@ -93,47 +93,15 @@ export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",
     "Break longer conversational statements across 2 to 3 shorter messages naturally.",
     "PERSONA FIDELITY: Every character must strictly embody their unique personality, age, tone, and bio as declared in the <characters> context block. Stay 100% faithful to the participant definitions provided without blending voices.",
-    "AUTONOMOUS MEMORIES: Use <record type=\"memory-set\"></record> with an appropriate expiry ('15m', '1h', '24h', 'forever') to store ONLY high-impact information: emotional states, relationship dynamics, secrets, commitments to the human user, or key plot milestones.",
-    "FORBIDDEN MEMORIES: Never log micro-actions, physical movements, or trivial busywork (e.g. 'shoes laced', 'counting down', 'waiting for signal', 'picking up the phone', 'walking to the fridge'). If it will not matter in an hour, do not record it.",
-    "REUSE STANDARD MEMORY KEYS: Overwrite the standard category keys 'Mood', 'Active Goal', 'Opinion on User', and 'Secret' whenever they apply. Never invent unique event keys (e.g. 'CountdownStarted', 'SpeedRunCountdown', 'NextRoundPlan') — update an existing key instead of creating a new one, and keep each character at 5 memories or fewer.",
-    "To delete an obsolete memory, emit <record type=\"memory-remove\"> with the exact <key> to remove.",
     "When the human user speaks (participant_type=\"human_user\"), respond to and engage with them directly.",
     "Advance the active scene topic and goals naturally."
 ]);
 
 // =========================================================================
-// PROMPT 2: STORYLINE HORIZON SCHEDULER GENERATOR (Gemini Flash 65K)
+// PROMPT 2: CONTEXTUAL DIRECTOR DEMAND ENGINE (Gemini Flash 65K - Full Normalization)
 // =========================================================================
-
-/**
- * Context layers provided:
- * 1. <grounding_context>: Real-world location, live weather/temperature, today's occasion, and recent Google News headlines.
- * 2. <characters>: Cast biographies, ages, and identities.
- * 3. <saved_memories>: Unexpired long-term and short-term character/user memories.
- * 4. <horizon_request>: Target starting hour and date for natural continuous horizon planning.
- */
-export const PROMPT_SCHEDULER_TASK =
-    "Write the upcoming storyline schedule for the characters in the group chat. " +
-    "Create a continuous, natural sequence of timeline blocks starting from the given hour. " +
-    "Generate exactly 3 to 4 sequential blocks covering the upcoming 4 hours starting from the given hour. " +
-    "Never emit more than 4 blocks for a single horizon request. " +
-    "GROUNDING: Search real-world local events, weather, venues, and timings across the active city to ground every block in real reality.";
-
-export const PROMPT_SCHEDULER_RULES = Object.freeze([
-    "Every block must naturally follow from the preceding block.",
-    "Each block must have a clear discussion topic, a main objective, and individual character motivations.",
-    "LOCATIONS: Dynamically choose realistic, varied, real-world locations across the active city that fit each scheduled activity — drawing naturally from the <location> grounding tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Never reuse the same spot for every block and never default to a single recurring hangout.",
-    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj, Chowk, or the garage. Mandate varied Lucknow settings across the day — Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, parks — and everyday domestic spaces (kitchen, balcony, study room) so no block repeats the previous scene's location.",
-    "pre_plot must describe the backstory or momentum leading directly into the scene.",
-    "post_plot must describe the consequences or lead-up transition into the subsequent scene.",
-    "Facts must be concrete, specific items or situational details useful for interaction.",
-    "Output strictly valid XML <schedule><block start=\"...\" end=\"...\">...</block></schedule>.",
-    "Return the complete and final updated schedule."
-]);
-
-// =========================================================================
-// PROMPT 3: CONTEXTUAL DIRECTOR DEMAND ENGINE (Gemini Flash 65K - Full Normalization)
-// =========================================================================
+// NOTE: the old 4-block horizon scheduler prompt (PROMPT_SCHEDULER_TASK/RULES)
+// was removed — WorldSetter.planHorizon() owns the 24-hour horizon prompt inline.
 
 /**
  * Context layers provided:
@@ -162,7 +130,7 @@ export const PROMPT_DEMAND_RULES = Object.freeze([
 ]);
 
 // =========================================================================
-// PROMPT 4: STORYLINE NARRATIVE RE-STABILIZER (Gemini Flash 65K)
+// PROMPT 3: STORYLINE NARRATIVE RE-STABILIZER (Gemini Flash 65K)
 // =========================================================================
 
 /**
