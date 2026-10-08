@@ -2,23 +2,26 @@
 // @ts-check
 
 /**
- * @file PresentationView — single-phone "bifurcating" scrollytelling pitch.
+ * @file PresentationView — single-unit phone scrollytelling pitch.
  *
- * ONE phone sits pinned in a sticky stage while the scroll track flies past.
- * Scroll progress drives a single continuous custom property (`--t`), which
- * peels the phone apart layer by layer — each step glows one slab of the
- * device and captions it in plain language, so a viewer understands how the
- * app works purely from the visuals. The finale snaps the stack back into a
- * whole phone and offers the studio CTA.
+ * ONE phone stays whole on a sticky stage while the scroll track flies past.
+ * Scroll progress drives a continuous custom property (`--t`), and each step
+ * swaps what plays INSIDE the phone screen: the intro shows the cast home
+ * screen, nine layer steps swap in self-explanatory mini-widgets (chat,
+ * weather, diffs, memory, chip, keys, EQ, armor, gauges), and the finale
+ * returns to the home screen with the studio CTA. The phone frame never
+ * breaks apart — the changes happen on its screen.
  *
- * Mechanics: wheel / touch / keyboard / HUD dots all move the same pipeline.
- * No frameworks beyond React + CSS custom properties (SBS-style scrollytelling).
+ * Responsive by design: the caption sits beside the phone on desktop and
+ * overlays the bottom of the stage on phones, where the HUD wraps into two
+ * compact rows. Wheel / touch / keyboard / HUD dots all move the same
+ * pipeline. No frameworks beyond React + CSS custom properties.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "./PresentationView.module.css";
 import Avatar from "../Avatar";
-import { Tom, Angela } from "../../util/member";
+import { Members } from "../../util/member";
 import { Sound } from "../../util/sound";
 
 /**
@@ -27,7 +30,7 @@ import { Sound } from "../../util/sound";
  * @property {string} code Zero-padded step code ("01").
  * @property {string} label Short label used by the HUD jump dots.
  * @property {"intro"|"layer"|"finale"} role Where this step sits in the arc.
- * @property {number} [layer] Zero-based slab index for `layer` steps (0 = display, top).
+ * @property {number} [layer] Zero-based screen index for `layer` steps (0 = display, top).
  * @property {string} headline Giant kinetic headline.
  * @property {string} subTag Single-line capability tag.
  * @property {string} blurb One-sentence plain-language explanation.
@@ -117,6 +120,22 @@ export const PRESENTATION_LAYERS = [
 
 const LAYER_COUNT = PRESENTATION_LAYERS.length;
 
+/** Zero-based in-phone layer screens (index matches `layer` in PRESENTATION_LAYERS). */
+const SLAB_INDICES = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+/** Icon + header label shown at the top of each in-phone layer screen. */
+const SCREEN_META = [
+    { icon: "🖥️", name: "DISPLAY" },
+    { icon: "🌦️", name: "SCENE HORIZON" },
+    { icon: "🎬", name: "DIRECTOR DESK" },
+    { icon: "🧠", name: "MEMORY VAULT" },
+    { icon: "⚙️", name: "NEEDLE CHIP" },
+    { icon: "🔐", name: "TWIN ENGINES" },
+    { icon: "🎚️", name: "SOUND ENGINE" },
+    { icon: "🛡️", name: "ARMOR PLATE" },
+    { icon: "📈", name: "COCKPIT" }
+];
+
 /**
  * Continuous 11-step single-phone scrollytelling presentation.
  *
@@ -133,8 +152,8 @@ export default function PresentationView({ onFinish }) {
 
     /**
      * Normalizes container scroll into `--scroll-progress` + continuous `--t`
-     * (the peel clock) + active step. CSS custom properties are written
-     * directly so the phone animates per frame WITHOUT a React re-render;
+     * (the parallax clock) + active step. CSS custom properties are written
+     * directly so the phone glows per frame WITHOUT a React re-render;
      * React only re-renders when the integer step or percent flips.
      * @returns {void}
      */
@@ -147,7 +166,7 @@ export default function PresentationView({ onFinish }) {
         const progress = Math.max(0, Math.min(1, raw));
 
         el.style.setProperty("--scroll-progress", progress.toFixed(4));
-        // Continuous step clock: 0 → LAYER_COUNT. Peels use it directly.
+        // Continuous step clock: 0 → LAYER_COUNT. Drives phone glow/parallax.
         el.style.setProperty("--t", (progress * LAYER_COUNT).toFixed(4));
 
         const pct = Math.round(progress * 100);
@@ -167,10 +186,13 @@ export default function PresentationView({ onFinish }) {
         return () => window.removeEventListener("resize", syncScroll);
     }, [syncScroll]);
 
-    /** Currently glowing slab (undefined during intro/finale). */
+    /** Currently glowing screen (undefined during intro/finale → home screen). */
     const activeLayer = typeof PRESENTATION_LAYERS[activeIndex]?.layer === "number"
         ? PRESENTATION_LAYERS[activeIndex].layer
         : undefined;
+
+    /** Intro and finale both show the cast home screen inside the phone. */
+    const homeActive = activeLayer === undefined;
 
     /**
      * Jumps the viewport to one step (HUD dots + keyboard). Uses the
@@ -191,9 +213,12 @@ export default function PresentationView({ onFinish }) {
             const el = scrollRef.current;
             if (!el) return;
 
+            // Land in the CENTER of the step's scroll band (t = i + 0.5),
+            // not on its edge: integer rounding of scrollTop on the exact
+            // boundary could otherwise floor back to the previous step.
             const scrollable = el.scrollHeight - el.clientHeight;
             if (scrollable > 0) {
-                el.scrollTop = (clamped / LAYER_COUNT) * scrollable;
+                el.scrollTop = ((clamped + 0.5) / LAYER_COUNT) * scrollable;
                 syncScroll();
             }
         },
@@ -203,7 +228,7 @@ export default function PresentationView({ onFinish }) {
     // Keyboard pipeline navigation: arrows / PageUp-Down / Space move one
     // step, Escape exits straight into the live studio.
     useEffect(() => {
-        /** @param {KeyboardEvent} e */ 
+        /** @param {KeyboardEvent} e */
         const handleKeyDown = (e) => {
             if (e.key === "Escape") {
                 onFinish?.();
@@ -229,9 +254,9 @@ export default function PresentationView({ onFinish }) {
     const active = PRESENTATION_LAYERS[activeIndex];
 
     /**
-     * The glowing slab content — every layer carries its own self-explanatory
-     * visual so the phone alone tells the story.
-     * @param {number} layer Zero-based slab index (0 = display … 8 = cockpit).
+     * The glowing layer content — every screen carries its own
+     * self-explanatory visual so the phone alone tells the story.
+     * @param {number} layer Zero-based screen index (0 = display … 8 = cockpit).
      * @returns {React.JSX.Element|null}
      */
     const renderSlabContent = (layer) => {
@@ -240,12 +265,12 @@ export default function PresentationView({ onFinish }) {
                 return (
                     <div className={styles.slabBody}>
                         <div className={styles.chatRow}>
-                            <span className={styles.chatAvatar}><Avatar member={Tom} emotion="Happy" glow={true} /></span>
+                            <span className={styles.chatAvatar}><Avatar member={Members[0]} emotion="Happy" glow={true} /></span>
                             <span className={styles.chatBubble}>Arre yaar, rotor gayab hai drone ka! 🛠️</span>
                         </div>
                         <div className={`${styles.chatRow} ${styles.chatRowRight}`}>
                             <span className={`${styles.chatBubble} ${styles.chatBubbleAlt}`}>Ek min, shoot ke baad duct tape lagati hoon 😌</span>
-                            <span className={styles.chatAvatar}><Avatar member={Angela} emotion="Thinking" glow={true} /></span>
+                            <span className={styles.chatAvatar}><Avatar member={Members[1]} emotion="Thinking" glow={true} /></span>
                         </div>
                         <div className={styles.typingRow} aria-hidden="true">
                             <span className={styles.typingDot} /><span className={styles.typingDot} /><span className={styles.typingDot} />
@@ -365,9 +390,6 @@ export default function PresentationView({ onFinish }) {
         }
     };
 
-    /** @type {Array<number>} Slab indices, top (display) → bottom (cockpit). */
-    const slabIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-
     return (
         <div
             className={styles.scrollViewport}
@@ -410,42 +432,59 @@ export default function PresentationView({ onFinish }) {
                 </button>
             </header>
 
-            {/* ── Sticky stage: ONE phone that bifurcates layer by layer ──── */}
+            {/* ── Sticky stage: ONE phone, content changes on its screen ─── */}
             <div className={styles.stage} aria-hidden={false}>
                 <span className={styles.ghostCode} aria-hidden="true">{active.code}</span>
 
-                <div className={styles.phoneWrap}>
-                    <div className={styles.phoneStack}>
-                        {slabIndices.map(k => {
-                            const isActive = activeLayer === k;
-                            const isLast = k === slabIndices.length - 1;
-                            return (
-                                <div
-                                    key={k}
-                                    className={`${styles.slab} ${k === 0 ? styles.slabTop : ""} ${isLast ? styles.slabBottom : ""} ${isActive ? styles.slabActive : ""}`}
-                                    data-active={isActive ? "true" : "false"}
-                                    data-testid={`slab-${k}`}
-                                    style={{
-                                        // Continuous peel clock: slab k starts separating
-                                        // during its own step (t ∈ [k+1, k+2)) and the
-                                        // finale (t ∈ [10, 11]) snaps the stack shut.
-                                        transform: `translateY(calc(clamp(0, calc(var(--t) - ${k + 1}), 1) * (1 - clamp(0, calc(var(--t) - 10), 1)) * ${k} * var(--gap)))`,
-                                        zIndex: String(20 - k)
-                                    }}
-                                >
-                                    {k === 0 && <span className={styles.notch} aria-hidden="true" />}
-                                    <div className={styles.slabHead}>
-                                        <span className={styles.slabIcon} aria-hidden="true">
-                                            {["🖥️", "🌦️", "🎬", "🧠", "⚙️", "🔐", "🎚️", "🛡️", "📈"][k]}
+                <div className={styles.phoneWrap} data-testid="phone">
+                    <div className={styles.phoneBody}>
+                        <span className={styles.phoneIsland} aria-hidden="true" />
+
+                        <div className={styles.phoneScreen}>
+                            {/* Cast home screen — intro & finale */}
+                            <div
+                                className={`${styles.screen} ${styles.screenHome}`}
+                                data-testid="screen-home"
+                                data-active={homeActive ? "true" : "false"}
+                            >
+                                <span className={styles.homeKicker}>
+                                    {active.role === "finale" ? "EPISODE 1 • LIVE NOW" : "WELCOME TO"}
+                                </span>
+                                <strong className={styles.homeTitle}>TOM &amp; FRIENDS</strong>
+                                <div className={styles.homeCast}>
+                                    {Members.map(member => (
+                                        <span key={member.id} className={styles.homeAvatar}>
+                                            <span className={styles.homeFace}>
+                                                <Avatar member={member} emotion="Happy" glow={true} />
+                                            </span>
+                                            <em>{member.name}</em>
                                         </span>
-                                        <span className={styles.slabName}>
-                                            {["DISPLAY", "SCENE HORIZON", "DIRECTOR DESK", "MEMORY VAULT", "NEEDLE CHIP", "TWIN ENGINES", "SOUND ENGINE", "ARMOR PLATE", "COCKPIT"][k]}
-                                        </span>
-                                    </div>
-                                    {renderSlabContent(k)}
+                                    ))}
                                 </div>
-                            );
-                        })}
+                                <span className={styles.homeTag}>A LIVING SITCOM • ALWAYS ON</span>
+                            </div>
+
+                            {/* Nine layer screens — swapped by scroll step */}
+                            {SLAB_INDICES.map(k => {
+                                const isActive = activeLayer === k;
+                                const meta = SCREEN_META[k];
+                                return (
+                                    <div
+                                        key={k}
+                                        className={styles.screen}
+                                        data-testid={`screen-${k}`}
+                                        data-active={isActive ? "true" : "false"}
+                                    >
+                                        <div className={styles.screenHead}>
+                                            <span className={styles.slabIcon} aria-hidden="true">{meta.icon}</span>
+                                            <span className={styles.slabName}>{meta.name}</span>
+                                            <span className={styles.screenRail} aria-hidden="true" />
+                                        </div>
+                                        {renderSlabContent(k)}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                     <div className={styles.phoneShadow} aria-hidden="true" />
                 </div>

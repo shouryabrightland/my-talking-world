@@ -2,10 +2,11 @@
 // @ts-check
 
 /**
- * @file PresentationView tests — single-phone "bifurcating" scrollytelling.
+ * @file PresentationView tests — single-unit phone scrollytelling.
  * Covers: HUD (brand, 11 dots, progress, skip), per-step caption reveals,
- * scroll-bound --scroll-progress / --t clock, slab peel transforms,
- * keyboard navigation and all three exits (Escape, skip, finale CTA).
+ * scroll-bound --scroll-progress / --t clock, in-phone screen crossfades
+ * (the phone frame never breaks apart), keyboard navigation and all three
+ * exits (Escape, skip, finale CTA).
  */
 
 import React from "react";
@@ -28,16 +29,22 @@ function mountWithScrollRange(scrollHeight, clientHeight) {
     return scroller;
 }
 
-describe("PresentationView — single-phone scrollytelling", () => {
-    it("renders the phone stack (9 slabs), initial caption, HUD and 11 jump dots", () => {
+describe("PresentationView — single-unit phone scrollytelling", () => {
+    it("renders ONE phone unit with a home screen and 9 in-screen layers, HUD and 11 jump dots", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
         expect(screen.getByText("TOM & FRIENDS • LIVING SITCOM")).toBeTruthy();
         expect(screen.getByText("0%")).toBeTruthy();
 
-        // One phone, split into 9 physical slabs (display → cockpit).
+        // Exactly one phone — the frame never breaks into pieces.
+        expect(screen.getAllByTestId("phone")).toHaveLength(1);
+
+        // The cast home screen is live on the intro step…
+        expect(screen.getByTestId("screen-home").getAttribute("data-active")).toBe("true");
+
+        // …and all nine layer screens are staged inside it (inactive for now).
         for (let k = 0; k < 9; k++) {
-            expect(screen.getByTestId(`slab-${k}`)).toBeTruthy();
+            expect(screen.getByTestId(`screen-${k}`).getAttribute("data-active")).toBe("false");
         }
         expect(screen.getByText("DISPLAY")).toBeTruthy();
         expect(screen.getByText("NEEDLE CHIP")).toBeTruthy();
@@ -65,7 +72,7 @@ describe("PresentationView — single-phone scrollytelling", () => {
         }
     });
 
-    it("jump dots mark the active step on the HUD, track and phone", () => {
+    it("jump dots mark the active step on the HUD, track and phone screen", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
         const root = screen.getByTestId("presentation-scroll");
@@ -82,12 +89,13 @@ describe("PresentationView — single-phone scrollytelling", () => {
             screen.getByRole("button", { name: "Step 4: Director" }).getAttribute("aria-current")
         ).toBe("step");
 
-        // The Director slab (k=2) glows while its step is active.
-        expect(screen.getByTestId("slab-2").getAttribute("data-active")).toBe("true");
-        expect(screen.getByTestId("slab-0").getAttribute("data-active")).toBe("false");
+        // The Director screen (k=2) plays inside the phone while its step is active.
+        expect(screen.getByTestId("screen-2").getAttribute("data-active")).toBe("true");
+        expect(screen.getByTestId("screen-0").getAttribute("data-active")).toBe("false");
+        expect(screen.getByTestId("screen-home").getAttribute("data-active")).toBe("false");
     });
 
-    it("scroll drives --scroll-progress, the peel clock --t, the HUD label and the active step", () => {
+    it("scroll drives --scroll-progress, the parallax clock --t, the HUD label and the active step", () => {
         const scroller = mountWithScrollRange(1100, 100);
 
         scroller.scrollTop = 500;
@@ -101,20 +109,33 @@ describe("PresentationView — single-phone scrollytelling", () => {
         // floor(0.50 × 11) = 5 → Step 06 (Chip) is the live caption.
         expect(screen.getByTestId("step-6").getAttribute("data-active")).toBe("true");
         expect(screen.getByTestId("caption-6")).toBeTruthy();
-        // Everything already peeled past stays marked as passed.
+        // Everything already scrolled past stays marked as passed.
         expect(screen.getByTestId("step-3").getAttribute("data-past")).toBe("true");
         expect(screen.getByTestId("step-9").getAttribute("data-past")).toBe("false");
     });
 
-    it("each slab's peel transform is bound to the continuous --t clock", () => {
+    it("layer screens crossfade inside the phone — the frame never peels apart", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
-        // Slab k starts peeling at t = k+1 and closes again at t = 10 (finale).
+        // Regression: screens carry NO inline transforms (the old design
+        // exploded the phone with per-slab translateY peel math).
         for (let k = 0; k < 9; k++) {
-            const transform = screen.getByTestId(`slab-${k}`).style.getPropertyValue("transform");
-            expect(transform).toContain(`var(--t) - ${k + 1}`);
-            expect(transform).toContain("var(--t) - 10");
+            const transform = screen.getByTestId(`screen-${k}`).style.getPropertyValue("transform");
+            expect(transform).toBe("");
         }
+
+        // Intro: home screen plays, layers idle.
+        expect(screen.getByTestId("screen-home").getAttribute("data-active")).toBe("true");
+
+        // First layer step swaps the home screen for the Display widget.
+        fireEvent.click(screen.getByRole("button", { name: "Step 2: Display" }));
+        expect(screen.getByTestId("screen-0").getAttribute("data-active")).toBe("true");
+        expect(screen.getByTestId("screen-home").getAttribute("data-active")).toBe("false");
+
+        // Finale returns to the home screen inside the same phone frame.
+        fireEvent.click(screen.getByRole("button", { name: "Step 11: Wheel" }));
+        expect(screen.getByTestId("screen-home").getAttribute("data-active")).toBe("true");
+        expect(screen.getByTestId("screen-0").getAttribute("data-active")).toBe("false");
     });
 
     it("keyboard arrows walk the pipeline one step at a time", () => {
@@ -147,7 +168,7 @@ describe("PresentationView — single-phone scrollytelling", () => {
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
-    it("the finale reassembles the phone and offers the studio CTA", () => {
+    it("the finale returns home and offers the studio CTA", () => {
         const onFinish = vi.fn();
         render(<PresentationView onFinish={onFinish} />);
 
@@ -156,12 +177,13 @@ describe("PresentationView — single-phone scrollytelling", () => {
         const cta = screen.getByRole("button", { name: /Enter Live Studio 🚀/ });
         expect(screen.getByTestId("caption-11").contains(cta)).toBe(true);
         expect(screen.getByText("TAKE THE WHEEL")).toBeTruthy();
+        expect(screen.getByTestId("screen-home").getAttribute("data-active")).toBe("true");
 
         fireEvent.click(cta);
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
-    it("slab visuals carry the self-explanatory story text", () => {
+    it("layer screens carry the self-explanatory story text", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
         // Display: live chat + typing indicator.
