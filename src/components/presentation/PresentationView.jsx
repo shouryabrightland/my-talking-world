@@ -432,142 +432,186 @@ export default function PresentationView({ onFinish }) {
     const active = PRESENTATION_LAYERS[activeIndex];
 
     /**
-     * The glowing layer content — every screen carries its own
-     * self-explanatory visual so the phone alone tells the story.
+     * The glowing layer content — each screen is an animated flowchart so a
+     * viewer understands the concept from shapes and motion alone, without
+     * reading paragraphs.
      * @param {number} layer Zero-based screen index (0 = display … 8 = cockpit).
      * @returns {React.JSX.Element|null}
      */
     const renderSlabContent = (layer) => {
         switch (layer) {
-            case 0: // Display — live chat
+            case 0: // Display — live chat pipeline
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.chatRow}>
-                            <span className={styles.chatAvatar}><Avatar member={Members[0]} emotion="Happy" glow={true} /></span>
-                            <span className={styles.chatBubble}>Arre yaar, rotor gayab hai drone ka! 🛠️</span>
-                        </div>
-                        <div className={`${styles.chatRow} ${styles.chatRowRight}`}>
-                            <span className={`${styles.chatBubble} ${styles.chatBubbleAlt}`}>Ek min, shoot ke baad duct tape lagati hoon 😌</span>
-                            <span className={styles.chatAvatar}><Avatar member={Members[1]} emotion="Thinking" glow={true} /></span>
-                        </div>
-                        <div className={styles.typingRow} aria-hidden="true">
-                            <span className={styles.typingDot} /><span className={styles.typingDot} /><span className={styles.typingDot} />
-                            <em>Ben is typing…</em>
-                        </div>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Live chat pipeline: you, the fast engine, the cast">
+                        <circle cx="40" cy="80" r="26" className={styles.fNode} />
+                        <text x="40" y="89" textAnchor="middle" className={styles.fEmoji}>🧑</text>
+                        <line x1="70" y1="80" x2="116" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="70" y1="80" x2="116" y2="80" pathLength="100" className={styles.fPulseFwd} />
+                        <rect x="116" y="54" width="60" height="52" rx="16" className={styles.fNodeHot} />
+                        <text x="146" y="86" textAnchor="middle" className={styles.fEmoji}>⚡</text>
+                        <line x1="178" y1="80" x2="226" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="178" y1="80" x2="226" y2="80" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "0.55s" }} />
+                        <circle cx="254" cy="80" r="26" className={styles.fNode} />
+                        <text x="254" y="89" textAnchor="middle" className={styles.fEmoji}>🎭</text>
+                        <circle cx="132" cy="126" r="4" className={`${styles.fNodeHot} ${styles.fPop}`} />
+                        <circle cx="146" cy="126" r="4" className={`${styles.fNodeHot} ${styles.fPop}`} style={{ animationDelay: "0.2s" }} />
+                        <circle cx="160" cy="126" r="4" className={`${styles.fNodeHot} ${styles.fPop}`} style={{ animationDelay: "0.4s" }} />
+                        <text x="254" y="134" textAnchor="middle" className={`${styles.fEmojiSm} ${styles.fHeart}`}>❤️</text>
+                    </svg>
                 );
-            case 1: // Reality — live grounding + 24h arc
+            case 1: // Reality — world feeds the chat
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.chipRow}>
-                            <span className={styles.dataChip}>🌡️ 32°C, Warm</span>
-                            <span className={styles.dataChip}>🗓️ Gandhi Jayanti in 3d</span>
-                        </div>
-                        <div className={styles.ticker} aria-hidden="true">
-                            <span className={styles.tickerTrack}>
-                                India GDP accelerates • Lucknow Metro phase-4 clears • Gomti Nagar riverfront adds night food trail&nbsp;
-                            </span>
-                        </div>
-                        <div className={styles.dayBar} role="img" aria-label="24-hour schedule bar">
-                            <span className={styles.daySeg} style={{ left: "29%", width: "12%" }}>Chai</span>
-                            <span className={styles.daySeg} style={{ left: "42%", width: "12%" }}>Create</span>
-                            <span className={styles.daySeg} style={{ left: "71%", width: "8%" }}>Walk</span>
-                            <span className={styles.daySeg} style={{ left: "87%", width: "12%" }}>Terrace</span>
-                        </div>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Weather, festivals and news flow into the live chat">
+                        <circle cx="32" cy="32" r="20" className={`${styles.fNode} ${styles.fBob}`} />
+                        <text x="32" y="40" textAnchor="middle" className={styles.fEmojiSm}>🌤️</text>
+                        <circle cx="32" cy="80" r="20" className={`${styles.fNode} ${styles.fBob}`} style={{ animationDelay: "0.5s" }} />
+                        <text x="32" y="88" textAnchor="middle" className={styles.fEmojiSm}>🗓️</text>
+                        <circle cx="32" cy="128" r="20" className={`${styles.fNode} ${styles.fBob}`} style={{ animationDelay: "1s" }} />
+                        <text x="32" y="136" textAnchor="middle" className={styles.fEmojiSm}>📰</text>
+                        <line x1="54" y1="34" x2="136" y2="72" pathLength="100" className={styles.fWire} />
+                        <line x1="54" y1="34" x2="136" y2="72" pathLength="100" className={styles.fPulseFwd} />
+                        <line x1="54" y1="80" x2="136" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="54" y1="80" x2="136" y2="80" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "0.4s" }} />
+                        <line x1="54" y1="126" x2="136" y2="88" pathLength="100" className={styles.fWire} />
+                        <line x1="54" y1="126" x2="136" y2="88" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "0.8s" }} />
+                        <rect x="136" y="54" width="64" height="52" rx="16" className={styles.fNodeHot} />
+                        <text x="168" y="86" textAnchor="middle" className={styles.fEmoji}>💬</text>
+                        <line x1="202" y1="80" x2="242" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="202" y1="80" x2="242" y2="80" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "0.6s" }} />
+                        <circle cx="266" cy="80" r="22" className={`${styles.fNode} ${styles.fPop}`} />
+                        <text x="266" y="88" textAnchor="middle" className={styles.fEmojiSm}>🎭</text>
+                    </svg>
                 );
-            case 2: // Director — visual diffs
+            case 2: // Director — timeline swap
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.diffRowAdd}>
-                            <span className={styles.diffTag}>+ ADDED</span>
-                            <strong>17:00 • Rescue the stray puppy</strong>
-                        </div>
-                        <div className={styles.diffRowSub}>
-                            <span className={styles.diffTag}>− DROPPED</span>
-                            <del>17:00 • Casual garage gaming</del>
-                        </div>
-                        <span className={styles.restabBadge}>🎬 timeline re-stabilized in 0.8s</span>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Timeline swap: the old plan drops out, the new plan slides in">
+                        <text x="26" y="44" textAnchor="middle" className={styles.fEmojiSm}>🎬</text>
+                        <rect x="56" y="98" width="214" height="20" rx="10" className={styles.fBar} />
+                        <rect x="176" y="98" width="60" height="20" rx="6" className={styles.fBarNeon} opacity="0.45" />
+                        <rect x="66" y="98" width="70" height="20" rx="6" className={`${styles.fBarBad} ${styles.fSwapOut}`} />
+                        <rect x="66" y="98" width="70" height="20" rx="6" className={`${styles.fBarOk} ${styles.fSwapIn}`} />
+                        <text x="101" y="86" textAnchor="middle" className={`${styles.fEmojiSm} ${styles.fBob}`}>✨</text>
+                        <text x="244" y="64" textAnchor="middle" className={styles.fEmoji}>⇅</text>
+                        <text x="244" y="146" textAnchor="middle" className={styles.fEmojiSm}>✅</text>
+                    </svg>
                 );
-            case 3: // Memory — vault gauge
+            case 3: // Memory — cards feed the brain
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.memChips}>
-                            <span className={styles.memChip}>[Tom] rotor repair</span>
-                            <span className={styles.memChip}>[Angela] shoot at 5</span>
-                            <span className={styles.memChip}>[Ben] solar viva • 24h</span>
-                        </div>
-                        <div className={styles.gauge} role="img" aria-label="Memory gauge 8,432 of 20,000 characters">
-                            <div className={styles.gaugeFill} style={{ width: "42%" }} />
-                        </div>
-                        <em className={styles.gaugeLabel}>8,432 / 20,000 chars</em>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Memory cards feed the brain and refill the vault gauge">
+                        <rect x="26" y="36" width="66" height="30" rx="7" className={`${styles.fNodeHot} ${styles.fBob}`} />
+                        <rect x="26" y="76" width="66" height="30" rx="7" className={styles.fNode} />
+                        <rect x="26" y="116" width="66" height="30" rx="7" className={`${styles.fNode} ${styles.fBob}`} style={{ animationDelay: "1.2s" }} />
+                        <line x1="96" y1="80" x2="152" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="96" y1="80" x2="152" y2="80" pathLength="100" className={styles.fPulseFwd} />
+                        <circle cx="186" cy="76" r="30" className={styles.fNodeHot} />
+                        <text x="186" y="85" textAnchor="middle" className={styles.fEmoji}>🧠</text>
+                        <rect x="132" y="130" width="120" height="12" rx="6" className={styles.fBar} />
+                        <rect x="132" y="130" width="120" height="12" rx="6" className={`${styles.fBarNeon} ${styles.fFill}`} />
+                    </svg>
                 );
-            case 4: // Chip — Needle on-device router
+            case 4: // Chip — on-device router fan-out
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.chipGraphic} aria-hidden="true">
-                            <span className={styles.chipCore}>🧠</span>
-                            <span className={styles.chipPulse} />
-                        </div>
-                        <div className={styles.chipMeta}>
-                            <strong>NEEDLE • 14MB</strong>
-                            <em>&lt;1ms routing • works offline</em>
-                        </div>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="On-device router fans each message out to speaker, tools and timing">
+                        <circle cx="30" cy="80" r="20" className={`${styles.fNode} ${styles.fBob}`} />
+                        <text x="30" y="88" textAnchor="middle" className={styles.fEmojiSm}>💬</text>
+                        <line x1="52" y1="80" x2="110" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="52" y1="80" x2="110" y2="80" pathLength="100" className={styles.fPulseFwd} />
+                        <rect x="110" y="50" width="66" height="60" rx="12" className={styles.fNodeHot} />
+                        <text x="143" y="80" textAnchor="middle" className={styles.fEmoji}>⚙️</text>
+                        <text x="143" y="102" textAnchor="middle" className={styles.fBadge}>14MB</text>
+                        <line x1="178" y1="80" x2="246" y2="34" pathLength="100" className={styles.fWire} />
+                        <line x1="178" y1="80" x2="246" y2="34" pathLength="100" className={styles.fPulseFwd} />
+                        <line x1="178" y1="80" x2="248" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="178" y1="80" x2="248" y2="80" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "0.5s" }} />
+                        <line x1="178" y1="80" x2="246" y2="126" pathLength="100" className={styles.fWire} />
+                        <line x1="178" y1="80" x2="246" y2="126" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "1s" }} />
+                        <circle cx="264" cy="34" r="18" className={styles.fNode} />
+                        <text x="264" y="41" textAnchor="middle" className={styles.fEmojiSm}>🎤</text>
+                        <circle cx="266" cy="80" r="18" className={styles.fNode} />
+                        <text x="266" y="87" textAnchor="middle" className={styles.fEmojiSm}>🛠️</text>
+                        <circle cx="264" cy="126" r="18" className={styles.fNode} />
+                        <text x="264" y="133" textAnchor="middle" className={styles.fEmojiSm}>⏳</text>
+                    </svg>
                 );
-            case 5: // Engines — dual keys, no servers
+            case 5: // Engines — direct wire, no servers
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.keyRow}>
-                            <span className={styles.keyChip}>⚡ GROQ<em>chat</em></span>
-                            <span className={styles.keyWire} aria-hidden="true" />
-                            <span className={styles.keyChip}>✨ GEMINI<em>planner</em></span>
-                        </div>
-                        <span className={styles.safeBadge}>🔒 0 servers • 0 accounts • keys never leave this phone</span>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Two engines wire straight to the phone, no servers in between">
+                        <circle cx="34" cy="44" r="22" className={`${styles.fNode} ${styles.fBob}`} />
+                        <text x="34" y="52" textAnchor="middle" className={styles.fEmojiSm}>⚡</text>
+                        <circle cx="34" cy="116" r="22" className={`${styles.fNode} ${styles.fBob}`} style={{ animationDelay: "1s" }} />
+                        <text x="34" y="124" textAnchor="middle" className={styles.fEmojiSm}>✨</text>
+                        <rect x="136" y="14" width="56" height="32" rx="6" className={styles.fBar} />
+                        <text x="164" y="37" textAnchor="middle" className={styles.fEmojiSm}>🗄️</text>
+                        <line x1="136" y1="14" x2="192" y2="46" className={styles.fX} />
+                        <line x1="192" y1="14" x2="136" y2="46" className={styles.fX} />
+                        <line x1="58" y1="44" x2="214" y2="66" pathLength="100" className={styles.fWire} />
+                        <line x1="58" y1="44" x2="214" y2="66" pathLength="100" className={styles.fPulseFwd} />
+                        <line x1="58" y1="116" x2="214" y2="94" pathLength="100" className={styles.fWire} />
+                        <line x1="58" y1="116" x2="214" y2="94" pathLength="100" className={styles.fPulseFwd} style={{ animationDelay: "0.7s" }} />
+                        <rect x="216" y="54" width="52" height="56" rx="10" className={styles.fNodeHot} />
+                        <text x="242" y="88" textAnchor="middle" className={styles.fEmoji}>📱</text>
+                    </svg>
                 );
-            case 6: // Sound — procedural EQ
+            case 6: // Sound — synthesized and pushed live
                 return (
-                    <div className={`${styles.slabBody} ${styles.eqRow}`} aria-hidden="true">
-                        {Array.from({ length: 12 }, (_, i) => (
-                            <span
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Sound is synthesized live and pushed through the speaker">
+                        {[0, 1, 2, 3, 4, 5].map((i) => (
+                            <rect
                                 key={i}
-                                className={styles.eqBar}
-                                style={{ animationDelay: `${(i % 5) * 0.13}s`, height: `${30 + ((i * 37) % 60)}%` }}
+                                x={42 + i * 18}
+                                y={96}
+                                width="10"
+                                height="34"
+                                rx="3"
+                                className={`${i % 2 ? styles.fBarViolet : styles.fBarNeon} ${styles.fEq}`}
+                                style={{ animationDelay: `${i * 0.13}s` }}
                             />
                         ))}
-                        <em className={styles.eqLabel}>Web Audio API • 0 MP3 files</em>
-                    </div>
+                        <line x1="156" y1="81" x2="204" y2="81" pathLength="100" className={styles.fWire} />
+                        <line x1="156" y1="81" x2="204" y2="81" pathLength="100" className={styles.fPulseFwd} />
+                        <rect x="208" y="58" width="36" height="46" rx="8" className={styles.fNodeHot} />
+                        <text x="226" y="88" textAnchor="middle" className={styles.fEmoji}>🔊</text>
+                        <path d="M252,68 Q264,81 252,94" className={`${styles.fWire} ${styles.fRing}`} />
+                        <path d="M252,56 Q274,81 252,106" className={`${styles.fWire} ${styles.fRing}`} style={{ animationDelay: "0.7s" }} />
+                    </svg>
                 );
-            case 7: // Armor — self-healing guards
+            case 7: // Armor — deflect, keep running
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.armorRow}>
-                            <span className={styles.armorShield} aria-hidden="true">🛡️</span>
-                            <div className={styles.armorPills}>
-                                <span className={styles.armorPill}>Breaker: CLOSED ✓</span>
-                                <span className={styles.armorPill}>Rate limit: synced</span>
-                                <span className={styles.armorPill}>Offline cache: warm ✓</span>
-                            </div>
-                        </div>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="The shield deflects failures, the phone keeps running">
+                        <text x="34" y="88" textAnchor="middle" className={`${styles.fEmoji} ${styles.fBolt}`}>⚡</text>
+                        <circle cx="150" cy="80" r="32" className={`${styles.fNodeHot} ${styles.fPop}`} />
+                        <text x="150" y="90" textAnchor="middle" className={styles.fEmoji}>🛡️</text>
+                        <line x1="184" y1="80" x2="212" y2="80" pathLength="100" className={styles.fWire} />
+                        <line x1="184" y1="80" x2="212" y2="80" pathLength="100" className={styles.fPulseFwd} />
+                        <rect x="216" y="56" width="50" height="50" rx="10" className={styles.fNode} />
+                        <text x="241" y="86" textAnchor="middle" className={`${styles.fEmoji} ${styles.fBob}`}>✅</text>
+                        <text x="150" y="140" textAnchor="middle" className={styles.fBadge}>2s pause • never a crash</text>
+                    </svg>
                 );
-            case 8: // Cockpit — observability gauges
+            case 8: // Cockpit — sweeping gauges
                 return (
-                    <div className={styles.slabBody}>
-                        <div className={styles.gaugeRow}><span>Model</span><div className={styles.miniBar} style={{ width: "70%" }} /></div>
-                        <div className={styles.gaugeRow}><span>Cooldowns</span><div className={styles.miniBar} style={{ width: "12%" }} /></div>
-                        <div className={styles.gaugeRow}><span>Memory</span><div className={styles.miniBar} style={{ width: "42%" }} /></div>
-                        <em className={styles.cockpitLabel}>prompts • models • TTLs — inspectable live</em>
-                    </div>
+                    <svg className={styles.flow} viewBox="0 0 300 160" role="img" aria-label="Live gauges sweep: models, cooldowns and memory at a glance">
+                        <path d="M40,90 A30,30 0 0 1 100,90" className={styles.fWire} />
+                        <polygon points="70,58 65,90 75,90" className={styles.fNeedle} />
+                        <circle cx="70" cy="90" r="4" className={styles.fNodeHot} />
+                        <path d="M120,90 A30,30 0 0 1 180,90" className={styles.fWire} />
+                        <polygon points="150,58 145,90 155,90" className={styles.fNeedle} style={{ animationDelay: "0.5s" }} />
+                        <circle cx="150" cy="90" r="4" className={styles.fNodeHot} />
+                        <path d="M200,90 A30,30 0 0 1 260,90" className={styles.fWire} />
+                        <polygon points="230,58 225,90 235,90" className={styles.fNeedle} style={{ animationDelay: "1s" }} />
+                        <circle cx="230" cy="90" r="4" className={styles.fNodeHot} />
+                        <rect x="40" y="126" width="70" height="10" rx="5" className={styles.fBar} />
+                        <rect x="40" y="126" width="70" height="10" rx="5" className={`${styles.fBarNeon} ${styles.fFill}`} />
+                        <rect x="130" y="126" width="70" height="10" rx="5" className={styles.fBar} />
+                        <rect x="130" y="126" width="70" height="10" rx="5" className={`${styles.fBarViolet} ${styles.fFill}`} style={{ animationDelay: "0.6s" }} />
+                        <rect x="220" y="126" width="70" height="10" rx="5" className={styles.fBar} />
+                        <rect x="220" y="126" width="70" height="10" rx="5" className={`${styles.fBarOk} ${styles.fFill}`} style={{ animationDelay: "1.2s" }} />
+                    </svg>
                 );
             default:
                 return null;
         }
     };
-
     return (
         <div
             className={styles.scrollViewport}
@@ -619,6 +663,15 @@ export default function PresentationView({ onFinish }) {
 
                 <div className={styles.phoneWrap} data-testid="phone">
                     <div className={styles.phoneBody}>
+                        {/* Physical 3D extrusion (reference: 'intermidiate' chassis) */}
+                        <span className={styles.phoneBackplate} aria-hidden="true" />
+                        <span className={styles.phoneEdge} aria-hidden="true" />
+
+                        {/* Status bar flanking the island */}
+                        <span className={styles.phoneStatus} aria-hidden="true">
+                            <em>14:30</em>
+                            <em>5G 🔋 98%</em>
+                        </span>
                         <span className={styles.phoneIsland} aria-hidden="true" />
 
                         <div className={styles.phoneScreen}>
@@ -666,6 +719,8 @@ export default function PresentationView({ onFinish }) {
                                 );
                             })}
                         </div>
+
+                        <span className={styles.phoneGlare} aria-hidden="true" />
                     </div>
                     <div className={styles.phoneShadow} aria-hidden="true" />
                 </div>

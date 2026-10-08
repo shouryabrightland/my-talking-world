@@ -200,18 +200,23 @@ describe("PresentationView — single-unit phone scrollytelling", () => {
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
-    it("layer screens carry the self-explanatory story text", () => {
+    it("every layer screen is a self-explanatory animated flow diagram", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
-        // Display: live chat + typing indicator.
-        expect(screen.getByText(/Ben is typing/i)).toBeTruthy();
-        // Reality: live grounding chips + news ticker.
-        expect(screen.getByText("🌡️ 32°C, Warm")).toBeTruthy();
-        // Memory: the 20k gauge.
-        expect(screen.getByText("8,432 / 20,000 chars")).toBeTruthy();
-        // Engines: on-device keys.
-        expect(screen.getByText(/keys never leave this phone/i)).toBeTruthy();
-        // Armor: self-healing guards.
-        expect(screen.getByText("Breaker: CLOSED ✓")).toBeTruthy();
+        // Nine SVG flowcharts (one per layer) — judges read shapes and
+        // motion, not paragraphs. Each carries a descriptive aria-label.
+        const flows = document.querySelectorAll("[data-testid^='screen-'] svg[role='img']");
+        expect(flows).toHaveLength(9);
+
+        expect(screen.getByRole("img", { name: /Live chat pipeline/i })).toBeTruthy();
+        expect(screen.getByRole("img", { name: /no servers in between/i })).toBeTruthy();
+        expect(screen.getByRole("img", { name: /shield deflects failures/i })).toBeTruthy();
+        expect(screen.getByRole("img", { name: /gauges sweep/i })).toBeTruthy();
+        expect(screen.getByRole("img", { name: /Timeline swap/i })).toBeTruthy();
+
+        // The old paragraph/text blocks are gone — visuals instead of text.
+        expect(screen.queryByText(/Ben is typing/i)).toBeNull();
+        expect(screen.queryByText(/8,432 \/ 20,000/)).toBeNull();
+        expect(screen.queryByText(/keys never leave this phone/i)).toBeNull();
     });
 });
