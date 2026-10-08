@@ -438,8 +438,7 @@ src/
 │   ├── prompts.js                   # Centralized prompt templates
 │   ├── sound.js                     # Web Audio synthesis engines
 │   ├── member.js                    # Character roster definitions
-│   ├── random.js                    # Deterministic random utilities
-│   └── deley.js                     # Async delay helper
+│   └── random.js                    # Deterministic random utilities
 └── mocks/                           # MSW handlers for testing
 ```
 
