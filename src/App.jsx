@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useCallback, useEffect, useState } from "react";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router";
 import ChatUX from "./components/Chat";
 import { useChat } from "./contexts/ChatContext";
 import { ConversationEvents } from "./classes/ConversationManager";
@@ -12,21 +13,41 @@ import { useOffline } from "./contexts/OfflineContext";
 import OfflineBanner from "./components/OfflineBanner";
 import PresentationView from "./components/presentation/PresentationView";
 
+/**
+ * Route table: the live studio lives at "/" and the pitch presentation at
+ * "/presentation". Legacy links carrying ?presentation=true are redirected
+ * so old bookmarks keep working.
+ * @returns {React.JSX.Element}
+ */
 export default function App() {
+    const location = useLocation();
+    const params = new URLSearchParams(location.search);
+
+    return (
+        <Routes>
+            <Route path="/presentation" element={<PresentationRoute />} />
+            <Route
+                path="/"
+                element={params.get("presentation") === "true"
+                    ? <Navigate to="/presentation" replace />
+                    : <Studio />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+    );
+}
+
+/** Presentation at /presentation — Escape/skip/finale all navigate back to "/". */
+function PresentationRoute() {
+    const navigate = useNavigate();
+    return <PresentationView onFinish={() => navigate("/")} />;
+}
+
+/** The studio application (previously the whole App component). */
+function Studio() {
     const conv = useChat();
     const { isOnline } = useOffline();
-
-    // Presentation Mode toggle:
-    // Defaults to true for human presenters/judges; Playwright automated test runs bypass it.
-    const [showPresentation, setShowPresentation] = useState(() => {
-        if (typeof window !== "undefined") {
-            const params = new URLSearchParams(window.location.search);
-            if (params.get("presentation") === "false") return false;
-            if (params.get("presentation") === "true") return true;
-            if (navigator.webdriver && !params.has("presentation")) return false;
-        }
-        return true;
-    });
+    const navigate = useNavigate();
 
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [hasKey, setHasKey] = useState(() => hasApiKey() && hasGeminiApiKey());
@@ -44,12 +65,13 @@ export default function App() {
     /** @type {[string|null, React.Dispatch<React.SetStateAction<string|null>>]} */
     const [initError, setInitError] = useState(/** @type {string|null} */ (null));
 
-    // Listen for custom trigger event to replay presentation tour from Header or Lobby
+    // Listen for custom trigger event to replay presentation tour from Header or Lobby.
+    // The presentation now lives on its own route (/presentation).
     useEffect(() => {
-        const handleOpenTour = () => setShowPresentation(true);
+        const handleOpenTour = () => navigate("/presentation");
         window.addEventListener("tgf:open-presentation", handleOpenTour);
         return () => window.removeEventListener("tgf:open-presentation", handleOpenTour);
-    }, []);
+    }, [navigate]);
 
     // Auto-login when coming back online after being offline.
     // ConversationManager.init() is single-flight, so racing the login handler
@@ -137,11 +159,6 @@ export default function App() {
             setIsReady(true);
         }
     }, [conv]);
-
-    // 0. Presentation View
-    if (showPresentation) {
-        return <PresentationView onFinish={() => setShowPresentation(false)} />;
-    }
 
     // 1. Offline Mode handling
     if (!isOnline) {

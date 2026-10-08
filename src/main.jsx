@@ -14,6 +14,7 @@
 
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router";
 import App from "./App";
 import Logger from "./classes/lib/Logger";
 import ConversationManager from "./classes/ConversationManager";
@@ -56,17 +57,19 @@ if (!rootEl) {
 ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
         <ErrorBoundary>
-            <OfflineProvider>
-                <ThemeProvider>
-                    <ChatProvider ConversationManager={conv}>
-                        <DevToolsProvider>
-                            <BackgroundBarProvider>
-                                <App />
-                            </BackgroundBarProvider>
-                        </DevToolsProvider>
-                    </ChatProvider>
-                </ThemeProvider>
-            </OfflineProvider>
+            <BrowserRouter>
+                <OfflineProvider>
+                    <ThemeProvider>
+                        <ChatProvider ConversationManager={conv}>
+                            <DevToolsProvider>
+                                <BackgroundBarProvider>
+                                    <App />
+                                </BackgroundBarProvider>
+                            </DevToolsProvider>
+                        </ChatProvider>
+                    </ThemeProvider>
+                </OfflineProvider>
+            </BrowserRouter>
         </ErrorBoundary>
     </React.StrictMode>
 );
