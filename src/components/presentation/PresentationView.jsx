@@ -3,31 +3,28 @@
 
 /**
  * @file PresentationView.jsx
- * 3D Scrollytelling Presentation System for Tom & Friends.
- *
- * Combines full 11-feature architectural depth with 3D camera zoom, component
- * 3D elevation, interactive phone UI, holographic tooltips, and live Studio Lobby finale.
+ * High-Zoom 3D Scrollytelling Presentation System for Tom & Friends.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "./PresentationView.module.css";
 import Avatar from "../Avatar";
-import { Tom, Angela, Ben, Ginger, Hank, Becca, Members } from "../../util/member";
+import { Tom, Angela, Ben, Ginger, Hank, Becca } from "../../util/member";
 import { Sound } from "../../util/sound";
 
 /**
  * @typedef {Object} PresentationFeatureScene
  * @property {number} id 1-based step id.
- * @property {string} code Zero-padded step code ("01" - "11").
- * @property {string} label Short label for HUD pills.
- * @property {"intro"|"layer"|"finale"} role Arc position.
+ * @property {string} code Zero-padded step code ("01" - "12").
+ * @property {string} label Short label for HUD navigation pills.
+ * @property {"intro"|"layer"|"bifurcated"|"finale"} role Arc position.
  * @property {string} tag Category tag.
  * @property {string} headline Giant headline.
- * @property {string} headlineGradient Gradient headline highlight.
- * @property {string} blurb Concise plain-language explanation for evaluators.
- * @property {string[]} files Source modules this step demonstrates.
+ * @property {string} headlineGradient Gradient highlight.
+ * @property {string} blurb Concise plain-language explanation.
+ * @property {string[]} files Source modules demonstrated.
  * @property {Array<{ icon: string, label: string, desc: string }>} metrics Highlight pills.
- * @property {{ title: string, subtitle: string, badge: string, desc: string }} tooltip Floating holographic card.
+ * @property {{ title: string, subtitle: string, badge: string, desc: string }} tooltip Holographic callout.
  * @property {string} cameraTarget Viewport zoom target.
  */
 
@@ -50,7 +47,7 @@ export const PRESENTATION_LAYERS = [
             badge: "LIVING STUDIO",
             title: "Autonomous Multi-Agent World",
             subtitle: "Lucknow Garage Studio",
-            desc: "Characters converse autonomously, form lifelong memories, and continue their lives even when you close the tab."
+            desc: "Characters converse autonomously, form lifelong memories, and continue their lives even when you close the app."
         }
     },
     {
@@ -95,7 +92,7 @@ export const PRESENTATION_LAYERS = [
     },
     {
         id: 4, code: "04", label: "Director", role: "layer",
-        tag: "DIRECTOR GOD-MODE",
+        tag: "DIRECTOR DEMAND ENGINE",
         headline: "YOU ARE NOT JUST A USER.",
         headlineGradient: "YOU ARE THE DIRECTOR.",
         blurb: "Stop watching the sitcom. Take the director's chair and guide the 24-hour narrative arc. Type any demand or select from 200+ sitcom cues to restructure the day's timeline with live visual proposal diffs.",
@@ -107,7 +104,7 @@ export const PRESENTATION_LAYERS = [
         ],
         cameraTarget: "planner",
         tooltip: {
-            badge: "POP-OUT: DIRECTOR DRAWER",
+            badge: "PLANNER DRAWER • DEMAND ENGINE",
             title: "24-Hour Storyline Engine",
             subtitle: "Gemini Flash 65K Normalizer",
             desc: "Restructures the entire day in real-time, staging non-destructive proposals (+PROPOSED in green, −REMOVED in red) for human approval."
@@ -119,7 +116,7 @@ export const PRESENTATION_LAYERS = [
         headline: "THEY REMEMBER",
         headlineGradient: "EVERYTHING.",
         blurb: "Traditional chatbots suffer from catastrophic amnesia. Our characters form persistent relationships using a dual-tier memory engine: 15-minute transient postures and permanent life secrets, with Gemma auto-compression at 20,000 characters.",
-        files: ["UnifiedMemory.js", "SituationEngine.js"],
+        files: ["UnifiedMemory.js", "SituationEngine.js", "SettingsModal.jsx"],
         metrics: [
             { icon: "⏳", label: "Dual Memory", desc: "15m Postures vs Permanent Facts" },
             { icon: "🎂", label: "Dynamic Ages", desc: "Living Calendar Birthdays" },
@@ -127,7 +124,7 @@ export const PRESENTATION_LAYERS = [
         ],
         cameraTarget: "memory",
         tooltip: {
-            badge: "POP-OUT: MEMORY VAULT",
+            badge: "SETTINGS MODAL • MEMORY VAULT",
             title: "20,000-Char Episodic Vault",
             subtitle: "Dual-Tier Memory & Dynamic Ages",
             desc: "Stores posture friction (15m) alongside deep promises and dynamic birthdays. Gemma compacts the stack when the 20k budget is reached."
@@ -139,18 +136,18 @@ export const PRESENTATION_LAYERS = [
         headline: "A 14MB AI CHIP",
         headlineGradient: "ON YOUR DEVICE.",
         blurb: "Needle 2 — a 14MB on-device model running in a background Web Worker — routes user messages in under 1 millisecond. It extracts search keywords and speaker targets with zero network delay, even when completely offline.",
-        files: ["NeedleRouter.js", "needleWorker.js"],
+        files: ["NeedleRouter.js", "needleWorker.js", "footer.jsx"],
         metrics: [
             { icon: "⚡", label: "<1ms Routing", desc: "Deterministic Turn Dispatch" },
             { icon: "📦", label: "14MB Wasm", desc: "Local Compact Binary" },
             { icon: "🌐", label: "100% Offline", desc: "Zero Network Overhead" }
         ],
-        cameraTarget: "chip",
+        cameraTarget: "needle",
         tooltip: {
-            badge: "POP-OUT: NEEDLE CHIP",
+            badge: "FOCUSED INPUT BOX • NEEDLE ROUTER",
             title: "Needle 2 On-Device Router",
             subtitle: "14MB Wasm • <1ms Route Budget",
-            desc: "Decides which character speaks next and extracts relevant memory tags instantly without touching external servers."
+            desc: "Decides which character speaks next and extracts relevant memory tags instantly from the user's keystrokes."
         }
     },
     {
@@ -165,11 +162,11 @@ export const PRESENTATION_LAYERS = [
             { icon: "⚡", label: "Dual AI Core", desc: "Groq Banter + Gemini Planning" },
             { icon: "🛡️", label: "Self-Healing", desc: "Auto-Corruption Recovery" }
         ],
-        cameraTarget: "engines",
+        cameraTarget: "dualcore",
         tooltip: {
-            badge: "POP-OUT: DUAL AI CORE",
+            badge: "3D LAYERED HIERARCHY",
             title: "Client-Side Sovereignty",
-            subtitle: "Direct Provider Isolation",
+            subtitle: "IndexedDB Foundation + Dual Wings",
             desc: "Groq is strictly for sub-second chat; Gemini is strictly for 24h planning. Chat history never touches any remote database."
         }
     },
@@ -187,7 +184,7 @@ export const PRESENTATION_LAYERS = [
         ],
         cameraTarget: "sound",
         tooltip: {
-            badge: "POP-OUT: SOUND ENGINE",
+            badge: "SETTINGS MODAL • GENERAL MIXER",
             title: "Procedural Audio Synthesizer",
             subtitle: "Web Audio API • 3-Channel Mixer",
             desc: "Synthesizes ambient room tone, theme melodies (112 BPM), and character-specific oscillator voice blips on the fly."
@@ -199,7 +196,7 @@ export const PRESENTATION_LAYERS = [
         headline: "UNBREAKABLE",
         headlineGradient: "ENGINE ARMOR.",
         blurb: "Built for real-world school laptops and flaky Wi-Fi. Multi-tiered resilience protects the simulation: automatic model failover chains, circuit breakers, server-timed rate limit pacing, and PWA offline service worker caching.",
-        files: ["CircuitBreaker.js", "RateLimiter.js", "sw.js"],
+        files: ["CircuitBreaker.js", "RateLimiter.js", "BackgroundBar.jsx"],
         metrics: [
             { icon: "🛡️", label: "Circuit Breaker", desc: "Prevents Cascading Hangs" },
             { icon: "📶", label: "PWA Service Worker", desc: "Full Offline App Shell" },
@@ -207,7 +204,7 @@ export const PRESENTATION_LAYERS = [
         ],
         cameraTarget: "armor",
         tooltip: {
-            badge: "POP-OUT: ARMOR PLATE",
+            badge: "BACKGROUNDBAR • CIRCUIT SHIELD",
             title: "Multi-Tier Fault Tolerance",
             subtitle: "Circuit Breakers & Rate Limits",
             desc: "If an endpoint is rate-limited or fails, the engine absorbs it with a 2-second pause instead of crashing."
@@ -227,14 +224,34 @@ export const PRESENTATION_LAYERS = [
         ],
         cameraTarget: "cockpit",
         tooltip: {
-            badge: "POP-OUT: COCKPIT",
+            badge: "DEVTOOLS DRAWER • PROMPTS TAB",
             title: "DevTools Observability",
             subtitle: "Live Token Meters & Traces",
             desc: "Inspect live prompt payloads, token counts, thinking chains, system state JSON, and per-model health probes directly inside the app."
         }
     },
     {
-        id: 11, code: "11", label: "Wheel", role: "finale",
+        id: 11, code: "11", label: "Exploded", role: "bifurcated",
+        tag: "FULL ARCHITECTURAL DISSECTION",
+        headline: "THE COMPLETE",
+        headlineGradient: "LIVING SITCOM STACK.",
+        blurb: "Every single layer decoupled and running client-side on your device: from the 14MB Wasm router to dual-provider isolation and self-healing IndexedDB storage.",
+        files: ["Chat.jsx", "WorldSetter.js", "UnifiedMemory.js", "GroqClient.js"],
+        metrics: [
+            { icon: "📁", label: "52 Source Modules", desc: "Strict Type Safety" },
+            { icon: "⚡", label: "28,000+ LoC", desc: "Zero Technical Debt" },
+            { icon: "🧪", label: "371/371 Vitest", desc: "100% Test Pass Rate" }
+        ],
+        cameraTarget: "bifurcated",
+        tooltip: {
+            badge: "ALL LAYERS EXPLODED",
+            title: "Full-Width Bifurcated Stack",
+            subtitle: "Hardware & Software Co-Design",
+            desc: "All components floating in 3D perspective across the canvas, demonstrating complete client-side sovereignty."
+        }
+    },
+    {
+        id: 12, code: "12", label: "Wheel", role: "finale",
         tag: "LIVE STUDIO ACCESS",
         headline: "DON'T TAKE OUR WORD.",
         headlineGradient: "TAKE THE WHEEL.",
@@ -317,7 +334,7 @@ export default function PresentationView({ onFinish }) {
         weekday: "short", day: "numeric", month: "short", year: "numeric"
     });
 
-    // Viewport camera zoom & pan targeting the specific active component
+    // High-Zoom Viewport Camera Transform Calculations
     const getCameraTransform = () => {
         if (activeScene.role === "finale") {
             return "rotateX(0deg) rotateY(0deg) rotateZ(0deg) translate3d(0, 0, 0) scale(1)";
@@ -327,24 +344,26 @@ export default function PresentationView({ onFinish }) {
         const baseRotY = -15 + mouseTilt.x;
 
         switch (activeScene.cameraTarget) {
-            case "scenebar": // Act 3: SceneBar
-                return `rotateX(${baseRotX - 1}deg) rotateY(${baseRotY}deg) translate3d(-10px, 50px, 40px) scale(1.16)`;
-            case "message": // Act 2: Speech Bubble & Thought
-                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 12px, 45px) scale(1.18)`;
-            case "planner": // Act 4: Director Drawer
-                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -25px, 45px) scale(1.18)`;
-            case "memory": // Act 5: Memory Vault
-                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 15px, 40px) scale(1.15)`;
-            case "chip": // Act 6: Needle 2 Wasm
-                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 15px, 40px) scale(1.15)`;
-            case "engines": // Act 7: Dual AI Core
-                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 10px, 40px) scale(1.15)`;
-            case "sound": // Act 8: Sound Mixer
-                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -15px, 40px) scale(1.16)`;
-            case "armor": // Act 9: Armor Plate
-                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 10px, 40px) scale(1.15)`;
-            case "cockpit": // Act 10: Cockpit
-                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -15px, 40px) scale(1.16)`;
+            case "scenebar": // Act 3: SceneBar (Top high zoom)
+                return `rotateX(${baseRotX - 2}deg) rotateY(${baseRotY}deg) translate3d(-10px, 95px, 60px) scale(1.45)`;
+            case "message": // Act 2: Speech Bubble & Thought (Center high zoom)
+                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 15px, 65px) scale(1.48)`;
+            case "planner": // Act 4: Director Drawer (Lower-middle high zoom)
+                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -35px, 65px) scale(1.48)`;
+            case "memory": // Act 5: Memory Vault in Settings (Center high zoom)
+                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, -15px, 65px) scale(1.48)`;
+            case "needle": // Act 6: Input Box & Needle Chip (Bottom extreme high zoom)
+                return `rotateX(${baseRotX + 2}deg) rotateY(${baseRotY}deg) translate3d(0, -95px, 75px) scale(1.62)`;
+            case "dualcore": // Act 7: 3D Layered Hierarchy (Dramatic 3D perspective)
+                return `rotateX(${baseRotX + 12}deg) rotateY(${baseRotY - 4}deg) translate3d(0, 0, 70px) scale(1.22)`;
+            case "sound": // Act 8: Sound Mixer in Settings (Lower high zoom)
+                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -35px, 65px) scale(1.48)`;
+            case "armor": // Act 9: BackgroundBar & Shield (Top-center high zoom)
+                return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 75px, 60px) scale(1.45)`;
+            case "cockpit": // Act 10: DevTools Prompts (Lower-center high zoom)
+                return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -20px, 65px) scale(1.48)`;
+            case "bifurcated": // Act 11: All Layers Exploded
+                return `rotateX(${baseRotX + 6}deg) rotateY(${baseRotY - 6}deg) translate3d(0, -10px, 10px) scale(0.9)`;
             case "hero":
             default:
                 return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(0, 0, 0) scale(0.95)`;
@@ -393,7 +412,7 @@ export default function PresentationView({ onFinish }) {
                 <aside className={styles.pitchSideColumn}>
                     <div className={styles.hudCard} key={activeScene.id} data-testid={`caption-${activeScene.id}`}>
                         <div className={styles.actTagRow}>
-                            <span className={styles.actTagBadge}>STEP {activeScene.code} / 11</span>
+                            <span className={styles.actTagBadge}>STEP {activeScene.code} / 12</span>
                             <span className={styles.categoryTag}>{activeScene.tag}</span>
                         </div>
 
@@ -451,16 +470,16 @@ export default function PresentationView({ onFinish }) {
                 </aside>
 
                 {/* =========================================================
-                   RIGHT COLUMN: 3D Stage with Zoom, Elevation & Hologram
+                   RIGHT COLUMN: 3D Stage with Zoom, Pop-Out & Popups
                    ========================================================= */}
                 <main className={styles.stage3DColumn}>
                     <div className={styles.chassisBackdropHalo} />
 
                     <div className={styles.perspectiveChamber}>
-                        {/* Nested Camera Rig: Pans & Zooms Viewport smoothly */}
+                        {/* Nested Camera Rig: Pans & High-Zooms Viewport smoothly */}
                         <div className={styles.cameraRig} style={{ transform: getCameraTransform() }}>
                             <div
-                                className={`${styles.phoneChassis} ${activeScene.role === "finale" ? styles.chassisAssembled : ""}`}
+                                className={`${styles.phoneChassis} ${activeScene.role === "finale" ? styles.chassisAssembled : ""} ${activeScene.role === "bifurcated" ? styles.phoneBifurcatedFrame : ""}`}
                                 data-testid="phone"
                             >
                                 {/* Physical 3D Extrusion Backplate */}
@@ -489,210 +508,191 @@ export default function PresentationView({ onFinish }) {
                                         </div>
                                     </div>
 
-                                    {/* SceneBar: Pop-Out Elevation in Step 3 */}
-                                    <div className={`${styles.sceneBarContainer} ${activeScene.cameraTarget === "scenebar" ? styles.focusElevatedBar : ""}`}>
-                                        <div className={styles.marqueeTrack}>
-                                            <span className={styles.marqueeText}>
-                                                📍 Lucknow • 🌤️ 32°C, Warm • 🎯 Casual Banter • ⚡ Goal: Relax with samosas • 📰 India GDP accelerates
-                                            </span>
+                                    {/* Step 9: Armor BackgroundBar Notification Highlight */}
+                                    {activeScene.cameraTarget === "armor" ? (
+                                        <div className={`${styles.sceneBarContainer} ${styles.focusElevatedArmor}`}>
+                                            <span className={styles.armorBarIcon}>🛡️</span>
+                                            <span className={styles.armorBarText}>Circuit Breaker [CLOSED] • Rate Limiter [ACTIVE]</span>
+                                            <span className={styles.armorSafePill}>SAFE</span>
                                         </div>
-                                        <div className={styles.equalizerTag}>
-                                            <span className={styles.eqWave} />
-                                            <span className={styles.eqWave} />
-                                            <span className={styles.eqWave} />
-                                            <span>ON</span>
+                                    ) : (
+                                        /* SceneBar: Pop-Out Elevation in Step 3 */
+                                        <div className={`${styles.sceneBarContainer} ${activeScene.cameraTarget === "scenebar" ? styles.focusElevatedBar : ""}`}>
+                                            <div className={styles.marqueeTrack}>
+                                                <span className={styles.marqueeText}>
+                                                    📍 Lucknow • 🌤️ 32°C, Warm • 🎯 Casual Banter • ⚡ Goal: Relax with samosas • 📰 India GDP accelerates
+                                                </span>
+                                            </div>
+                                            <div className={styles.equalizerTag}>
+                                                <span className={styles.eqWave} />
+                                                <span className={styles.eqWave} />
+                                                <span className={styles.eqWave} />
+                                                <span>ON</span>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
 
-                                    {/* Chat Feed Canvas */}
+                                    {/* Central Chat Feed & Interactive Popups */}
                                     <div className={styles.chatFeedArea}>
-                                        {/* Step 4: Director Storyline Planner Drawer View */}
+                                        {/* Step 4: Real Storyline Planner Drawer Popup */}
                                         {activeScene.cameraTarget === "planner" && (
-                                            <div className={`${styles.plannerDrawerOverlay} ${styles.focusElevatedPlanner}`}>
-                                                <div className={styles.plannerHeader}>
-                                                    <span>🎬 Director Demand Engine</span>
-                                                    <span className={styles.geminiBadge}>Gemini Flash 65K</span>
+                                            <div className={styles.modalDrawerMockWrapper}>
+                                                <div className={styles.drawerHeaderMock}>
+                                                    <span className={styles.drawerHeaderTitle}>Storyline Scheduler</span>
+                                                    <span className={styles.drawerHeaderClose}>✕</span>
                                                 </div>
-
-                                                <div className={styles.demandBox}>
-                                                    <span>"A stray puppy enters the garage at 5 PM"</span>
-                                                    <span className={styles.stagedBadge}>⚡ Staged</span>
-                                                </div>
-
-                                                <div className={styles.diffCardProposed}>
-                                                    <span className={styles.diffAdd}>+ PROPOSED</span>
-                                                    <strong>17:00 - 18:30 • Rescue the Stray Puppy</strong>
-                                                </div>
-                                                <div className={styles.diffCardRemoved}>
-                                                    <span className={styles.diffSub}>− REMOVED</span>
-                                                    <del>17:00 - 18:30 • Casual Garage Gaming</del>
-                                                </div>
-
-                                                <div className={styles.diffActions}>
-                                                    <span className={styles.acceptBtn}>✓ Accept Twist</span>
-                                                    <span className={styles.denyBtn}>✕ Deny</span>
+                                                <div className={`${styles.plannerDemandHighlightCard} ${styles.focusElevatedPlanner}`}>
+                                                    <div className={styles.plannerHeader}>
+                                                        <span>🎬 Director Demand Engine</span>
+                                                        <span className={styles.geminiBadge}>Gemini Flash 65K</span>
+                                                    </div>
+                                                    <div className={styles.demandBox}>
+                                                        <span>"A stray puppy enters the garage at 5 PM"</span>
+                                                        <span className={styles.stagedBadge}>⚡ Staged</span>
+                                                    </div>
+                                                    <div className={styles.diffCardProposed}>
+                                                        <span className={styles.diffAdd}>+ PROPOSED</span>
+                                                        <strong>17:00 - 18:30 • Rescue the Stray Puppy</strong>
+                                                    </div>
+                                                    <div className={styles.diffCardRemoved}>
+                                                        <span className={styles.diffSub}>− REMOVED</span>
+                                                        <del>17:00 - 18:30 • Casual Garage Gaming</del>
+                                                    </div>
+                                                    <div className={styles.diffActions}>
+                                                        <span className={styles.acceptBtn}>✓ Accept Twist</span>
+                                                        <span className={styles.denyBtn}>✕ Deny</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Step 5: Memory Vault Display */}
+                                        {/* Step 5: Settings Modal Popup (Unified Memory Tab Highlighted) */}
                                         {activeScene.cameraTarget === "memory" && (
-                                            <div className={`${styles.memoryVaultCard} ${styles.focusElevatedCard}`}>
-                                                <div className={styles.vaultHeaderRow}>
-                                                    <span className={styles.vaultTitle}>🧠 20k Episodic Memory Vault</span>
-                                                    <span className={styles.vaultGaugeText}>8,432 / 20,000 chars</span>
+                                            <div className={styles.modalDrawerMockWrapper}>
+                                                <div className={styles.settingsTabRowMock}>
+                                                    <span className={styles.settingsTabInactive}>⚙️ General</span>
+                                                    <span className={styles.settingsTabInactive}>🎭 Cast</span>
+                                                    <span className={styles.settingsTabActive}>🧠 Memory</span>
                                                 </div>
-
-                                                <div className={styles.vaultItem}>
-                                                    <span className={styles.vaultKey}>📌 Tom: [Mood: Hyper-Excited]</span>
-                                                    <span className={styles.ttlTag}>15m TTL</span>
-                                                </div>
-                                                <div className={styles.vaultItem}>
-                                                    <span className={styles.vaultKey}>📌 Ben: [Secret: Hidden battery pack in garage]</span>
-                                                    <span className={styles.foreverTag}>Permanent</span>
-                                                </div>
-                                                <div className={styles.vaultItem}>
-                                                    <span className={styles.vaultKey}>📌 Hank: [Posture: Eating samosas by the door]</span>
-                                                    <span className={styles.ttlTag}>15m TTL</span>
-                                                </div>
-
-                                                <div className={styles.gemmaBadge}>
-                                                    🗜️ Gemma Auto-Compression Active
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Step 6: Needle 2 Wasm Router */}
-                                        {activeScene.cameraTarget === "chip" && (
-                                            <div className={`${styles.needleChipCard} ${styles.focusElevatedCard}`}>
-                                                <div className={styles.chipHeaderRow}>
-                                                    <span className={styles.chipTitle}>⚙️ Needle 2 On-Device Router</span>
-                                                    <span className={styles.chipLatencyBadge}>⚡ &lt;1ms</span>
-                                                </div>
-
-                                                <div className={styles.chipPipelineRow}>
-                                                    <span className={styles.chipNode}>User Input</span>
-                                                    <span className={styles.chipArrow}>➔</span>
-                                                    <span className={styles.chipNodeCore}>Needle Wasm (14MB)</span>
-                                                    <span className={styles.chipArrow}>➔</span>
-                                                    <span className={styles.chipNode}>Target: Tom</span>
-                                                </div>
-
-                                                <div className={styles.chipOfflineText}>
-                                                    🌐 Operates 100% Client-Side with Zero Network Latency
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Step 7: Dual AI Core & Local Storage */}
-                                        {activeScene.cameraTarget === "engines" && (
-                                            <div className={`${styles.architectureFlowchart} ${styles.focusElevatedCard}`}>
-                                                <div className={styles.flowchartBanner}>
-                                                    <span>🛡️ DUAL AI CORE • ZERO REMOTE SERVERS</span>
-                                                </div>
-
-                                                <div className={styles.flowchartPipeline}>
-                                                    <div className={styles.pipelineRow}>
-                                                        <div className={styles.pipelineNodeHighlight}>
-                                                            <strong className={styles.nodeTitle}>Groq Cloud (LPU)</strong>
-                                                            <span className={styles.nodeFile}>Sub-Second Banter</span>
-                                                        </div>
-                                                        <span className={styles.pipelineArrow}>⇄</span>
-                                                        <div className={styles.pipelineNodeHighlight}>
-                                                            <strong className={styles.nodeTitle}>Gemini AI Studio</strong>
-                                                            <span className={styles.nodeFile}>65K Macro Planner</span>
-                                                        </div>
+                                                <div className={`${styles.memoryVaultHighlightCard} ${styles.focusElevatedCard}`}>
+                                                    <div className={styles.vaultHeaderRow}>
+                                                        <span className={styles.vaultTitle}>📊 20k Memory Vault Budget</span>
+                                                        <span className={styles.vaultGaugeText}>8,432 / 20,000 chars</span>
                                                     </div>
-
-                                                    <div className={styles.pipelineArrowDown}>↓</div>
-
-                                                    <div className={styles.pipelineNodeStorage}>
-                                                        <strong className={styles.storageTitle}>💾 Private IndexedDB (Storage.js)</strong>
-                                                        <span className={styles.storageSubtitle}>
-                                                            100% Client-Side DB • Zero Cloud Logging
-                                                        </span>
+                                                    <div className={styles.vaultBarTrack}>
+                                                        <div className={styles.vaultBarFill} style={{ width: "42%" }} />
+                                                    </div>
+                                                    <div className={styles.vaultItem}>
+                                                        <span className={styles.vaultKey}>📌 Tom: [Mood: Hyper-Excited]</span>
+                                                        <span className={styles.ttlTag}>15m TTL</span>
+                                                    </div>
+                                                    <div className={styles.vaultItem}>
+                                                        <span className={styles.vaultKey}>📌 Ben: [Secret: Hidden battery pack]</span>
+                                                        <span className={styles.foreverTag}>Permanent</span>
+                                                    </div>
+                                                    <div className={styles.gemmaBadge}>
+                                                        🗜️ Gemma Auto-Compression Active
                                                     </div>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Step 8: Procedural Web Audio Synth */}
+                                        {/* Step 7: Dual AI Core as a 3D Layered Hierarchy */}
+                                        {activeScene.cameraTarget === "dualcore" && (
+                                            <div className={styles.dualCore3DStack}>
+                                                {/* Top Twin AI Wings */}
+                                                <div className={styles.tier3DWings}>
+                                                    <div className={styles.wingGroq}>
+                                                        <span className={styles.wingIcon}>⚡</span>
+                                                        <strong>Groq LPU</strong>
+                                                        <span className={styles.wingSub}>Sub-Second Banter</span>
+                                                    </div>
+                                                    <div className={styles.wingGemini}>
+                                                        <span className={styles.wingIcon}>✨</span>
+                                                        <strong>Gemini Flash</strong>
+                                                        <span className={styles.wingSub}>65K Macro Planner</span>
+                                                    </div>
+                                                </div>
+                                                <div className={styles.tier3DConnector}>⇕ ⇕</div>
+                                                {/* Core Runtime Engine */}
+                                                <div className={styles.tier3DCore}>
+                                                    <strong>🧠 ConversationManager &amp; World</strong>
+                                                    <span>Client Engine (Zero Remote Middleman)</span>
+                                                </div>
+                                                <div className={styles.tier3DConnector}>⇕ ⇕</div>
+                                                {/* Foundation Base: IndexedDB */}
+                                                <div className={styles.tier3DStorageBase}>
+                                                    <strong>💾 Browser IndexedDB (Storage.js)</strong>
+                                                    <span>100% Client-Side Sovereign Storage • Self-Healing</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Step 8: Settings Modal Popup (General Tab Web Audio Mixer) */}
                                         {activeScene.cameraTarget === "sound" && (
-                                            <div className={`${styles.soundMixerCard} ${styles.focusElevatedCard}`}>
-                                                <div className={styles.mixerHeaderRow}>
-                                                    <span className={styles.mixerTitle}>🎚️ Web Audio Procedural Synth</span>
-                                                    <span className={styles.bpmBadge}>112 BPM</span>
+                                            <div className={styles.modalDrawerMockWrapper}>
+                                                <div className={styles.settingsTabRowMock}>
+                                                    <span className={styles.settingsTabActive}>⚙️ General</span>
+                                                    <span className={styles.settingsTabInactive}>🎭 Cast</span>
+                                                    <span className={styles.settingsTabInactive}>🧠 Memory</span>
                                                 </div>
-
-                                                <div className={styles.mixerSliderItem}>
-                                                    <span>Master Volume (50%)</span>
-                                                    <div className={styles.mockSliderBar} style={{ "--fill": "50%" }} />
-                                                </div>
-                                                <div className={styles.mixerSliderItem}>
-                                                    <span>Theme Melody (75%)</span>
-                                                    <div className={styles.mockSliderBar} style={{ "--fill": "75%" }} />
-                                                </div>
-                                                <div className={styles.mixerSliderItem}>
-                                                    <span>Room Air (Brown Noise)</span>
-                                                    <div className={styles.mockSliderBar} style={{ "--fill": "20%" }} />
-                                                </div>
-
-                                                <div className={styles.mixerPresetsRow}>
-                                                    <span className={styles.presetTagActive}>🎉 Sitcom</span>
-                                                    <span className={styles.presetTag}>☕ Cozy Lounge</span>
-                                                    <span className={styles.presetTag}>🌙 Sleep</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Step 9: Armor Plate Resilience */}
-                                        {activeScene.cameraTarget === "armor" && (
-                                            <div className={`${styles.armorShieldCard} ${styles.focusElevatedCard}`}>
-                                                <div className={styles.shieldHeaderRow}>
-                                                    <span className={styles.shieldTitle}>🛡️ Engine Armor & Resilience</span>
-                                                    <span className={styles.armorOkBadge}>ACTIVE</span>
-                                                </div>
-
-                                                <div className={styles.armorFeatureList}>
-                                                    <div className={styles.armorCheckItem}>✅ Circuit Breaker: Prevents Cascading Freezes</div>
-                                                    <div className={styles.armorCheckItem}>✅ Rate Limiter: Enforces Server-Timed Reset Windows</div>
-                                                    <div className={styles.armorCheckItem}>✅ PWA Service Worker: Full Cache-First Offline Shell</div>
-                                                    <div className={styles.armorCheckItem}>✅ Self-Healing Database: Auto-Repairs IndexedDB</div>
+                                                <div className={`${styles.soundMixerHighlightCard} ${styles.focusElevatedCard}`}>
+                                                    <div className={styles.mixerHeaderRow}>
+                                                        <span className={styles.mixerTitle}>🎵 Ambient Sound Studio</span>
+                                                        <span className={styles.bpmBadge}>112 BPM</span>
+                                                    </div>
+                                                    <div className={styles.mixerSliderItem}>
+                                                        <span>Theme Melody (75%)</span>
+                                                        <div className={styles.mockSliderBar} style={{ "--fill": "75%" }} />
+                                                    </div>
+                                                    <div className={styles.mixerSliderItem}>
+                                                        <span>Master Volume (50%)</span>
+                                                        <div className={styles.mockSliderBar} style={{ "--fill": "50%" }} />
+                                                    </div>
+                                                    <div className={styles.mixerPresetsRow}>
+                                                        <span className={styles.presetTagActive}>🎉 Sitcom</span>
+                                                        <span className={styles.presetTag}>☕ Cozy Lounge</span>
+                                                        <span className={styles.presetTag}>🌙 Sleep</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Step 10: Cockpit Observability */}
+                                        {/* Step 10: DevTools Drawer Popup (Prompts Tab Highlighted) */}
                                         {activeScene.cameraTarget === "cockpit" && (
-                                            <div className={`${styles.cockpitCard} ${styles.focusElevatedCard}`}>
-                                                <div className={styles.cockpitHeaderRow}>
-                                                    <span className={styles.cockpitTitle}>📈 DevTools Cockpit Suite</span>
-                                                    <span className={styles.cockpitBadge}>PROMPT TRACES</span>
+                                            <div className={styles.modalDrawerMockWrapper}>
+                                                <div className={styles.devtoolsTabRowMock}>
+                                                    <span className={styles.devtoolsTabInactive}>🧩 State</span>
+                                                    <span className={styles.devtoolsTabInactive}>📋 Logs</span>
+                                                    <span className={styles.devtoolsTabActive}>🤖 Prompts (5)</span>
                                                 </div>
-
-                                                <div className={styles.cockpitTraceBox}>
-                                                    <div className={styles.traceMeta}>Model: openai/gpt-oss-120b • Latency: 342ms</div>
-                                                    <div className={styles.traceTokens}>Tokens In: 120 / Out: 38 • Finish: STOP</div>
-                                                    <div className={styles.traceThought}>&lt;think&gt; Tom wants to test drone safely... &lt;/think&gt;</div>
+                                                <div className={`${styles.cockpitHighlightCard} ${styles.focusElevatedCard}`}>
+                                                    <div className={styles.cockpitHeaderRow}>
+                                                        <span className={styles.cockpitTitle}>💬 Live Prompt Trace #1</span>
+                                                        <span className={styles.cockpitBadge}>200 OK</span>
+                                                    </div>
+                                                    <div className={styles.cockpitTraceBox}>
+                                                        <div className={styles.traceMeta}>Model: openai/gpt-oss-120b • Latency: 342ms</div>
+                                                        <div className={styles.traceTokens}>Tokens In: 120 / Out: 38 • Finish: STOP</div>
+                                                        <div className={styles.traceThought}>&lt;think&gt; Tom wants to test drone safely... &lt;/think&gt;</div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Standard Interactive Chat Feed (Steps 1, 2, and Hero) */}
-                                        {(!["planner", "memory", "chip", "engines", "sound", "armor", "cockpit"].includes(activeScene.cameraTarget)) && (
+                                        {/* Standard Interactive Chat Feed (Steps 1, 2, 3, 6, 9) */}
+                                        {(!["planner", "memory", "dualcore", "sound", "cockpit"].includes(activeScene.cameraTarget)) && (
                                             <div className={styles.chatBubblesColumn}>
                                                 <div className={`${styles.messageRow} ${activeScene.cameraTarget === "message" ? styles.focusElevatedMessage : ""}`}>
                                                     <div className={styles.circularAvatar}>
                                                         <Avatar member={Tom} emotion="Laughing" glow={true} />
                                                     </div>
-
                                                     <div className={styles.speechBubble}>
                                                         <div className={styles.bubbleSender}>Tom</div>
                                                         <p className={styles.bubbleText}>
                                                             "Arre yaar! Lucknow garage mein swagat hai. Maine naya drone setup kiya hai, aaj shaam ko terrace pe test karenge!"
                                                         </p>
-
-                                                        {/* Thought Box Peek */}
+                                                        {/* Unfolded Thought Box Peek */}
                                                         <div className={styles.thoughtBox}>
                                                             <span className={styles.thoughtHeader}>💭 INNER MONOLOGUE:</span>
                                                             <p className={styles.thoughtContent}>
@@ -702,7 +702,6 @@ export default function PresentationView({ onFinish }) {
                                                     </div>
                                                 </div>
 
-                                                {/* Angela typing indicator */}
                                                 <div className={styles.typingIndicatorRow}>
                                                     <div className={styles.circularAvatarMini}>
                                                         <Avatar member={Angela} emotion="Happy" glow={false} />
@@ -717,7 +716,7 @@ export default function PresentationView({ onFinish }) {
                                         )}
                                     </div>
 
-                                    {/* Footer with Character Lounge Strip and Input Box */}
+                                    {/* Footer with Character Lounge Track and Input Box */}
                                     <footer className={styles.footerContainer}>
                                         <div className={styles.charactersTrack}>
                                             {[
@@ -736,11 +735,28 @@ export default function PresentationView({ onFinish }) {
                                             ))}
                                         </div>
 
+                                        {/* Input Box: High-Zoom & Needle 2 Router Overlay in Step 6 */}
                                         <div className={styles.inputHub}>
-                                            <div className={styles.inputForm}>
+                                            {activeScene.cameraTarget === "needle" && (
+                                                <div className={styles.needleInputOverlayPopup}>
+                                                    <div className={styles.needlePopupHeader}>
+                                                        <span>⚙️ Needle 2 Wasm Router (&lt;1ms)</span>
+                                                        <span className={styles.needleOfflineBadge}>14MB Offline</span>
+                                                    </div>
+                                                    <div className={styles.needleChipsRow}>
+                                                        <span className={styles.needleChip}>Keyword: drone</span>
+                                                        <span className={styles.needleChip}>Keyword: repair</span>
+                                                        <span className={styles.needleChipTarget}>Target: tom</span>
+                                                    </div>
+                                                    <span className={styles.needleRoutingArrow}>⬇ Injected directly into Prompt Engine</span>
+                                                </div>
+                                            )}
+
+                                            <div className={`${styles.inputForm} ${activeScene.cameraTarget === "needle" ? styles.focusElevatedInputForm : ""}`}>
                                                 <input
                                                     type="text"
                                                     readOnly
+                                                    value={activeScene.cameraTarget === "needle" ? "Tom, drone repair ka kya plan hai?" : ""}
                                                     placeholder="Talk with Tom and the cast..."
                                                     className={styles.inputField}
                                                 />
@@ -751,7 +767,7 @@ export default function PresentationView({ onFinish }) {
                                     </footer>
                                 </div>
 
-                                {/* Step 11 Finale: Studio Lobby Screen Reassembly */}
+                                {/* Step 12: Finale Live Studio Lobby Reassembly */}
                                 {activeScene.role === "finale" && (
                                     <div className={styles.lobbyReassembledOverlay}>
                                         <div className={styles.lobbyBadge}>🎬 LIVING STUDIO LOBBY</div>
@@ -762,7 +778,7 @@ export default function PresentationView({ onFinish }) {
                                         <h2 className={styles.lobbyTitle}>Tom & Friends</h2>
                                         <p className={styles.lobbyDate}>📍 Lucknow Studio • {todayFormatted}</p>
                                         <p className={styles.lobbyDesc}>
-                                            Tom, Angela, Ben, Ginger, Hank, and Becca are ready. Step inside to chat or direct today's scene!
+                                            Tom, Angela, Ben, Ginger, Hank, and Becca are ready. Step inside to chat or direct the scene!
                                         </p>
                                         <button onClick={onFinish} className={styles.lobbyLoginBtn}>
                                             🎭 Log In & Enter Studio
@@ -772,7 +788,7 @@ export default function PresentationView({ onFinish }) {
                             </div>
 
                             {/* 3D Holographic Tooltip / Virtual Representation Callout */}
-                            {activeScene.tooltip && (
+                            {activeScene.tooltip && activeScene.role !== "bifurcated" && (
                                 <aside className={styles.holographicTooltip}>
                                     <div className={styles.tooltipPointerLine} />
                                     <div className={styles.tooltipHeaderRow}>
@@ -786,6 +802,31 @@ export default function PresentationView({ onFinish }) {
                             )}
                         </div>
                     </div>
+
+                    {/* Step 11: Full-Width / Full-Height Bifurcated Architecture Display & Stats Bar */}
+                    {activeScene.role === "bifurcated" && (
+                        <div className={styles.bifurcatedStatsBar}>
+                            <div className={styles.statItem}>
+                                <strong>📁 52 Source Files</strong>
+                                <span>Zero Technical Debt</span>
+                            </div>
+                            <div className={styles.statDivider} />
+                            <div className={styles.statItem}>
+                                <strong>⚡ 28,000+ LoC</strong>
+                                <span>React 19 &amp; Pure Web Audio</span>
+                            </div>
+                            <div className={styles.statDivider} />
+                            <div className={styles.statItem}>
+                                <strong>🧪 371/371 Vitest</strong>
+                                <span>100% Test Pass Rate</span>
+                            </div>
+                            <div className={styles.statDivider} />
+                            <div className={styles.statItem}>
+                                <strong>🔒 0 Remote Servers</strong>
+                                <span>100% Client-Side Privacy</span>
+                            </div>
+                        </div>
+                    )}
                 </main>
             </div>
         </div>

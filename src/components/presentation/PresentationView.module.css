@@ -75,7 +75,7 @@
     width: 27px;
     height: 27px;
     border-radius: 50%;
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 800;
     cursor: pointer;
     border: 1px solid transparent;
@@ -120,7 +120,7 @@
 }
 
 /* =========================================================================
-   Split Canvas (Clear, Crisp, Zero Cover Gradients)
+   Split Canvas Layout (Crisp, High-Contrast, Zero Black Fog)
    ========================================================================= */
 .presentationSplitCanvas {
     position: absolute;
@@ -134,7 +134,7 @@
 
 /* Left Pitch HUD Column */
 .pitchSideColumn {
-    flex: 0 0 47%;
+    flex: 0 0 46%;
     max-width: 560px;
     padding: clamp(16px, 3.5vw, 48px);
     display: flex;
@@ -305,10 +305,10 @@
 }
 
 /* =========================================================================
-   RIGHT COLUMN: 3D Stage with Zoom, Elevation & Holographic Tooltip
+   RIGHT COLUMN: 3D Stage with High Zoom & Pop-Out Elevation
    ========================================================================= */
 .stage3DColumn {
-    flex: 1 1 53%;
+    flex: 1 1 54%;
     position: relative;
     display: flex;
     align-items: center;
@@ -336,7 +336,7 @@
     height: 100%;
 }
 
-/* Nested Camera Rig: Pans & Zooms Viewport smoothly */
+/* Nested Camera Rig: Pans & High-Zooms Viewport smoothly */
 .cameraRig {
     transform-style: preserve-3d;
     transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
@@ -346,7 +346,7 @@
     position: relative;
 }
 
-/* Physical 3D Phone Chassis: Continuous 60 FPS levitation physics */
+/* Physical 3D Phone Chassis */
 .phoneChassis {
     width: 325px;
     height: 575px;
@@ -378,6 +378,12 @@
     box-shadow: 0 10px 45px rgba(0, 0, 0, 0.9), 0 0 70px rgba(59, 130, 246, 0.35);
 }
 
+.phoneBifurcatedFrame {
+    border-color: #38bdf8;
+    box-shadow: 0 0 45px rgba(56, 189, 248, 0.4);
+}
+
+/* Physical 3D Extrusion Depth Backplate */
 .chassisExtrusionDepth {
     position: absolute;
     inset: -3px;
@@ -482,6 +488,18 @@
     z-index: 20;
 }
 
+.focusElevatedArmor {
+    transform: translateZ(40px) scale(1.02);
+    background: rgba(16, 185, 129, 0.25);
+    border: 1.5px solid #10b981;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.6);
+    z-index: 20;
+}
+
+.armorBarIcon { font-size: 13px; margin-right: 4px; }
+.armorBarText { font-size: 9px; font-weight: 800; color: #4ade80; flex: 1; }
+.armorSafePill { font-size: 7.5px; font-weight: 900; background: #059669; color: #ffffff; padding: 1px 4px; border-radius: 3px; }
+
 .marqueeTrack {
     overflow: hidden;
     white-space: nowrap;
@@ -517,7 +535,7 @@
     to { transform: scaleY(1); }
 }
 
-/* Chat Canvas */
+/* Chat Canvas & Popups */
 .chatFeedArea {
     flex: 1 1 auto;
     min-height: 0;
@@ -648,237 +666,224 @@
 }
 
 /* =========================================================================
-   FEATURE 3D POP-OUT CARDS (Screens 4 to 10)
+   POPUP MOCK SHELLS (Planner, Settings, DevTools Inside Phone)
    ========================================================================= */
 
-/* Generic elevated pop-out */
-.focusElevatedCard {
-    transform: translateZ(40px) scale(1.02);
-    box-shadow: 0 10px 30px rgba(59, 130, 246, 0.6);
-    z-index: 20;
+.modalDrawerMockWrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    background: rgba(17, 24, 39, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
-/* Step 4: Director Drawer Overlay */
-.plannerDrawerOverlay {
+.drawerHeaderMock {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 800;
+    color: var(--text-primary);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 4px;
+}
+.drawerHeaderClose { color: #94a3b8; font-size: 11px; }
+
+.settingsTabRowMock, .devtoolsTabRowMock {
+    display: flex;
+    gap: 4px;
+    background: #1e293b;
+    padding: 2px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+}
+.settingsTabActive, .devtoolsTabActive {
+    flex: 1;
+    font-size: 8px;
+    font-weight: 800;
+    text-align: center;
+    background: #0f172a;
+    color: #60a5fa;
+    padding: 3px 0;
+    border-radius: 6px;
+}
+.settingsTabInactive, .devtoolsTabInactive {
+    flex: 1;
+    font-size: 8px;
+    font-weight: 700;
+    text-align: center;
+    color: #94a3b8;
+    padding: 3px 0;
+}
+
+/* Step 4: Planner Drawer Highlight */
+.plannerDemandHighlightCard {
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 7px;
     background: #111827;
     border: 1.5px solid #f59e0b;
-    border-radius: 12px;
-    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(245, 158, 11, 0.5);
 }
 
 .focusElevatedPlanner {
     transform: translateZ(42px) scale(1.02);
-    box-shadow: 0 10px 30px rgba(245, 158, 11, 0.6);
     z-index: 20;
 }
 
-.plannerHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 9.5px;
-    font-weight: 800;
-    color: #f59e0b;
-}
-
-.geminiBadge {
-    font-size: 7.5px;
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: rgba(245, 158, 11, 0.2);
-    color: #fbbf24;
-}
-
-.demandBox {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 6px;
-    background: #1e293b;
-    border-radius: 6px;
-    font-size: 8.5px;
-    color: #cbd5e1;
-}
-
-.stagedBadge {
-    font-size: 7.5px;
-    font-weight: 800;
-    padding: 1px 4px;
-    border-radius: 3px;
-    background: #f59e0b;
-    color: #ffffff;
-}
-
-.diffCardProposed {
-    padding: 4px 6px;
-    border-radius: 5px;
-    background: rgba(22, 163, 74, 0.15);
-    border-left: 3px solid #16a34a;
-    font-size: 8.5px;
-    color: #4ade80;
-    display: flex;
-    flex-direction: column;
-}
-.diffAdd { font-size: 7px; font-weight: 900; color: #16a34a; }
-
-.diffCardRemoved {
-    padding: 4px 6px;
-    border-radius: 5px;
-    background: rgba(239, 68, 68, 0.12);
-    border-left: 3px solid #ef4444;
-    font-size: 8.5px;
-    color: #f87171;
-    display: flex;
-    flex-direction: column;
-}
-.diffSub { font-size: 7px; font-weight: 900; color: #ef4444; }
-
+.plannerHeader { display: flex; align-items: center; justify-content: space-between; font-size: 9px; font-weight: 800; color: #f59e0b; }
+.geminiBadge { font-size: 7.5px; padding: 1px 4px; border-radius: 3px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+.demandBox { display: flex; align-items: center; justify-content: space-between; padding: 3px 5px; background: #1e293b; border-radius: 5px; font-size: 8px; color: #cbd5e1; }
+.stagedBadge { font-size: 7px; font-weight: 800; padding: 1px 4px; border-radius: 3px; background: #f59e0b; color: #ffffff; }
+.diffCardProposed { padding: 3px 5px; border-radius: 4px; background: rgba(22, 163, 74, 0.15); border-left: 3px solid #16a34a; font-size: 8px; color: #4ade80; display: flex; flex-direction: column; }
+.diffAdd { font-size: 6.5px; font-weight: 900; color: #16a34a; }
+.diffCardRemoved { padding: 3px 5px; border-radius: 4px; background: rgba(239, 68, 68, 0.12); border-left: 3px solid #ef4444; font-size: 8px; color: #f87171; display: flex; flex-direction: column; }
+.diffSub { font-size: 6.5px; font-weight: 900; color: #ef4444; }
 .diffActions { display: flex; gap: 4px; margin-top: 1px; }
-.acceptBtn, .denyBtn {
-    flex: 1;
-    text-align: center;
-    padding: 2.5px 0;
-    border-radius: 4px;
-    font-size: 8px;
-    font-weight: 800;
-}
+.acceptBtn, .denyBtn { flex: 1; text-align: center; padding: 2px 0; border-radius: 4px; font-size: 7.5px; font-weight: 800; }
 .acceptBtn { background: #16a34a; color: #ffffff; }
 .denyBtn { background: #ef4444; color: #ffffff; }
 
-/* Step 5: Memory Vault Card */
-.memoryVaultCard {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 8px;
-    background: #111827;
-    border: 1.5px solid #8b5cf6;
-    border-radius: 12px;
-}
-
-.vaultHeaderRow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.vaultTitle { font-size: 9.5px; font-weight: 800; color: #a78bfa; }
-.vaultGaugeText { font-size: 8px; color: #cbd5e1; font-family: monospace; }
-
-.vaultItem {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 4px;
-    padding: 3px 5px;
-    background: #1e293b;
-    border-radius: 5px;
-    font-size: 8.5px;
-}
-.vaultKey { color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ttlTag { color: #38bdf8; background: rgba(56, 189, 248, 0.15); padding: 1px 4px; border-radius: 3px; font-size: 7.5px; font-weight: 800; }
-.foreverTag { color: #4ade80; background: rgba(74, 222, 128, 0.15); padding: 1px 4px; border-radius: 3px; font-size: 7.5px; font-weight: 800; }
-.gemmaBadge { font-size: 8px; font-weight: 700; color: #c4b5fd; text-align: center; background: rgba(139, 92, 246, 0.15); padding: 2px 4px; border-radius: 4px; margin-top: 2px; }
-
-/* Step 6: Needle 2 Wasm Card */
-.needleChipCard {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 8px;
-    background: #111827;
-    border: 1.5px solid #14b8a6;
-    border-radius: 12px;
-}
-.chipHeaderRow { display: flex; align-items: center; justify-content: space-between; }
-.chipTitle { font-size: 9.5px; font-weight: 800; color: #2dd4bf; }
-.chipLatencyBadge { font-size: 8px; font-weight: 900; color: #ffffff; background: #0d9488; padding: 1px 4px; border-radius: 3px; }
-.chipPipelineRow { display: flex; align-items: center; justify-content: space-between; gap: 3px; font-size: 8px; }
-.chipNode { background: #1e293b; padding: 3px 5px; border-radius: 4px; color: #cbd5e1; }
-.chipNodeCore { background: rgba(20, 184, 166, 0.2); border: 1px solid #14b8a6; padding: 3px 5px; border-radius: 4px; color: #5eead4; font-weight: 800; }
-.chipArrow { color: #14b8a6; }
-.chipOfflineText { font-size: 7.5px; text-align: center; color: #5eead4; background: rgba(20, 184, 166, 0.1); padding: 2px 4px; border-radius: 4px; }
-
-/* Step 7: Dual AI Architecture Flowchart */
-.architectureFlowchart {
+/* Step 5: Memory Vault Highlight */
+.memoryVaultHighlightCard {
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 7px;
     background: #111827;
-    border: 1.5px solid #3b82f6;
-    border-radius: 12px;
+    border: 1.5px solid #8b5cf6;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(139, 92, 246, 0.5);
 }
-.flowchartBanner { font-size: 8px; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.15); padding: 2px 5px; border-radius: 4px; text-align: center; }
-.flowchartPipeline { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 100%; }
-.pipelineRow { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 4px; }
-.pipelineNodeHighlight { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 4px; border-radius: 6px; background: rgba(59, 130, 246, 0.18); border: 1px solid #3b82f6; text-align: center; }
-.pipelineNodeStorage { width: 100%; display: flex; flex-direction: column; align-items: center; padding: 4px 6px; border-radius: 6px; background: rgba(16, 185, 129, 0.18); border: 1px solid #10b981; text-align: center; }
-.pipelineArrow { font-size: 10px; color: #60a5fa; }
-.pipelineArrowDown { font-size: 9px; color: #10b981; }
-.nodeTitle { font-size: 8px; color: #f8fafc; }
-.nodeFile { font-size: 6.5px; color: #94a3b8; }
-.storageTitle { font-size: 8px; color: #f8fafc; }
-.storageSubtitle { font-size: 7px; color: #6ee7b7; }
 
-/* Step 8: Sound Mixer Card */
-.soundMixerCard {
+.focusElevatedCard {
+    transform: translateZ(40px) scale(1.02);
+    z-index: 20;
+}
+
+.vaultHeaderRow { display: flex; align-items: center; justify-content: space-between; }
+.vaultTitle { font-size: 8.5px; font-weight: 800; color: #a78bfa; }
+.vaultGaugeText { font-size: 7.5px; color: #cbd5e1; font-family: monospace; }
+.vaultBarTrack { width: 100%; height: 5px; background: #1e293b; border-radius: 3px; overflow: hidden; margin: 2px 0; }
+.vaultBarFill { height: 100%; background: linear-gradient(90deg, #8b5cf6, #ec4899); border-radius: 3px; }
+.vaultItem { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 2px 4px; background: #1e293b; border-radius: 4px; font-size: 7.5px; }
+.vaultKey { color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ttlTag { color: #38bdf8; background: rgba(56, 189, 248, 0.15); padding: 1px 3px; border-radius: 3px; font-size: 6.5px; font-weight: 800; }
+.foreverTag { color: #4ade80; background: rgba(74, 222, 128, 0.15); padding: 1px 3px; border-radius: 3px; font-size: 6.5px; font-weight: 800; }
+.gemmaBadge { font-size: 7.5px; font-weight: 700; color: #c4b5fd; text-align: center; background: rgba(139, 92, 246, 0.15); padding: 2px 4px; border-radius: 4px; }
+
+/* Step 7: Dual AI Core 3D Layered Hierarchy */
+.dualCore3DStack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 6px;
+    transform-style: preserve-3d;
+}
+
+.tier3DWings {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 6px;
+    transform: translateZ(45px);
+}
+
+.wingGroq, .wingGemini {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 5px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 8px;
+}
+
+.wingGroq { background: rgba(59, 130, 246, 0.22); border: 1.5px solid #3b82f6; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4); }
+.wingGemini { background: rgba(245, 158, 11, 0.22); border: 1.5px solid #f59e0b; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4); }
+.wingIcon { font-size: 14px; }
+.wingSub { font-size: 6.5px; color: #cbd5e1; }
+.tier3DConnector { font-size: 9px; color: #38bdf8; font-weight: 900; line-height: 1; }
+
+.tier3DCore {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 5px;
+    border-radius: 8px;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    text-align: center;
+    font-size: 8px;
+    transform: translateZ(10px);
+}
+.tier3DCore span { font-size: 6.5px; color: #94a3b8; }
+
+.tier3DStorageBase {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px;
+    border-radius: 8px;
+    background: rgba(16, 185, 129, 0.2);
+    border: 1.5px solid #10b981;
+    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.35);
+    text-align: center;
+    font-size: 8.5px;
+    transform: translateZ(-35px);
+}
+.tier3DStorageBase span { font-size: 7px; color: #6ee7b7; margin-top: 1px; }
+
+/* Step 8: Sound Mixer Highlight Card */
+.soundMixerHighlightCard {
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 7px;
     background: #111827;
     border: 1.5px solid #a855f7;
-    border-radius: 12px;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(168, 85, 247, 0.5);
 }
 .mixerHeaderRow { display: flex; align-items: center; justify-content: space-between; }
-.mixerTitle { font-size: 9px; font-weight: 800; color: #c084fc; }
-.bpmBadge { font-size: 8px; font-weight: 800; color: #ffffff; background: #9333ea; padding: 1px 4px; border-radius: 3px; }
-.mixerSliderItem { display: flex; flex-direction: column; gap: 1px; font-size: 7.5px; color: #cbd5e1; }
+.mixerTitle { font-size: 8.5px; font-weight: 800; color: #c084fc; }
+.bpmBadge { font-size: 7.5px; font-weight: 800; color: #ffffff; background: #9333ea; padding: 1px 4px; border-radius: 3px; }
+.mixerSliderItem { display: flex; flex-direction: column; gap: 1px; font-size: 7px; color: #cbd5e1; }
 .mockSliderBar { width: 100%; height: 4px; border-radius: 2px; background: #1e293b; position: relative; }
 .mockSliderBar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--fill, 50%); background: #a855f7; border-radius: 2px; }
 .mixerPresetsRow { display: flex; gap: 3px; margin-top: 2px; justify-content: center; }
-.presetTag { font-size: 7.5px; background: #1e293b; color: #94a3b8; padding: 2px 5px; border-radius: 4px; }
-.presetTagActive { font-size: 7.5px; background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; color: #e9d5ff; padding: 2px 5px; border-radius: 4px; font-weight: 800; }
+.presetTag { font-size: 7px; background: #1e293b; color: #94a3b8; padding: 2px 4px; border-radius: 4px; }
+.presetTagActive { font-size: 7px; background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; color: #e9d5ff; padding: 2px 4px; border-radius: 4px; font-weight: 800; }
 
-/* Step 9: Armor Resilience Card */
-.armorShieldCard {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 7px;
-    background: #111827;
-    border: 1.5px solid #10b981;
-    border-radius: 12px;
-}
-.shieldHeaderRow { display: flex; align-items: center; justify-content: space-between; }
-.shieldTitle { font-size: 9px; font-weight: 800; color: #34d399; }
-.armorOkBadge { font-size: 7.5px; font-weight: 900; color: #ffffff; background: #059669; padding: 1px 4px; border-radius: 3px; }
-.armorFeatureList { display: flex; flex-direction: column; gap: 2px; font-size: 7.5px; color: #cbd5e1; }
-.armorCheckItem { background: #1e293b; padding: 2px 4px; border-radius: 4px; }
-
-/* Step 10: Cockpit Card */
-.cockpitCard {
+/* Step 10: Cockpit Highlight Card */
+.cockpitHighlightCard {
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 7px;
     background: #111827;
     border: 1.5px solid #ec4899;
-    border-radius: 12px;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(236, 72, 153, 0.5);
 }
 .cockpitHeaderRow { display: flex; align-items: center; justify-content: space-between; }
-.cockpitTitle { font-size: 9px; font-weight: 800; color: #f472b6; }
-.cockpitBadge { font-size: 7.5px; font-weight: 800; color: #ffffff; background: #db2777; padding: 1px 4px; border-radius: 3px; }
-.cockpitTraceBox { display: flex; flex-direction: column; gap: 2px; background: #1e293b; padding: 4px; border-radius: 5px; font-size: 7.5px; font-family: monospace; }
+.cockpitTitle { font-size: 8.5px; font-weight: 800; color: #f472b6; }
+.cockpitBadge { font-size: 7px; font-weight: 800; color: #ffffff; background: #db2777; padding: 1px 4px; border-radius: 3px; }
+.cockpitTraceBox { display: flex; flex-direction: column; gap: 1px; background: #1e293b; padding: 4px; border-radius: 4px; font-size: 7px; font-family: monospace; }
 .traceMeta { color: #f472b6; font-weight: 700; }
 .traceTokens { color: #cbd5e1; }
 .traceThought { color: #f59e0b; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Footer Replica matching src/components/footer.jsx */
+/* Footer Replica */
 .footerContainer {
     position: relative;
     background: #111827;
@@ -912,7 +917,37 @@
 
 .inputHub {
     padding: 2px 7px 6px 7px;
+    position: relative;
 }
+
+/* Step 6: Focused Input Box & Needle 2 Overlay */
+.focusElevatedInputForm {
+    box-shadow: 0 0 20px rgba(20, 184, 166, 0.6);
+    border-color: #14b8a6 !important;
+}
+
+.needleInputOverlayPopup {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 8px;
+    right: 8px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1.5px solid #14b8a6;
+    border-radius: 8px;
+    padding: 5px 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 6px 18px rgba(20, 184, 166, 0.4);
+    animation: hudEnter 0.25s ease-out;
+}
+
+.needlePopupHeader { display: flex; align-items: center; justify-content: space-between; font-size: 7.5px; font-weight: 800; color: #2dd4bf; }
+.needleOfflineBadge { font-size: 6.5px; background: #0d9488; color: #ffffff; padding: 1px 3px; border-radius: 2px; font-weight: 900; }
+.needleChipsRow { display: flex; gap: 3px; margin: 2px 0; }
+.needleChip { font-size: 7px; background: #1e293b; color: #5eead4; border: 1px solid #14b8a6; padding: 1px 4px; border-radius: 3px; font-family: monospace; }
+.needleChipTarget { font-size: 7px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; padding: 1px 4px; border-radius: 3px; font-weight: 800; }
+.needleRoutingArrow { font-size: 6.5px; color: #94a3b8; text-align: center; }
 
 .inputForm {
     display: flex;
@@ -948,7 +983,7 @@
 }
 
 /* =========================================================================
-   Step 11: Finale Live Studio Lobby Reassembly
+   Step 12: Finale Live Studio Lobby Reassembly
    ========================================================================= */
 .lobbyReassembledOverlay {
     position: absolute;
@@ -1021,6 +1056,51 @@
     font-weight: 900;
     cursor: pointer;
     box-shadow: 0 4px 18px rgba(37, 99, 235, 0.5);
+}
+
+/* =========================================================================
+   Step 11: Bifurcated Engineering Statistics Bar
+   ========================================================================= */
+.bifurcatedStatsBar {
+    position: absolute;
+    bottom: 16px;
+    left: 20px;
+    right: 20px;
+    background: rgba(15, 23, 42, 0.94);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(56, 189, 248, 0.25);
+    border-radius: 14px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    z-index: 40;
+    backdrop-filter: blur(12px);
+    animation: hudEnter 0.35s ease-out;
+}
+
+.statItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.statItem strong {
+    font-size: 12px;
+    font-weight: 900;
+    color: #38bdf8;
+}
+
+.statItem span {
+    font-size: 9.5px;
+    color: #94a3b8;
+}
+
+.statDivider {
+    width: 1px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.12);
 }
 
 /* =========================================================================
@@ -1141,6 +1221,14 @@
     }
     .tooltipPointerLine {
         display: none;
+    }
+    .bifurcatedStatsBar {
+        position: relative;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        flex-wrap: wrap;
+        gap: 8px;
     }
 }
 

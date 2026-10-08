@@ -4,8 +4,6 @@
 /**
  * @file PresentationView.test.jsx
  * Unit & Integration tests for the 3D Exploded-View Scrollytelling Presentation System.
- * Tests cover all 11 detailed feature scenes, 3D phone chassis rendering, tooltip callouts,
- * keyboard navigation, and instant launch transitions.
  */
 
 import React from "react";
@@ -13,8 +11,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import PresentationView, { PRESENTATION_LAYERS } from "../../src/components/presentation/PresentationView.jsx";
 
-describe("PresentationView — 3D Scrollytelling Presentation", () => {
-    it("renders Step 1 (Studio) by default with giant headlines, real phone chassis, and 11 jump dots", () => {
+describe("PresentationView — High-Zoom 3D Scrollytelling Presentation", () => {
+    it("renders Step 1 (Studio) by default with giant headlines, real phone chassis, and 12 jump dots", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
         expect(screen.getByText("CHATBOTS ARE DEAD.")).toBeTruthy();
@@ -24,13 +22,13 @@ describe("PresentationView — 3D Scrollytelling Presentation", () => {
         // Real 3D phone chassis exists
         expect(screen.getByTestId("phone")).toBeTruthy();
 
-        // All 11 navigation step dots are rendered
+        // All 12 navigation step dots are rendered
         const dots = screen.getAllByRole("button", { name: /^Step \d+: / });
         expect(dots).toHaveLength(PRESENTATION_LAYERS.length);
-        expect(dots).toHaveLength(11);
+        expect(dots).toHaveLength(12);
     });
 
-    it("every jump dot reveals its own detailed feature scene across all 11 steps", () => {
+    it("every jump dot reveals its own detailed feature scene across all 12 steps", () => {
         render(<PresentationView onFinish={vi.fn()} />);
 
         for (const layer of PRESENTATION_LAYERS) {
@@ -56,6 +54,17 @@ describe("PresentationView — 3D Scrollytelling Presentation", () => {
         expect(screen.getByText("Needle 2 On-Device Router")).toBeTruthy();
     });
 
+    it("renders the bifurcated view with overall project engineering statistics on Step 11", () => {
+        render(<PresentationView onFinish={vi.fn()} />);
+
+        fireEvent.click(screen.getByRole("button", { name: "Step 11: Exploded" }));
+
+        expect(screen.getByText(/52 Source Files/)).toBeTruthy();
+        expect(screen.getByText(/28,000\+ LoC/)).toBeTruthy();
+        expect(screen.getByText(/371\/371 Vitest/)).toBeTruthy();
+        expect(screen.getByText(/0 Remote Servers/)).toBeTruthy();
+    });
+
     it("triggers onFinish when clicking 'Enter Live Studio ⏩' in nav header", () => {
         const onFinish = vi.fn();
         render(<PresentationView onFinish={onFinish} />);
@@ -66,12 +75,12 @@ describe("PresentationView — 3D Scrollytelling Presentation", () => {
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
-    it("triggers onFinish when clicking launch button in the Step 11 finale", () => {
+    it("triggers onFinish when clicking launch button in the Step 12 finale", () => {
         const onFinish = vi.fn();
         render(<PresentationView onFinish={onFinish} />);
 
-        // Jump to Step 11
-        fireEvent.click(screen.getByRole("button", { name: "Step 11: Wheel" }));
+        // Jump to Step 12
+        fireEvent.click(screen.getByRole("button", { name: "Step 12: Wheel" }));
 
         const launchBtn = screen.getByRole("button", { name: /Launch Studio 🚀/ });
         fireEvent.click(launchBtn);
