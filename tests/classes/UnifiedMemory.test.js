@@ -189,4 +189,62 @@ describe("UnifiedMemory — Gemma compression", () => {
             expect.objectContaining({ model: "gemini-2.5-flash-lite" })
         );
     });
+
+    it("rejects model output that does not shrink the stack (never grows records)", async () => {
+        // Regression: the model used to echo its input as <memory> records and
+        // the pass ACCEPTED it, so "Compress Stack" increased the record count.
+        const original = [
+            entry("a", "Tom repaired the drone rotor", ["tom"], "forever"),
+            entry("b", "Angela has a shoot at 5", ["angela"], "24h"),
+            entry("c", "Ben's solar viva is tomorrow", ["ben"], "forever")
+        ];
+        memory.entries = [...original];
+
+        const gemmaClient = {
+            resolveGemmaModel: vi.fn().mockResolvedValue("gemma-3-27b-it"),
+            streamGenerate: vi.fn().mockResolvedValue({
+                text: [
+                    "<memories>",
+                    '<memory tags="tom" expiry="forever">Tom repaired the drone rotor</memory>',
+                    '<memory tags="angela" expiry="24h">Angela has a shoot at 5</memory>',
+                    '<memory tags="ben" expiry="forever">Ben\'s solar viva is tomorrow</memory>',
+                    '<memory tags="extra" expiry="forever">Hallucinated extra record</memory>',
+                    "</memories>"
+                ].join("\n")
+            })
+        };
+
+        await expect(memory.compressIfExceeded(gemmaClient)).resolves.toBe(false);
+
+        // Original stack untouched — ids and all.
+        expect(memory.entries).toHaveLength(3);
+        expect(memory.entries.map(e => e.id)).toEqual(original.map(e => e.id));
+        expect(memory.isCompressing).toBe(false);
+    });
+
+    it("force compresses even when the stack is under the 20k budget", async () => {
+        memory.entries.push(entry(
+            "a",
+            "Tom repaired the drone rotor on the rooftop and then repaired it again later after it broke once more",
+            ["tom"],
+            "forever"
+        ));
+
+        const gemmaClient = {
+            resolveGemmaModel: vi.fn().mockResolvedValue("gemma-3-27b-it"),
+            streamGenerate: vi.fn().mockResolvedValue({
+                text: '<memories><memory tags="tom" expiry="forever">Tom repaired the drone rotor</memory></memories>'
+            })
+        };
+
+        // Not forced → skipped silently (under budget).
+        await expect(memory.compressIfExceeded(gemmaClient)).resolves.toBe(false);
+        expect(gemmaClient.streamGenerate).not.toHaveBeenCalled();
+
+        // Forced (manual Settings button) → runs.
+        await expect(memory.compressIfExceeded(gemmaClient, true)).resolves.toBe(true);
+        expect(gemmaClient.streamGenerate).toHaveBeenCalledTimes(1);
+        expect(memory.entries).toHaveLength(1);
+        expect(memory.entries[0].data).toBe("Tom repaired the drone rotor");
+    });
 });

@@ -210,24 +210,36 @@ export default class UnifiedMemory {
     }
 
     /**
-     * Compresses the stack with Gemma once it exceeds the 20,000-char budget.
-     * Output is parsed back into tagged entries; on any failure the original
-     * stack is left untouched.
+     * Compresses the stack with Gemma once it exceeds the 20,000-char budget
+     * (or immediately when `force` is set from the manual Settings button).
+     * The model output is accepted ONLY when it is strictly smaller than the
+     * current stack — fewer-or-equal records AND fewer characters — so a
+     * model that echoes its input can never grow the record count. On any
+     * rejection or failure the original stack is left untouched.
      *
      * @param {import("../GeminiClient").default} gemmaClient
+     * @param {boolean} [force=false] Compress even when under the 20k budget.
      * @returns {Promise<boolean>} Whether a compression pass actually ran.
      */
-    async compressIfExceeded(gemmaClient) {
-        if (this.getCharacterCount() < UnifiedMemory.MAX_CHARACTERS) return false;
+    async compressIfExceeded(gemmaClient, force = false) {
+        const beforeChars = this.getCharacterCount();
+        const beforeCount = this.entries.length;
+        if (!force && beforeChars < UnifiedMemory.MAX_CHARACTERS) return false;
         if (this.isCompressing) return false;
         this.isCompressing = true;
 
-        this.logger.info("Memory stack reached 20,000 characters. Triggering Gemma compression...");
+        this.logger.info(
+            beforeChars < UnifiedMemory.MAX_CHARACTERS
+                ? "Manual compression requested. Running Gemma compression pass..."
+                : "Memory stack reached 20,000 characters. Triggering Gemma compression..."
+        );
 
         const prompt = [
             "# Memory Compression Task",
             "Summarize and condense the following episodic memory stack into distinct core memory entries.",
             "Retain all permanent facts, emotional bonds, and major milestones. Combine duplicate and minor events.",
+            "The output MUST contain strictly FEWER <memory> records than the input has lines — merge aggressively.",
+            "Never echo the schema example or the input lines verbatim.",
             "Keep the total output under 10,000 characters.",
             "",
             "## Input Memory Stack",
@@ -260,16 +272,43 @@ export default class UnifiedMemory {
 
             if (matches.length > 0) {
                 const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-                this.entries = matches.map(m => ({
-                    id: crypto.randomUUID(),
-                    datetime: stamp,
-                    tags: (m[1] || "").split(",").map(t => t.trim().toLowerCase()).filter(Boolean),
-                    expiry: m[2] || "forever",
-                    data: (m[3] || "").trim()
-                })).filter(e => e.data.length > 0);
 
+                /** @type {UnifiedMemoryEntry[]} */
+                const candidates = [];
+                const seen = new Set();
+                for (const m of matches) {
+                    const data = (m[3] || "").trim();
+                    // Drop empties, duplicate records and echoes of the schema example.
+                    if (!data || data === "Consolidated memory entry" || seen.has(data)) continue;
+                    seen.add(data);
+                    candidates.push({
+                        id: crypto.randomUUID(),
+                        datetime: stamp,
+                        tags: (m[1] || "").split(",").map(t => t.trim().toLowerCase()).filter(Boolean),
+                        expiry: m[2] || "forever",
+                        data
+                    });
+                }
+
+                const afterChars = candidates
+                    .map(e => `[${e.datetime} | tags: ${e.tags.join(", ")}] ${e.data}`)
+                    .join("\n").length;
+
+                // Acceptance guard: compression may NEVER grow the stack.
+                if (candidates.length === 0 || candidates.length > beforeCount || afterChars >= beforeChars) {
+                    this.logger.warn(
+                        `Compression rejected: model produced ${candidates.length} record(s) / ${afterChars} chars ` +
+                        `vs ${beforeCount} record(s) / ${beforeChars} chars — keeping the original stack.`
+                    );
+                    return false;
+                }
+
+                this.entries = candidates;
                 await this.persist();
-                this.logger.info(`Memory stack successfully compressed to ${this.entries.length} items.`);
+                this.logger.info(
+                    `Memory stack compressed: ${beforeCount} → ${candidates.length} records, ` +
+                    `${beforeChars} → ${afterChars} chars.`
+                );
                 return true;
             }
         } catch (/** @type {unknown} */ err) {

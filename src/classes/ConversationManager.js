@@ -707,6 +707,8 @@ export default class ConversationManager {
         const memory = this.unifiedMemory;
         if (!memory || memory.isCompressing) return "busy";
 
+        const wasOverBudget = memory.getCharacterCount() >= UnifiedMemory.MAX_CHARACTERS;
+
         this.events.emit(ConversationEvents.MEMORY_COMPRESS_START, {
             characterCount: memory.getCharacterCount(),
             entryCount: memory.entries.length
@@ -721,13 +723,32 @@ export default class ConversationManager {
         }
 
         try {
-            const compressed = await memory.compressIfExceeded(gemmaClient);
+            // Manual button: force a pass even under the 20k budget.
+            const compressed = await memory.compressIfExceeded(gemmaClient, true);
+            if (compressed) {
+                this.events.emit(ConversationEvents.MEMORY_COMPRESS_DONE, {
+                    compressed: true,
+                    entryCount: memory.entries.length,
+                    characterCount: memory.getCharacterCount()
+                });
+                return "compressed";
+            }
+
+            // Over budget but the model could not produce a smaller stack:
+            // report an honest failure (original stack kept) instead of "skipped".
+            if (wasOverBudget) {
+                this.events.emit(ConversationEvents.MEMORY_COMPRESS_ERROR, {
+                    message: "Model output was not smaller — the original stack was kept."
+                });
+                return "error";
+            }
+
             this.events.emit(ConversationEvents.MEMORY_COMPRESS_DONE, {
-                compressed,
+                compressed: false,
                 entryCount: memory.entries.length,
                 characterCount: memory.getCharacterCount()
             });
-            return compressed ? "compressed" : "skipped";
+            return "skipped";
         } catch (/** @type {unknown} */ err) {
             this.logger.error("Unified memory compression failed:", err);
             this.events.emit(ConversationEvents.MEMORY_COMPRESS_ERROR, {

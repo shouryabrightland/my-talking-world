@@ -406,7 +406,7 @@ export default function SettingsModal({ isOpen, onClose }) {
             const result = await conv.compressUnifiedMemory();
             setCompressStatus(
                 result === "compressed" ? "compressed"
-                    : result === "skipped" ? "skipped"
+                    : result === "skipped" || result === "busy" ? "skipped"
                         : "failed"
             );
         } catch (/** @type {unknown} */ err) {
@@ -420,7 +420,7 @@ export default function SettingsModal({ isOpen, onClose }) {
     const compressStatusText = {
         running: "🗜️ Compressing stack with Gemma… (watch the Background Bar)",
         compressed: "✅ Stack compressed successfully.",
-        skipped: "ℹ️ Under the 20,000-char budget (or a pass is already running) — nothing to compress.",
+        skipped: "ℹ️ No smaller stack produced — the original entries were kept.",
         failed: "❌ Compression failed — the original stack is untouched."
     }[compressStatus || ""] || null;
 
