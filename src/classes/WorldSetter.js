@@ -31,6 +31,7 @@ import {
     PROMPT_RESTABILIZER_TASK,
     PROMPT_RESTABILIZER_RULES
 } from "../util/Constants";
+import { PROMPT_AGE_MANDATE } from "../util/prompts";
 
 const SCHEDULE_STORAGE_KEY = "world:schedule_v2";
 const STREAM_PROGRESS_DEBOUNCE_MS = 150;
@@ -478,6 +479,9 @@ export default class WorldSetter {
                 "## 5. Director Demand",
                 demandText || "None. Generate natural daily sitcom progression.",
                 "",
+                "## 6. Age Factor",
+                PROMPT_AGE_MANDATE,
+                "",
                 "## Rules & Constraints",
                 "1. Provide a complete, unbroken sequence of blocks covering the full 24-hour cycle.",
                 "2. Contiguous start/end times with no overlapping hours.",
@@ -586,6 +590,7 @@ export default class WorldSetter {
             "  <rules>\n" +
             PROMPT_DEMAND_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
             "  </rules>\n" +
+            `${PROMPT_AGE_MANDATE}\n` +
             "  <output_schema>\n" +
             "    <demand_resolution>\n" +
             "      <summary_line_1>Clear 1-sentence summary of what was scheduled</summary_line_1>\n" +
@@ -748,6 +753,7 @@ export default class WorldSetter {
                 "  <rules>\n" +
                 PROMPT_RESTABILIZER_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
                 "  </rules>\n" +
+                `${PROMPT_AGE_MANDATE}\n` +
                 '  <output_format>Output strictly &lt;schedule&gt;&lt;block start="..." end="..."&gt;...&lt;/block&gt;&lt;/schedule&gt; XML tags. Every block MUST include individual &lt;goal&gt; entries for every participant declared in the &lt;characters&gt; context block (one goal per participant, using each participant\'s id) — never drop or omit any participant\'s goal.</output_format>\n' +
                 "</restabilizer_instruction>"
             ));

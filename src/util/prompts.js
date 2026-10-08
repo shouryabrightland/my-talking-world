@@ -59,6 +59,33 @@ export const PROMPT_LOCATION_MANDATE =
     "  <rule>Pick a fresh, plausible setting for each new scene that fits the time of day and the active goals — geography and routine must feel lived-in and varied.</rule>\n" +
     "</location_diversity_mandate>";
 
+/**
+ * AGE FACTOR MANDATE — shared by every token-rich (Gemini) generation prompt:
+ * 24h scheduler, Director Demand, restabilizer, and the situation distiller.
+ *
+ * The compact Groq dialogue prompt only gets a one-line age pointer (token
+ * gate), so the full developmental model lives here where tokens are free.
+ * Ages themselves always come from the <characters> context / cast roster —
+ * this block tells the model how to USE them.
+ */
+export const PROMPT_AGE_MANDATE = [
+    "<age_factor>",
+    "  <principle>Chronological age is the primary driver of how every character speaks, decides, plans, and reacts. Before writing any block, scene, goal, or memory, read each participant's age from the cast/characters context and hold their voice at that exact developmental stage. Age controls vocabulary, sentence length, emotional regulation, ambitions, humor, authority, energy level, schedule preferences, and what a character even cares about — it is not decorative flavor text.</principle>",
+    "  <bands>",
+    "    <band range=\"11-14 early teen\">Impulsive, peer-driven, high-energy. Short punchy messages, heavy slang and Hinglish code-mixing, constant reactions and excitement, easily distracted, tests boundaries, seeks attention and validation, avoids adult topics (bills, office politics). Cares about school, tuition, cricket/football, gadgets, games, crushes, and hanging out. Sleeps late, wakes reluctantly, budgets pocket money.</band>",
+    "    <band range=\"15-17 teen\">Identity-forming, status-conscious, rebellious streak. Sarcasm, memes, roasting friends, late-night chatting, strong opinions that flip quickly. Dreams big and abstractly (college, fame, starting something), poor long-term planning, dramatic swings around friendships and crushes. Uses the newest slang and mocks older generations' phrases. Resists authority while secretly wanting approval.</band>",
+    "    <band range=\"18-24 young adult\">Ambitious and exploratory. College, first jobs, internships, side hustles, night drives, dating drama, budget travel, FOMO. Fast confident replies with career anxiety underneath the banter, wants to be taken seriously, argues with conviction, starts mentoring teens while still seeking approval from older friends. Cash-struck but independent.</band>",
+    "    <band range=\"25-34 adult\">Settling into responsibility. Work deadlines, relationships/marriage talk, money management, health kicks, weekend plans built around errands. Drier wit, occasionally longer measured messages, pragmatic problem-solving, protective of younger friends, less impulsive — thinks before committing to plans. Time is their scarcest resource.</band>",
+    "    <band range=\"35-49 middle-aged\">Household and career stability phase. Parent-like concerns (study, jobs, safety), practical wisdom, patience mixed with sharp sarcasm, references to errands, health, savings, traffic, and \"in our days\". Calmer emotional spikes, de-escalates teen drama, tells stories that end with a moral. Deeply habitual — same chai stall, same routines.</band>",
+    "    <band range=\"50+ senior\">Reflective and unhurried. Proverbs, nostalgia, blessing/guidance tone, early schedules with park walks and chai addas, slower but warm replies, weak or clumsy use of new slang (comic effect is fine), prioritizes family harmony, avoids conflict, shows visible pride in the younger generation's achievements.</band>",
+    "  </bands>",
+    "  <mental_age_rule>Behavioural maturity may deviate slightly from calendar age (an old-soul teen, a playful forty-year-old), but calendar age always anchors vocabulary, life-stage concerns, and legal/safety boundaries. Nudge within the band, never flip to a different band.</mental_age_rule>",
+    "  <hard_mismatches>Never: a teenager discussing EMIs, office politics, or parenting; a 45-year-old using Gen-Z slang fluently; a 12-year-old leading serious planning; elders begging teens for approval; a senior chasing late-night party plots. The division of labour is fixed — elders advise, teens react and play, young adults strive, middle-aged members stabilize, seniors reflect.</hard_mismatches>",
+    "  <scene_application>When choosing activities, timings, and settings for a block: late-night outings only for young adults (with context), tuition/matches/playgrounds for teens, work and networking for 25-34s, household and community errands for 35-49s, morning parks, temple/mosque visits, and nostalgia talk for 50+. Goals inside each block must sound like they were written BY that age group, not assigned to them by an adult.</scene_application>",
+    "  <dialogue_application>Match message length and register to age: teens send 2-8 word bursts with slang, young adults send one or two confident lines, older members allow longer, calmer sentences with life references. Every reaction, emotion, and memory a character expresses must be plausible for their band.</dialogue_application>",
+    "</age_factor>"
+].join("\n");
+
 export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Generate up to 5 dialogue messages per response.",
     "LANGUAGE POINTER: every language rule (Hinglish tone, writing script, Lucknow banter style) lives ONLY in the single authoritative <language_mandate> block — follow it, never restate or contradict it here.",

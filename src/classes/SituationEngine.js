@@ -26,6 +26,7 @@
  */
 
 import Storage from "./lib/Storage";
+import { PROMPT_AGE_MANDATE } from "../util/prompts";
 
 const SITUATION_STORAGE_KEY = "situation_summary_paragraph";
 const SITUATION_MAX_CHARS = 500;
@@ -161,6 +162,10 @@ export default class SituationEngine {
             "   - Active emotional friction or group focus, especially regarding what the human user said.",
             "2. Extract any important commitments, secrets, facts, or relationship milestones into memory records with member tags and an expiry ('15m', '1h', '24h', 'forever').",
             "3. Do not record trivial chit-chat or temporary physical movements.",
+            "4. Apply the <age_factor> block below: describe every character acting exactly at their age band, and only extract memories that fit their life stage (a teen's crush confession is a memory; a teen discussing loan EMIs is a continuity error to avoid).",
+            "",
+            "## Age Factor",
+            PROMPT_AGE_MANDATE,
             "",
             "## Output Format",
             "Output strictly valid XML matching this structure:",
