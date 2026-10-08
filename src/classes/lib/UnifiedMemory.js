@@ -321,18 +321,21 @@ export default class UnifiedMemory {
 
         // 4. Top Google News headlines (24h TTL)
         if (Array.isArray(env.newsHeadlines)) {
-            for (const headline of env.newsHeadlines.slice(0, 3)) {
-                const words = String(headline)
+            for (const headline of env.newsHeadlines.slice(0, 3)) {                const words = String(headline)
                     .toLowerCase()
                     .replace(/[^a-z0-9\s]/g, " ")
                     .split(/\s+/)
                     .filter(w => w.length > 3)
                     .slice(0, 3);
 
+                // Dedupe: a headline mentioning "India" would otherwise repeat
+                // the literal "india" tag and break React key uniqueness.
+                const tags = [...new Set(["news", "india", ...words])];
+
                 this.entries.push({
                     id: crypto.randomUUID(),
                     datetime: stamp,
-                    tags: ["news", "india", ...words],
+                    tags,
                     data: `Headlines: ${headline}`,
                     expiry: "24h"
                 });

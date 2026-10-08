@@ -449,7 +449,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                     {entry.tags.length > 0 && (
                         <div className={styles.tagChipRow}>
                             {entry.tags.map(tag => (
-                                <span key={tag} className={styles.tagChip}>{tag}</span>
+                                <span key={`${entry.id}-${tag}`} className={styles.tagChip}>{tag}</span>
                             ))}
                         </div>
                     )}
