@@ -452,9 +452,35 @@ export default class GroqModelPool {
                 Array.isArray(data.ladder) &&
                 typeof data.fetchedAt === "number"
             ) {
-                const entries = /** @type {GroqModelEntry[]} */ (data.ladder);
+                // Re-validate the persisted ladder against the CURRENT filter
+                // rules: caches written by older builds may still contain
+                // sub-12B models (e.g. allam-2-7b) that must never re-enter
+                // the pool. Dropping them here keeps the >=12B guarantee
+                // true even for stale caches.
+                const cached = /** @type {GroqModelEntry[]} */ (data.ladder);
+                /** @type {Map<string, GroqModelEntry>} */
+                const cachedById = new Map();
+                for (const entry of cached) {
+                    if (entry && typeof entry.id === "string") cachedById.set(entry.id, entry);
+                }
+
+                const entries = normalizeGroqModels(cached).map(entry => {
+                    const prev = cachedById.get(entry.id);
+                    return prev && typeof prev.displayName === "string" && prev.displayName
+                        ? { ...entry, displayName: prev.displayName }
+                        : entry;
+                });
+
+                if (entries.length === 0) {
+                    this.logger.warn("Persisted Groq model pool cache no longer contains usable (>=12B) models — ignoring it.");
+                    return;
+                }
+
                 this.#entries = new Map(entries.map(e => [e.id, e]));
                 this.#stack = entries.map(e => e.id).filter(id => !this.#ejected.has(id));
+                if (this.#activeModelId && !this.#entries.has(this.#activeModelId)) {
+                    this.#activeModelId = this.#stack.length > 0 ? this.#stack[0] : null;
+                }
                 this.#fetchedAt = data.fetchedAt;
                 this.#activeModelId = this.#stack.length > 0 ? this.#stack[0] : this.#activeModelId;
             }

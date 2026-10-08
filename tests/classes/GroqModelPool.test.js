@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ─── Mocks ───
 
 const LADDER = [
-    { id: "llama-3.1-8b-instant", displayName: "Llama 3.1 8B Instant", tier: 1, version: 3.1 },
+    { id: "qwen/qwen3-32b", displayName: "Qwen3 32B", tier: 2, version: 3 },
     { id: "llama-3.3-70b-versatile", displayName: "Llama 3.3 70B Versatile", tier: 2, version: 3.3 },
     { id: "openai/gpt-oss-120b", displayName: "GPT-OSS 120B", tier: 2, version: 120 }
 ];
@@ -57,6 +57,29 @@ describe("GroqModelPool — cooldown & snapshot introspection", () => {
         expect(candidates.length).toBe(LADDER.length);
     });
 
+    it("drops stale sub-12B entries (e.g. allam-2-7b) from a pre-restriction cache", async () => {
+        // A cache written by an older build can still hold sub-12B models.
+        // Loading it must re-apply the current >=12B filter before the ladder
+        // is ever exposed to model selection.
+        const stalePool = new GroqModelPool(new Logger("StaleCache"));
+        stalePool.storage.getItem = async () => ({
+            ladder: [
+                { id: "allam-2-7b", displayName: "ALLaM 2 7B", tier: 1, version: 2 },
+                { id: "llama-3.1-8b-instant", displayName: "Llama 3.1 8B Instant", tier: 1, version: 3.1 },
+                { id: "llama-3.3-70b-versatile", displayName: "Llama 3.3 70B Versatile", tier: 2, version: 3.3 }
+            ],
+            fetchedAt: Date.now()
+        });
+
+        const ids = (await stalePool.getCandidates()).map(c => c.id);
+
+        expect(ids).toContain("llama-3.3-70b-versatile");
+        expect(ids).not.toContain("allam-2-7b");
+        expect(ids).not.toContain("llama-3.1-8b-instant");
+        expect(stalePool.activeModelId).toBe("llama-3.3-70b-versatile");
+        expect(stalePool.listModels().map(m => m.id)).not.toContain("allam-2-7b");
+    });
+
     it("reports a healthy pool as not blocked with no cooldown", () => {
         expect(pool.allModelsBlocked()).toBe(false);
         expect(pool.minCooldownRemaining()).toBe(null);
@@ -82,7 +105,7 @@ describe("GroqModelPool — cooldown & snapshot introspection", () => {
     });
 
     it("allModelsBlocked only flips true when every candidate is unavailable", async () => {
-        pool.reportFailure("llama-3.1-8b-instant", 429, 10_000);
+        pool.reportFailure("qwen/qwen3-32b", 429, 10_000);
         expect(pool.allModelsBlocked()).toBe(false);
 
         pool.reportFailure("llama-3.3-70b-versatile", 429, 10_000);
@@ -94,7 +117,7 @@ describe("GroqModelPool — cooldown & snapshot introspection", () => {
 
         // Recovery of any single model unblocks the pool immediately — while
         // the remaining cooldowns keep counting down independently.
-        pool.reportSuccess("llama-3.1-8b-instant");
+        pool.reportSuccess("qwen/qwen3-32b");
         expect(pool.allModelsBlocked()).toBe(false);
         expect(pool.minCooldownRemaining()).toBeGreaterThan(0);
 
@@ -112,7 +135,7 @@ describe("GroqModelPool — cooldown & snapshot introspection", () => {
         expect(cooling?.cooldownRemainingMs).toBeLessThanOrEqual(12_000);
         expect(cooling?.isActive).toBe(false);
 
-        const healthy = pool.listModels().find(m => m.id === "llama-3.1-8b-instant");
+        const healthy = pool.listModels().find(m => m.id === "qwen/qwen3-32b");
         expect(healthy?.status).toBe("healthy");
         expect(healthy?.isActive).toBe(true);
     });
@@ -133,7 +156,7 @@ describe("GroqModelPool — cooldown & snapshot introspection", () => {
 
         // Ejections are excluded from cooldown math (they never recover):
         // block the pool by cooling the two remaining live models.
-        pool.reportFailure("llama-3.1-8b-instant", 429, 9_000);
+        pool.reportFailure("qwen/qwen3-32b", 429, 9_000);
         expect(pool.allModelsBlocked()).toBe(false);
 
         pool.reportFailure("llama-3.3-70b-versatile", 429, 4_000);
