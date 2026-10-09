@@ -6,7 +6,9 @@
  *
  * Responsibilities:
  * - Manages a timeline queue of typing, reading, and message delivery events.
- * - Executes events at precise timestamps with expiry-based visual queue flood prevention.
+ * - Executes events at precise timestamps; past-due messages ALWAYS deliver
+ *   (reload catch-up), while stale visual cues are skipped without dropping
+ *   the queue.
  * - Provides mutex-locked sequential database persistence.
  * - Supports event type: typing:start/end, reading:start/end, message.
  */
@@ -37,7 +39,9 @@ import { ChatMemberEvents } from "../ChatMember";
 export default class ChatMemberScheduler {
 
     /** 
-     * Actions older than 4 seconds are marked as expired to prevent visual queue floods.
+     * Visual cues older than 4 seconds are skipped on catch-up so a reload
+     * never replays stale typing animations. Messages are NEVER discarded —
+     * past-due deliveries flush immediately regardless of age.
      * @readonly
      */
     ExpiryThreshold = 4_000;
@@ -100,6 +104,14 @@ export default class ChatMemberScheduler {
         try {
             await this.load();
             this.ready = true;
+
+            // Reload catch-up: flush every past-due event (scheduled while the
+            // app was closed or reloading) BEFORE releasing readyPromise, so
+            // late arrivals land in the chat ahead of any newly scheduled turn.
+            if (this.timeline.length > 0) {
+                this.executeDue();
+            }
+
             this.#resolveReady?.();
             this.#resolveReady = null;
             this.scheduleNext();
@@ -195,6 +207,9 @@ export default class ChatMemberScheduler {
 
     /**
      * Executes all tasks whose execution boundary has passed.
+     * Past-due events are NEVER discarded: messages deliver immediately no
+     * matter how old they are (reload catch-up), and only stale visual cues
+     * (typing/reading) are skipped so the queue advances straight to delivery.
      */
     executeDue() {
         const now = Date.now();
@@ -234,12 +249,18 @@ export default class ChatMemberScheduler {
                         this.member.events.emit(ChatMemberEvents.TYPING, true);
                         this.member.setTransientState("isTyping", true, duration);
                         this.member.setEmotion("Thinking", duration);
+                    } else {
+                        // Stale visual cue: skip the animation, keep the flag off,
+                        // and let the queue advance straight to message delivery.
+                        this.member.setTransientState("isTyping", false, 0);
                     }
                     break;
 
                 case "typing:end":
                     if (!expired) {
                         this.member.events.emit(ChatMemberEvents.TYPING, false);
+                        this.member.setTransientState("isTyping", false, 0);
+                    } else {
                         this.member.setTransientState("isTyping", false, 0);
                     }
                     break;
@@ -252,6 +273,8 @@ export default class ChatMemberScheduler {
 
                         const ownEmotion = this.member.currentEmotion?.name || "Default";
                         this.member.setEmotion(ownEmotion, duration + 4000);
+                    } else {
+                        this.member.setTransientState("isReading", false, 0);
                     }
                     break;
 
@@ -260,10 +283,15 @@ export default class ChatMemberScheduler {
                         this.member.events.emit(ChatMemberEvents.READING, false);
                         this.member.setTransientState("isReading", false, 0);
                         this.member.lastSeenMessage = event.message;
+                    } else {
+                        this.member.setTransientState("isReading", false, 0);
+                        this.member.lastSeenMessage = event.message;
                     }
                     break;
 
                 case "message":
+                    // Messages ALWAYS deliver — including on reload catch-up,
+                    // however long ago they were scheduled. No expiry drop.
                     if (event.message?.emotion?.name) {
                         this.member.setEmotion(event.message.emotion.name, 5000);
                     }
