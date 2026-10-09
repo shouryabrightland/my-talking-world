@@ -11,7 +11,6 @@ import { Sound } from "../util/sound";
 /**
  * @typedef {import("../classes/Message").default} Message
  * @typedef {import("../classes/ChatMember").default} ChatMember
- * @typedef {import("../classes/lib/Key").Key} Key
  */
 
 export const MessageUX = memo(

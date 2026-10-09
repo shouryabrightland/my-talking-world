@@ -8,7 +8,7 @@
 
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import PresentationView, { PRESENTATION_LAYERS } from "../../src/components/presentation/PresentationView.jsx";
 
 describe("PresentationView — High-Zoom 3D Scrollytelling Presentation", () => {
@@ -59,10 +59,13 @@ describe("PresentationView — High-Zoom 3D Scrollytelling Presentation", () => 
 
         fireEvent.click(screen.getByRole("button", { name: "Step 11: Exploded" }));
 
-        expect(screen.getByText(/52 Source Files/)).toBeTruthy();
-        expect(screen.getByText(/28,000\+ LoC/)).toBeTruthy();
-        expect(screen.getByText(/371\/371 Vitest/)).toBeTruthy();
-        expect(screen.getByText(/0 Remote Servers/)).toBeTruthy();
+        // Scope to the stats bar: the Step-11 metric pills repeat the same
+        // "28,000+ LoC" / "371/371 Vitest" labels elsewhere on screen.
+        const statsBar = screen.getByTestId("bifurcated-stats");
+        expect(within(statsBar).getByText(/52 Source Files/)).toBeTruthy();
+        expect(within(statsBar).getByText(/28,000\+ LoC/)).toBeTruthy();
+        expect(within(statsBar).getByText(/371\/371 Vitest/)).toBeTruthy();
+        expect(within(statsBar).getByText(/0 Remote Servers/)).toBeTruthy();
     });
 
     it("triggers onFinish when clicking 'Enter Live Studio ⏩' in nav header", () => {

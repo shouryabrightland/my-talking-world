@@ -42,7 +42,6 @@ vi.mock("../../src/classes/ChatMember.js", () => ({
             this.id = id; this.name = name; this.isAI = isAI;
             this.isOnline = true; this.isTyping = false;
             this.scheduler = { clear() {}, getTimeline() { return []; } };
-            this.stateMemory = { clear() {} };
             this.events = { on() { return () => {}; }, emit() {} };
         }
         setTransientState() {}
@@ -197,8 +196,6 @@ import ConversationManager, { ConversationEvents } from "../../src/classes/Conve
 import Reaction from "../../src/classes/Reaction.js";
 import { ChatEvents } from "../../src/classes/Chat.js";
 import { ChatMemberEvents } from "../../src/classes/ChatMember.js";
-import Logger from "../../src/classes/lib/Logger.js";
-import Memory from "../../src/classes/lib/Memory.js";
 
 // ─── Helper: create a real ConversationManager with mocked deps ───
 
@@ -208,7 +205,6 @@ function makeMockMember(id, name, isAI) {
         id, name, isAI,
         isOnline: true, isTyping: false,
         scheduler: { clear() {}, getTimeline() { return []; } },
-        stateMemory: { clear() {} },
         events: { on() { return () => {}; }, emit() {} },
         setTransientState() {},
         resetState() {}
@@ -610,11 +606,11 @@ describe("ConversationManager — Director Mode Notifications", () => {
         let resolveStream;
         manager.client.streamChat = () => new Promise(resolve => { resolveStream = resolve; });
 
-        const turnPromise = manager.injectDirectorPlot("A mysterious door appears in the garage");
+        const turnPromise = manager.injectDirectorPlot("A mysterious door appears on the terrace");
         await vi.advanceTimersByTimeAsync(10);
 
         expect(emitted).toEqual(["director:start"]);
-        expect(manager.pendingDirectorPlot).toBe("A mysterious door appears in the garage");
+        expect(manager.pendingDirectorPlot).toBe("A mysterious door appears on the terrace");
 
         manager.onStreamToken('<record type="message" id="1" sender="tom"><text>Arre kya hai yeh?</text></record>');
         expect(emitted).toEqual(["director:start", "director:response"]);
@@ -736,63 +732,7 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
     });
 });
 
-// ─── Hard memory cap (5 active memories per character) ─────────
-
-describe("ConversationManager — Memory Cap Enforcement", () => {
-    it("prunes the oldest non-permanent memory when the 5-item cap is exceeded", () => {
-        const memory = new Memory(new Logger("Test"), "tom");
-
-        memory.set("Old Grudge", "still upset about last week", new Date(Date.now() + 3_600_000));
-        memory.set("Active Goal", "finish the project", new Date(Date.now() + 7_200_000));
-        memory.set("Mood", "excited", new Date(Date.now() + 900_000));
-        memory.set("Permanent Fact", "afraid of heights", -1);
-        memory.set("Opinion on User", "trusts the user", null);
-        expect(memory.size).toBe(5);
-
-        // 6th memory → oldest NON-permanent ("Old Grudge") is pruned.
-        memory.set("Secret", "hides the spare key", new Date(Date.now() + 3_600_000));
-        expect(memory.size).toBe(5);
-        expect(memory.has("Old Grudge")).toBe(false);
-        expect(memory.has("Permanent Fact")).toBe(true);
-        expect(memory.has("Secret")).toBe(true);
-
-        // Overflow again → next-oldest non-permanent is pruned; permanents survive.
-        memory.set("Milestone", "reached level 10", null);
-        expect(memory.size).toBe(5);
-        expect(memory.has("Active Goal")).toBe(false);
-        expect(memory.has("Permanent Fact")).toBe(true);
-        expect(memory.has("Milestone")).toBe(true);
-    });
-
-    it("prunes the oldest permanent memory when all 5 keys are permanent (-1)", () => {
-        const memory = new Memory(new Logger("Test"), "brit");
-
-        for (let i = 1; i <= 5; i++) {
-            memory.set(`Permanent Fact ${i}`, `fact ${i}`, -1);
-        }
-        expect(memory.size).toBe(5);
-
-        // 6th memory with ALL keys permanent → oldest key (insertion order)
-        // is evicted so the strict 5-memory cap is never exceeded.
-        memory.set("New Permanent Fact", "freshly learned", -1);
-        expect(memory.size).toBe(5);
-        expect(memory.has("Permanent Fact 1")).toBe(false);
-        expect(memory.has("Permanent Fact 2")).toBe(true);
-        expect(memory.has("New Permanent Fact")).toBe(true);
-    });
-
-    it("updates existing keys in place without triggering the prune cap", () => {
-        const memory = new Memory(new Logger("Test"), "angela");
-
-        memory.set("Mood", "happy", new Date(Date.now() + 900_000));
-        memory.set("Active Goal", "plan the trip", null);
-
-        // Re-setting an existing key overwrites instead of adding a new entry.
-        memory.set("Mood", "annoyed", new Date(Date.now() + 900_000));
-        expect(memory.size).toBe(2);
-        expect(memory.getValue("Mood")).toBe("annoyed");
-    });
-});
+// ─── Context block (clock + Tier-2 situation) ─────────
 
 describe("ConversationManager — Context block (clock + Tier-2 situation)", () => {
     it("injects the simulation clock and the situation paragraph", () => {

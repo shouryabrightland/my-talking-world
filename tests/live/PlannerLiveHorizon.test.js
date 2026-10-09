@@ -170,7 +170,7 @@ describeLive("Director Demand — Narrative Report & Staged Proposal", () => {
         ];
         const scheduleBefore = JSON.parse(JSON.stringify(ws.schedule));
 
-        const result = await ws.applyUserDemand("Chai break at 4:30 PM with samosas in Lucknow garage");
+        const result = await ws.applyUserDemand("Chai break at 4:30 PM with samosas at the rooftop adda");
 
         // Human-readable narrative summary returned
         expect(result.line1).toBeTruthy();
@@ -234,7 +234,7 @@ describeLive("Timeline Stabilization — Reorder → Restabilize", () => {
         ws = new WorldSetter({ logger: makeFakeLogger(), world });
         ws.schedule = [
             { id: "r1", startHour: 10, endHour: 11, timeRange: "10:00 - 11:00", topic: "Morning chai", mainGoal: "Wake up chat", characterGoals: [], facts: ["Chai ready"], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
-            { id: "r2", startHour: 11, endHour: 12, timeRange: "11:00 - 12:00", topic: "Garage project", mainGoal: "Fix the scooter", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
+            { id: "r2", startHour: 11, endHour: 12, timeRange: "11:00 - 12:00", topic: "Terrace project", mainGoal: "Fix the scooter", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
             { id: "r3", startHour: 12, endHour: 13, timeRange: "12:00 - 13:00", topic: "Lunch break", mainGoal: "Eat together", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
         ];
     });

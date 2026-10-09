@@ -23,16 +23,6 @@ vi.mock("../../src/classes/lib/Logger.js", () => ({
     }
 }));
 
-vi.mock("../../src/classes/lib/Memory.js", () => ({
-    default: class MockMemory {
-        constructor() { this._m = new Map(); }
-        set(k, v) { this._m.set(k, v); }
-        get(k) { return this._m.get(k); }
-        load() { return Promise.resolve(); }
-        values() { return [...this._m.values()]; }
-    }
-}));
-
 vi.mock("../../src/classes/Chat.js", () => ({
     default: class MockChat {
         constructor() { this._members = new Map(); this.events = { on() { return () => {}; }, emit() {} }; }

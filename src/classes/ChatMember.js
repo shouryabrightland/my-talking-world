@@ -9,9 +9,10 @@
  * - Handles transient visual states (isTyping, isReading, isThinking, isActive, emotion).
  *
  * NOTE: Long-term factual memory lives entirely in UnifiedMemory (tag-indexed
- * by member id). ChatMember only owns the transient `stateMemory` table.
+ * by member id). Transient visual state (typing/reading/isActive/emotion)
+ * lives only in plain local fields — nothing is persisted to IndexedDB.
  * - Calculates human-like typing and reading pacing delays.
- * - Persists state to IndexedDB via Storage.
+ * - Persists scheduler timelines to IndexedDB via Storage.
  * - Connects/disconnects from Chat room context.
  */
 
@@ -21,7 +22,6 @@
 
 import EventManager from "./EventManager";
 import Reaction from "./Reaction";
-import Memory from "./lib/Memory";
 import Logger from "./lib/Logger";
 import ChatMemberScheduler from "./lib/ChatMemberScheduler";
 import { random } from "../util/random";
@@ -141,16 +141,6 @@ export default class ChatMember {
         this.chat = null;
 
         /** 
-         * Reload-resistant transient state store (isTyping, isReading, isActive, emotion).
-         * @readonly 
-         * @type {Memory} 
-         */
-        this.stateMemory = new Memory(
-            this.logger,
-            `state:${this.id}`
-        );
-
-        /** 
          * Dedicated database table for persistent timeline scheduler queues.
          * @readonly 
          * @type {Storage} 
@@ -263,13 +253,6 @@ export default class ChatMember {
         this.logger.info("Initializing member state data...");
 
         try {
-            await this.stateMemory.load();
-            this.#restoreTransientState();
-        } catch (/** @type {unknown} */ error) {
-            this.logger.warn("Failed to load transient stateMemory:", error);
-        }
-
-        try {
             await this.scheduler.init();
         } catch (/** @type {unknown} */ error) {
             this.logger.error("Initialization failed on timeline scheduler:", error);
@@ -282,63 +265,51 @@ export default class ChatMember {
     }
 
     /**
-     * Restores active visual states from transient memory if expiration timestamps are unexpired.
-     * @returns {void}
-     */
-    #restoreTransientState() {
-        const now = new Date();
-
-        const isTypingKey = this.stateMemory.get("isTyping");
-        this.isTyping = isTypingKey ? (isTypingKey.isUsable(now) && Boolean(isTypingKey.value)) : false;
-
-        const isReadingKey = this.stateMemory.get("isReading");
-        this.isReading = isReadingKey ? (isReadingKey.isUsable(now) && Boolean(isReadingKey.value)) : false;
-
-        const isThinkingKey = this.stateMemory.get("isThinking");
-        this.isThinking = isThinkingKey ? (isThinkingKey.isUsable(now) && Boolean(isThinkingKey.value)) : false;
-
-        const isActiveKey = this.stateMemory.get("isActive");
-        this.isActive = isActiveKey ? (isActiveKey.isUsable(now) && Boolean(isActiveKey.value)) : false;
-
-        const emotionKey = this.stateMemory.get("emotion");
-        if (emotionKey && emotionKey.isUsable(now) && typeof emotionKey.value === "string") {
-            this.currentEmotion = Reaction.getInfo(emotionKey.value);
-        } else {
-            this.currentEmotion = Reaction.getInfo("Default");
-        }
-    }
-
-    /**
-     * Sets active emotion and writes to transient memory with TTL expiration.
+     * Sets active emotion and emits it to listeners. Purely in-memory — no
+     * transient state is persisted to IndexedDB anymore.
      *
      * @param {string} [name="Default"]
-     * @param {number} [durationMs=4500]
-     * @returns {void}
-     */
+     * @param {number} [durationMs=4500] Suggested visual duration (UI hint).
+     * @returns {void} */
     setEmotion(name = "Default", durationMs = 4500) {
+        void durationMs;
         this.currentEmotion = Reaction.getInfo(name);
         this.events.emit(ChatMemberEvents.EMOTION, this.currentEmotion);
-
-        const expiry = name.toLowerCase() === "default"
-            ? null
-            : new Date(Date.now() + Math.max(durationMs, 2000));
-
-        this.stateMemory.set("emotion", this.currentEmotion.name, expiry);
-        void this.saveStateMemory();
     }
 
     /**
-     * Persists transient runtime visual states to stateMemory with duration-based expiry.
+     * Updates a transient runtime visual state purely in memory: it flips the
+     * local boolean property and emits the matching member event. Nothing is
+     * written to IndexedDB.
      *
      * @param {"isTyping"|"isReading"|"isThinking"|"isActive"} key
      * @param {boolean} value
-     * @param {number} [durationMs=3500]
-     * @returns {void}
-     */
+     * @param {number} [durationMs=3500] Suggested visual duration (UI hint).
+     * @returns {void} */
     setTransientState(key, value, durationMs = 3500) {
-        const expiry = value ? new Date(Date.now() + durationMs) : null;
-        this.stateMemory.set(key, value ? "true" : null, expiry);
-        void this.saveStateMemory();
+        void durationMs;
+        const next = Boolean(value);
+
+        switch (key) {
+            case "isTyping":
+                this.isTyping = next;
+                this.events.emit(ChatMemberEvents.TYPING, next);
+                break;
+            case "isReading":
+                this.isReading = next;
+                this.events.emit(ChatMemberEvents.READING, next);
+                break;
+            case "isThinking":
+                this.isThinking = next;
+                this.events.emit(ChatMemberEvents.THINKING, next);
+                break;
+            case "isActive":
+                this.isActive = next;
+                this.events.emit(ChatMemberEvents.ACTIVE, next);
+                break;
+            default:
+                break;
+        }
     }
 
     /**
@@ -464,12 +435,9 @@ export default class ChatMember {
                 this.#inactiveTimer = null;
             }
 
-            this.setTransientState("isActive", true, 4000);
-
             if (this.isActive) return;
 
-            this.isActive = true;
-            this.events.emit(ChatMemberEvents.ACTIVE, true);
+            this.setTransientState("isActive", true, 4000);
             return;
         }
 
@@ -481,10 +449,8 @@ export default class ChatMember {
             if (this.isReading || this.isTyping || this.isThinking) return;
             if (!this.isActive) return;
 
-            this.isActive = false;
             this.setEmotion("Default");
             this.setTransientState("isActive", false, 0);
-            this.events.emit(ChatMemberEvents.ACTIVE, false);
         }, 3000);
     }
 
@@ -504,19 +470,6 @@ export default class ChatMember {
         this.isActive = false;
         this.setEmotion("Default");
         this.scheduler.clear();
-        this.stateMemory.clear();
-        void this.stateMemory.destroy();
-    }
-
-    /**
-     * @returns {Promise<void>}
-     */
-    async saveStateMemory() {
-        try {
-            await this.stateMemory.save();
-        } catch (/** @type {unknown} */ error) {
-            this.logger.warn("Failed to save stateMemory:", error);
-        }
     }
 
     /**

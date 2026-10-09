@@ -2,7 +2,7 @@
 
 **A Living AI Studio where autonomous characters chat, plan, and react to real-world events in real-time.**
 
-Tom & Friends is an AI-powered group chat simulation set in a Lucknow garage studio. Six distinct AI characters — Tom, Angela, Ben, Ginger, Hank, and Becca — autonomously converse, form memories, follow dynamic storylines, and respond to your inputs as a human participant or invisible director.
+Tom & Friends is an AI-powered group chat simulation set in a Lucknow apartment studio. Six distinct AI characters — Tom, Angela, Ben, Ginger, Hank, and Becca — autonomously converse, form memories, follow dynamic storylines, and respond to your inputs as a human participant or invisible director.
 
 ---
 
@@ -393,9 +393,7 @@ src/
 │   │   ├── ChatMemberScheduler.js   # Per-character timeline scheduling
 │   │   ├── CircuitBreaker.js        # API failure protection
 │   │   ├── GeminiModelResolver.js   # Model discovery & probing
-│   │   ├── Key.js                   # Encryption utilities
 │   │   ├── Logger.js                # Buffered log system
-│   │   ├── Memory.js                # TTL-based memory store
 │   │   ├── MemoryExpiryParser.js    # Duration string parser
 │   │   ├── MessageStore.js          # IndexedDB message persistence
 │   │   ├── PromptLogger.js          # Prompt execution tracing

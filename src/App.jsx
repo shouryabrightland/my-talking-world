@@ -11,7 +11,10 @@ import ApiKeyOnboardingScreen from "./components/screens/ApiKeyOnboardingScreen"
 import StudioBackstageLoadingScreen from "./components/screens/StudioBackstageLoadingScreen";
 import { useOffline } from "./contexts/OfflineContext";
 import OfflineBanner from "./components/OfflineBanner";
-import PresentationView from "./components/presentation/PresentationView";
+
+// Hackathon pitch view is heavy (3D canvas + scrollytelling) — keep it out of
+// the main studio bundle and split it into its own dynamic chunk.
+const PresentationView = React.lazy(() => import("./components/presentation/PresentationView"));
 
 /**
  * Route table: the live studio lives at "/" and the pitch presentation at
@@ -40,7 +43,11 @@ export default function App() {
 /** Presentation at /presentation — Escape/skip/finale all navigate back to "/". */
 function PresentationRoute() {
     const navigate = useNavigate();
-    return <PresentationView onFinish={() => navigate("/")} />;
+    return (
+        <React.Suspense fallback={<div style={{ background: "#070a13", height: "100vh" }} />}>
+            <PresentationView onFinish={() => navigate("/")} />
+        </React.Suspense>
+    );
 }
 
 /** The studio application (previously the whole App component). */

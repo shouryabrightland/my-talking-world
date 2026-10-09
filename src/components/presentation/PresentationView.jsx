@@ -35,18 +35,18 @@ export const PRESENTATION_LAYERS = [
         tag: "CBSE HACKATHON 2026 • CREATIVE AI SHOWCASE",
         headline: "CHATBOTS ARE DEAD.",
         headlineGradient: "A LIVING SITCOM IN YOUR POCKET.",
-        blurb: "Today's students spend 4+ hours daily scrolling 15-second vertical reels — passive digital zombies. We built a living story sandbox where six autonomous AI friends converse, disagree, and live 24/7 in an authentic Lucknow garage.",
+        blurb: "Today's students spend 4+ hours daily scrolling 15-second vertical reels — passive digital zombies. We built a living story sandbox where six autonomous AI friends converse, disagree, and live 24/7 in a lived-in Lucknow apartment.",
         files: ["Chat.jsx", "World.js"],
         metrics: [
             { icon: "🚫", label: "Zero Prompts", desc: "Autonomous Banter" },
-            { icon: "🎭", label: "6 AI Friends", desc: "Lucknow Garage" },
+            { icon: "🎭", label: "6 AI Friends", desc: "Lucknow Home" },
             { icon: "🎬", label: "You Direct", desc: "Active Agency" }
         ],
         cameraTarget: "hero",
         tooltip: {
             badge: "LIVING STUDIO",
             title: "Autonomous Multi-Agent World",
-            subtitle: "Lucknow Garage Studio",
+            subtitle: "Lucknow Home Studio",
             desc: "Characters converse autonomously, form lifelong memories, and continue their lives even when you close the app."
         }
     },
@@ -255,7 +255,7 @@ export const PRESENTATION_LAYERS = [
         tag: "LIVE STUDIO ACCESS",
         headline: "DON'T TAKE OUR WORD.",
         headlineGradient: "TAKE THE WHEEL.",
-        blurb: "All 3D components snap magnetically back into the live app chassis right before your eyes. We invite the jury to step into the Lucknow garage: chat with Tom, peek into character minds, or direct a live plot twist right now!",
+        blurb: "All 3D components snap magnetically back into the live app chassis right before your eyes. We invite the jury to step into the Lucknow living room: chat with Tom, peek into character minds, or direct a live plot twist right now!",
         files: ["Chat.jsx", "StudioLobbyScreen.jsx"],
         metrics: [
             { icon: "🚀", label: "Zero Reload", desc: "Instant Seamless Launch" },
@@ -267,26 +267,31 @@ export const PRESENTATION_LAYERS = [
             badge: "MAGNETIC REASSEMBLY",
             title: "Living Studio Lobby Ready",
             subtitle: "Step Inside and Direct",
-            desc: "The audience steps directly into the living garage studio to talk or direct a live plot twist!"
+            desc: "The audience steps directly into the living room studio to talk or direct a live plot twist!"
         }
     }
 ];
 
 export const PRESENTATION_SCENES = PRESENTATION_LAYERS;
 
+/**
+ * @param {Object} props
+ * @param {() => void} [props.onFinish] Navigate back to the live studio.
+ * @returns {React.JSX.Element}
+ */
 export default function PresentationView({ onFinish }) {
     const [activeIndex, setActiveIndex] = useState(0);
     const [mouseTilt, setMouseTilt] = useState({ x: 0, y: 0 });
     const isScrollingRef = useRef(false);
 
-    const goToStep = useCallback((newIdx) => {
+    const goToStep = useCallback(/** @param {number} newIdx */ (newIdx) => {
         const clamped = Math.max(0, Math.min(PRESENTATION_LAYERS.length - 1, newIdx));
         setActiveIndex(clamped);
         try { Sound.playMessagePop(); } catch {}
     }, []);
 
     // Interactive desktop hover parallax
-    const handleMouseMove = useCallback((e) => {
+    const handleMouseMove = useCallback(/** @param {React.MouseEvent} e */ (e) => {
         if (activeIndex === PRESENTATION_LAYERS.length - 1) {
             setMouseTilt({ x: 0, y: 0 });
             return;
@@ -299,7 +304,7 @@ export default function PresentationView({ onFinish }) {
 
     // Keyboard navigation
     useEffect(() => {
-        const handleKeyDown = (e) => {
+        const handleKeyDown = /** @param {KeyboardEvent} e */ (e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
                 e.preventDefault();
                 goToStep(activeIndex + 1);
@@ -315,7 +320,7 @@ export default function PresentationView({ onFinish }) {
     }, [activeIndex, goToStep, onFinish]);
 
     // Trackpad / Wheel navigation
-    const handleWheel = useCallback((e) => {
+    const handleWheel = useCallback(/** @param {React.WheelEvent} e */ (e) => {
         if (isScrollingRef.current) return;
         if (Math.abs(e.deltaY) < 30) return;
 
@@ -460,7 +465,7 @@ export default function PresentationView({ onFinish }) {
                             </button>
                             <span className={styles.stepperCounter}>{activeIndex + 1} / {PRESENTATION_LAYERS.length}</span>
                             <button
-                                onClick={() => activeScene.role === "finale" ? onFinish() : goToStep(activeIndex + 1)}
+                                onClick={() => activeScene.role === "finale" ? onFinish?.() : goToStep(activeIndex + 1)}
                                 className={styles.nextBtn}
                             >
                                 {activeScene.role === "finale" ? "Launch Studio 🚀" : "Next Scene →"}
@@ -547,7 +552,7 @@ export default function PresentationView({ onFinish }) {
                                                         <span className={styles.geminiBadge}>Gemini Flash 65K</span>
                                                     </div>
                                                     <div className={styles.demandBox}>
-                                                        <span>"A stray puppy enters the garage at 5 PM"</span>
+                                                        <span>"A stray puppy appears at the tea stall at 5 PM"</span>
                                                         <span className={styles.stagedBadge}>⚡ Staged</span>
                                                     </div>
                                                     <div className={styles.diffCardProposed}>
@@ -556,7 +561,7 @@ export default function PresentationView({ onFinish }) {
                                                     </div>
                                                     <div className={styles.diffCardRemoved}>
                                                         <span className={styles.diffSub}>− REMOVED</span>
-                                                        <del>17:00 - 18:30 • Casual Garage Gaming</del>
+                                                        <del>17:00 - 18:30 • Casual Rooftop Gaming</del>
                                                     </div>
                                                     <div className={styles.diffActions}>
                                                         <span className={styles.acceptBtn}>✓ Accept Twist</span>
@@ -643,11 +648,11 @@ export default function PresentationView({ onFinish }) {
                                                     </div>
                                                     <div className={styles.mixerSliderItem}>
                                                         <span>Theme Melody (75%)</span>
-                                                        <div className={styles.mockSliderBar} style={{ "--fill": "75%" }} />
+                                                        <div className={styles.mockSliderBar} style={/** @type {React.CSSProperties} */ ({ "--fill": "75%" })} />
                                                     </div>
                                                     <div className={styles.mixerSliderItem}>
                                                         <span>Master Volume (50%)</span>
-                                                        <div className={styles.mockSliderBar} style={{ "--fill": "50%" }} />
+                                                        <div className={styles.mockSliderBar} style={/** @type {React.CSSProperties} */ ({ "--fill": "50%" })} />
                                                     </div>
                                                     <div className={styles.mixerPresetsRow}>
                                                         <span className={styles.presetTagActive}>🎉 Sitcom</span>
@@ -690,7 +695,7 @@ export default function PresentationView({ onFinish }) {
                                                     <div className={styles.speechBubble}>
                                                         <div className={styles.bubbleSender}>Tom</div>
                                                         <p className={styles.bubbleText}>
-                                                            "Arre yaar! Lucknow garage mein swagat hai. Maine naya drone setup kiya hai, aaj shaam ko terrace pe test karenge!"
+                                                            "Arre yaar! Mere Lucknow wale ghar mein swagat hai. Maine naya drone setup kiya hai, aaj shaam ko terrace pe test karenge!"
                                                         </p>
                                                         {/* Unfolded Thought Box Peek */}
                                                         <div className={styles.thoughtBox}>
@@ -805,7 +810,7 @@ export default function PresentationView({ onFinish }) {
 
                     {/* Step 11: Full-Width / Full-Height Bifurcated Architecture Display & Stats Bar */}
                     {activeScene.role === "bifurcated" && (
-                        <div className={styles.bifurcatedStatsBar}>
+                        <div className={styles.bifurcatedStatsBar} data-testid="bifurcated-stats">
                             <div className={styles.statItem}>
                                 <strong>📁 52 Source Files</strong>
                                 <span>Zero Technical Debt</span>

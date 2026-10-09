@@ -926,7 +926,6 @@ export default class ConversationManager {
                     // Purge legacy per-member memory rows (old keyed-memory arch).
                     await memoriesStorage.removeItem(`memory:${member.id}`);
                     await memoriesStorage.removeItem(`state:${member.id}`);
-                    member.stateMemory.clear();
                 } catch (/** @type {unknown} */ err) {
                     this.logger.warn(`Failed to purge memory for ${member.id}:`, err);
                 }

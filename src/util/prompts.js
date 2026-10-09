@@ -46,12 +46,12 @@ export const PROMPT_LANGUAGE_MANDATE =
 
 /**
  * ANTI-CLICHÉ & LOCATION DIVERSITY MANDATE (Task 9).
- * Fights pre-training bias toward Hazratganj / Chowk / the garage by naming
+ * Fights pre-training bias toward Hazratganj / Chowk defaults by naming
  * the varied Lucknow settings the simulation should actually use.
  */
 export const PROMPT_LOCATION_MANDATE =
     "<location_diversity_mandate>\n" +
-    "  <anti_cliche>Never let scenes collapse into the same few defaults. Hazratganj, Chowk, and the garage are FORBIDDEN as routine go-to settings — use them at most once in a long while, never back-to-back.</anti_cliche>\n" +
+    "  <anti_cliche>Never let scenes collapse into the same few defaults. Hazratganj and Chowk are FORBIDDEN as routine go-to settings — use them at most once in a long while, never back-to-back.</anti_cliche>\n" +
     "  <varied_lucknow_settings>\n" +
     "    Gomti Nagar riverfront & parks • Indira Nagar lanes • Aliganj markets • university campus spots & canteens • rooftop chai addas • local tea stalls and lassi shops • old-city bylanes beyond Chowk • city library & co-working corners\n" +
     "  </varied_lucknow_settings>\n" +
@@ -89,7 +89,7 @@ export const PROMPT_AGE_MANDATE = [
 export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Generate up to 5 dialogue messages per response.",
     "LANGUAGE POINTER: every language rule (Hinglish tone, writing script, Lucknow banter style) lives ONLY in the single authoritative <language_mandate> block — follow it, never restate or contradict it here.",
-    "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj, Chowk, or the garage. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj or Chowk. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",
     "Break longer conversational statements across 2 to 3 shorter messages naturally.",
     "PERSONA FIDELITY: Every character must strictly embody their unique personality, age, tone, and bio as declared in the <characters> context block. Stay 100% faithful to the participant definitions provided without blending voices.",
@@ -118,7 +118,7 @@ export const PROMPT_DEMAND_TASK =
 export const PROMPT_DEMAND_RULES = Object.freeze([
     "The user's requested activity has highest priority. Schedule it at the requested time window.",
     "LOCATIONS: Dynamically choose a realistic, varied, real-world location across the active city that fits the requested activity — grounded in the <location> tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Do not force a fixed or repeating location.",
-    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj, Chowk, or the garage — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
     "Every block in the updated schedule MUST include individual <goal> entries for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
     "In the block immediately preceding the requested activity, write a post_plot transition in the final 5 to 10 minutes that smoothly leads into and prepares the upcoming activity.",
