@@ -40,6 +40,31 @@ describe("UnifiedMemory — stack operations", () => {
         expect(memory.entries).toHaveLength(0);
     });
 
+    it("hard-caps every record at 80 characters and rejects empty payloads with null", async () => {
+        const added = await memory.add({ tags: ["tom"], data: "x".repeat(200) });
+
+        expect(added).not.toBeNull();
+        expect(added?.data).toHaveLength(80);
+        expect(memory.entries[0].data).toHaveLength(80);
+
+        await expect(memory.add({ tags: ["tom"], data: "   " })).resolves.toBeNull();
+        expect(memory.entries).toHaveLength(1);
+    });
+
+    it("clamps oversized legacy records when a persisted stack is reloaded", async () => {
+        await memory.add({ tags: ["tom"], data: "short fact" });
+        // Simulate a pre-cap stack written directly to storage.
+        memory.entries[0].data = "y".repeat(500);
+        await memory.persist();
+
+        const reloaded = new UnifiedMemory(new Logger("Test"));
+        reloaded.storageKey = memory.storageKey;
+        await reloaded.init();
+
+        expect(reloaded.entries).toHaveLength(1);
+        expect(reloaded.entries[0].data).toHaveLength(80);
+    });
+
     it("removes entries by id", async () => {
         const a = await memory.add({ tags: ["tom"], data: "first" });
         await memory.add({ tags: ["ben"], data: "second" });
@@ -119,6 +144,35 @@ describe("UnifiedMemory — deterministic relevance search", () => {
 
     it("ignores keyword misses", () => {
         expect(memory.searchDeterministic(["football"], ["any"])).toEqual([]);
+    });
+
+    it("only surfaces %world% news when the query explicitly asks for news", () => {
+        memory.entries.push(
+            entry("w1", "Rain likely in Lucknow tomorrow", ["%world%", "news"], "1h", "2026-10-07 12:00")
+        );
+
+        // Ordinary query → the news item stays out of the results.
+        const normal = memory.searchDeterministic(["drone"], ["tom"]);
+        expect(normal[0]).toContain("Tom repaired the drone");
+        expect(normal.join()).not.toContain("Rain likely");
+
+        // Explicit news query → the news item participates.
+        const news = memory.searchDeterministic(["news"], []);
+        expect(news.join()).toContain("Rain likely in Lucknow tomorrow");
+    });
+
+    it("never returns more than one %world% news item in the top 2", () => {
+        memory.entries = [
+            entry("w1", "City council polls on Sunday", ["%world%", "news"], "1h", "2026-10-07 12:00"),
+            entry("w2", "Heavy rain expected this weekend", ["%world%", "news"], "1h", "2026-10-07 12:01"),
+            entry("t1", "Tom promised chai", ["tom"], "forever", "2026-10-07 11:00")
+        ];
+
+        const lines = memory.searchDeterministic(["news"], []);
+        const worldLines = lines.filter(l => l.includes("council polls") || l.includes("Heavy rain"));
+
+        expect(lines.length).toBeLessThanOrEqual(2);
+        expect(worldLines.length).toBeLessThanOrEqual(1);
     });
 
     it("renders a prompt-ready text stack", () => {
@@ -271,7 +325,9 @@ describe("UnifiedMemory — planner scene sync (future events for the cast)", ()
         expect(planner).toHaveLength(1); // past block skipped, no duplicates
         expect(planner[0].data).toContain("Upcoming scene");
         expect(planner[0].data).toContain("Rooftop drone repair");
-        expect(planner[0].data).toContain("tom: Sketch the rotor mount");
+        // Records are hard-capped at 80 chars — goal owners travel as tags.
+        expect(planner[0].data.length).toBeLessThanOrEqual(80);
+        expect(planner[0].tags).toContain("tom");
         expect(planner[0].tags).toContain("schedule");
         expect(planner[0].tags).toContain("tom");
         expect(planner[0].expiry).toBe("24h");

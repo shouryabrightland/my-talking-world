@@ -84,7 +84,7 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
 
 /**
  * @typedef {Object} DevToolsNeedleRouterState
- * @property {boolean} isReady Wasm worker availability.
+ * @property {boolean} isReady Synchronous extractor availability.
  * @property {string} lastRoute Last keyword/member route extracted from a human utterance.
  * @property {string} lastMemorySnippet Most recent UnifiedMemory lines injected into the prompt.
  */

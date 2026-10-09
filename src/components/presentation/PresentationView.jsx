@@ -133,20 +133,20 @@ export const PRESENTATION_LAYERS = [
     {
         id: 6, code: "06", label: "Chip", role: "layer",
         tag: "ON-DEVICE AI ROUTER",
-        headline: "A 14MB AI CHIP",
-        headlineGradient: "ON YOUR DEVICE.",
-        blurb: "Needle 2 — a 14MB on-device model running in a background Web Worker — routes user messages in under 1 millisecond. It extracts search keywords and speaker targets with zero network delay, even when completely offline.",
-        files: ["NeedleRouter.js", "needleWorker.js", "footer.jsx"],
+        headline: "A ZERO-LATENCY",
+        headlineGradient: "AI ROUTER.",
+        blurb: "The Needle router is a deterministic synchronous extractor — no Web Worker, no network — that routes user messages in under 1 millisecond. It extracts search keywords and speaker targets with zero latency, even when completely offline.",
+        files: ["NeedleRouter.js", "UnifiedMemory.js", "footer.jsx"],
         metrics: [
             { icon: "⚡", label: "<1ms Routing", desc: "Deterministic Turn Dispatch" },
-            { icon: "📦", label: "14MB Wasm", desc: "Local Compact Binary" },
+            { icon: "📦", label: "Sync Extractor", desc: "Zero Worker Overhead" },
             { icon: "🌐", label: "100% Offline", desc: "Zero Network Overhead" }
         ],
         cameraTarget: "needle",
         tooltip: {
             badge: "FOCUSED INPUT BOX • NEEDLE ROUTER",
             title: "Needle 2 On-Device Router",
-            subtitle: "14MB Wasm • <1ms Route Budget",
+            subtitle: "Synchronous • <1ms Route Budget",
             desc: "Decides which character speaks next and extracts relevant memory tags instantly from the user's keystrokes."
         }
     },
@@ -235,7 +235,7 @@ export const PRESENTATION_LAYERS = [
         tag: "FULL ARCHITECTURAL DISSECTION",
         headline: "THE COMPLETE",
         headlineGradient: "LIVING SITCOM STACK.",
-        blurb: "Every single layer decoupled and running client-side on your device: from the 14MB Wasm router to dual-provider isolation and self-healing IndexedDB storage.",
+        blurb: "Every single layer decoupled and running client-side on your device: from the synchronous Needle router to dual-provider isolation and self-healing IndexedDB storage.",
         files: ["Chat.jsx", "WorldSetter.js", "UnifiedMemory.js", "GroqClient.js"],
         metrics: [
             { icon: "📁", label: "52 Source Modules", desc: "Strict Type Safety" },
@@ -745,8 +745,8 @@ export default function PresentationView({ onFinish }) {
                                             {activeScene.cameraTarget === "needle" && (
                                                 <div className={styles.needleInputOverlayPopup}>
                                                     <div className={styles.needlePopupHeader}>
-                                                        <span>⚙️ Needle 2 Wasm Router (&lt;1ms)</span>
-                                                        <span className={styles.needleOfflineBadge}>14MB Offline</span>
+                                                        <span>⚙️ Needle Synchronous Router (&lt;1ms)</span>
+                                                        <span className={styles.needleOfflineBadge}>Offline-First</span>
                                                     </div>
                                                     <div className={styles.needleChipsRow}>
                                                         <span className={styles.needleChip}>Keyword: drone</span>

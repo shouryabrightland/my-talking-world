@@ -74,7 +74,7 @@ describe("DevToolsStateTab — intermediate state inspection cards", () => {
         render(<DevToolsStateTab liveState={makeFullState()} handleCopyState={() => {}} copied={false} />);
 
         expect(screen.getByText("🎯 Needle Query Router")).toBeTruthy();
-        expect(screen.getByText("Wasm Ready")).toBeTruthy();
+        expect(screen.getByText("Sync Ready")).toBeTruthy();
         expect(screen.getByText("tom: chai, plan")).toBeTruthy();
         expect(screen.getByText("Gomti Nagar stall wale chaiwale se paidaishi dosti hai.")).toBeTruthy();
     });

@@ -26,8 +26,38 @@ export default class UnifiedMemory {
     /** Character budget before Gemma compression is triggered. @readonly */
     static MAX_CHARACTERS = 20_000;
 
+    /**
+     * Hard cap on characters stored per memory record. Every entry — however
+     * it is written (manual add, situation pass, environment sync, planner
+     * sync, compression output, or a legacy stack loaded from disk) — is
+     * clamped to this length, so the 20k budget ≈ 250 capped records.
+     * @readonly
+     */
+    static MAX_RECORD_CHARACTERS = 80;
+
     /** Maximum relevance lines injected into a single dialogue turn. @readonly */
     static MAX_SEARCH_RESULTS = 2;
+
+    /**
+     * Query keywords that unlock `%world%` news retrieval — news items only
+     * participate in a search when the query explicitly asks for them.
+     * @readonly
+     */
+    static WORLD_KEYWORDS = [
+        "news", "weather", "world", "headline", "headlines",
+        "forecast", "mausam", "khabar", "khabrein", "samachar"
+    ];
+
+    /**
+     * Hard-clamps a payload to the 80-character per-record limit.
+     * @param {string} data Raw payload.
+     * @returns {string} Trimmed payload of at most 80 characters.
+     */
+    static clampRecord(data) {
+        const cleaned = String(data || "").trim();
+        if (cleaned.length <= UnifiedMemory.MAX_RECORD_CHARACTERS) return cleaned;
+        return cleaned.slice(0, UnifiedMemory.MAX_RECORD_CHARACTERS).trim();
+    }
 
     /** @param {import("./Logger").default} logger */
     constructor(logger) {
@@ -52,7 +82,13 @@ export default class UnifiedMemory {
         try {
             const raw = await this.storage.getItem(this.storageKey);
             if (Array.isArray(raw)) {
-                this.entries = /** @type {UnifiedMemoryEntry[]} */ (raw);
+                // Enforce the 80-char record contract on legacy stacks too.
+                this.entries = /** @type {UnifiedMemoryEntry[]} */ (raw)
+                    .map(entry => ({
+                        ...entry,
+                        data: UnifiedMemory.clampRecord(entry?.data)
+                    }))
+                    .filter(entry => entry.data);
                 await this.clearExpired(new Date());
             }
         } catch (/** @type {unknown} */ err) {
@@ -63,15 +99,22 @@ export default class UnifiedMemory {
 
     /**
      * Appends a factual memory entry and persists the stack.
+     * The record is hard-capped at 80 characters; empty payloads are rejected.
      *
      * @param {Object} entry
      * @param {string} [entry.datetime] "YYYY-MM-DD HH:mm" — defaults to now.
      * @param {string[]} [entry.tags] Target tags (lowercased, deduped).
-     * @param {string} entry.data The factual memory string.
+     * @param {string} entry.data The factual memory string (max 80 chars).
      * @param {string} [entry.expiry] TTL directive, defaults to "forever".
-     * @returns {Promise<UnifiedMemoryEntry>} The stored entry.
+     * @returns {Promise<UnifiedMemoryEntry|null>} The stored entry, or null when rejected.
      */
     async add({ datetime, tags, data, expiry = "forever" }) {
+        const trimmedData = String(data || "").trim();
+        if (!trimmedData) return null;
+        const cleanData = trimmedData.length > UnifiedMemory.MAX_RECORD_CHARACTERS
+            ? trimmedData.slice(0, UnifiedMemory.MAX_RECORD_CHARACTERS).trim()
+            : trimmedData;
+
         /** @type {UnifiedMemoryEntry} */
         const entry = {
             id: crypto.randomUUID(),
@@ -79,11 +122,9 @@ export default class UnifiedMemory {
             tags: Array.isArray(tags)
                 ? [...new Set(tags.map(t => String(t).toLowerCase().trim()).filter(Boolean))]
                 : [],
-            data: String(data || "").trim(),
+            data: cleanData,
             expiry: expiry || "forever"
         };
-
-        if (!entry.data) return entry;
 
         this.entries.push(entry);
         await this.clearExpired(new Date());
@@ -163,38 +204,72 @@ export default class UnifiedMemory {
     /**
      * Deterministic relevance search executed in pure JS (no model call).
      *
+     * Priority scoring:
+     * - Cast-member / target tag matches: +5 points.
+     * - Content keyword matches: +3 points.
+     * - `%world%` news items: +2 points, and ONLY when the query explicitly
+     *   mentions a news/weather/world keyword.
+     * - Constraint: the top-2 results never contain more than one `%world%`
+     *   news item, so real memories keep the retrieval slots.
+     *
      * @param {string[]} [keywords] Keywords extracted by Needle.
      * @param {string[]} [targetTags] Target member/topic tags extracted by Needle.
      * @returns {string[]} Top 0-2 lines formatted for prompt injection.
      */
     searchDeterministic(keywords = [], targetTags = []) {
-        const normKw = keywords.map(k => String(k).toLowerCase().trim()).filter(Boolean);
-        const normTags = targetTags.map(t => String(t).toLowerCase().trim()).filter(Boolean);
+        const normKw = [...new Set(
+            keywords.map(k => String(k).toLowerCase().trim()).filter(Boolean)
+        )];
+        const normTags = targetTags
+            .map(t => String(t).toLowerCase().trim())
+            .filter(t => t && t !== "any");
 
         if (!normKw.length && !normTags.length) return [];
 
-        const scored = this.entries.map(entry => {
-            let score = 0;
+        // News is only retrievable when the human explicitly asks about it.
+        const wantsWorld = normKw.some(k =>
+            UnifiedMemory.WORLD_KEYWORDS.some(w => k.includes(w))
+        );
+
+        /** @type {Array<{ entry: UnifiedMemoryEntry, score: number, isWorld: boolean }>} */
+        const scored = [];
+
+        for (const entry of this.entries) {
             const entryTags = entry.tags.map(t => t.toLowerCase());
             const entryData = entry.data.toLowerCase();
+            const isWorld = entryTags.includes("%world%");
 
-            for (const tag of normTags) {
-                if (tag === "any") continue;
-                if (entryTags.includes(tag)) score += 3;
-                else if (entryTags.some(t => t.includes(tag))) score += 2;
-            }
-            for (const kw of normKw) {
-                if (entryTags.some(t => t.includes(kw))) score += 2;
-                if (entryData.includes(kw)) score += 1;
-            }
-            return { entry, score };
-        });
+            let score = 0;
 
-        return scored
-            .filter(item => item.score > 0)
-            .sort((a, b) => b.score - a.score || b.entry.datetime.localeCompare(a.entry.datetime))
-            .slice(0, UnifiedMemory.MAX_SEARCH_RESULTS)
-            .map(item => `[${item.entry.datetime}] ${item.entry.data}`);
+            if (isWorld) {
+                // News items rank low and only on an explicit news query.
+                if (!wantsWorld) continue;
+                score = 2;
+            } else {
+                for (const tag of normTags) {
+                    if (entryTags.includes(tag)) score += 5;
+                    else if (entryTags.some(t => t.includes(tag))) score += 3;
+                }
+                for (const kw of normKw) {
+                    if (entryData.includes(kw) || entryTags.some(t => t.includes(kw))) score += 3;
+                }
+            }
+
+            if (score > 0) scored.push({ entry, score, isWorld });
+        }
+
+        scored.sort((a, b) => b.score - a.score || b.entry.datetime.localeCompare(a.entry.datetime));
+
+        // Constraint: at most ONE %world% news item in the top-2 results.
+        /** @type {Array<{ entry: UnifiedMemoryEntry, score: number, isWorld: boolean }>} */
+        const top = [];
+        for (const item of scored) {
+            if (item.isWorld && top.some(t => t.isWorld)) continue;
+            top.push(item);
+            if (top.length >= UnifiedMemory.MAX_SEARCH_RESULTS) break;
+        }
+
+        return top.map(item => `[${item.entry.datetime}] ${item.entry.data}`);
     }
 
     /**
@@ -277,7 +352,7 @@ export default class UnifiedMemory {
                 const candidates = [];
                 const seen = new Set();
                 for (const m of matches) {
-                    const data = (m[3] || "").trim();
+                    const data = UnifiedMemory.clampRecord(m[3]);
                     // Drop empties, duplicate records and echoes of the schema example.
                     if (!data || data === "Consolidated memory entry" || seen.has(data)) continue;
                     seen.add(data);
@@ -342,7 +417,9 @@ export default class UnifiedMemory {
                 id: crypto.randomUUID(),
                 datetime: stamp,
                 tags: ["environment", "weather", "lucknow", "temperature"],
-                data: `Current weather in ${env.city || "Lucknow"}: ${env.temperature || "32°C"}, ${env.weather} (Humidity: ${env.humidity || "55%"})`,
+                data: UnifiedMemory.clampRecord(
+                    `Current weather in ${env.city || "Lucknow"}: ${env.temperature || "32°C"}, ${env.weather} (Humidity: ${env.humidity || "55%"})`
+                ),
                 expiry: "1h"
             });
         }
@@ -353,7 +430,7 @@ export default class UnifiedMemory {
                 id: crypto.randomUUID(),
                 datetime: stamp,
                 tags: ["environment", "occasion", "festival", "celebration", "lucknow"],
-                data: `Today's celebration: ${env.todayCelebration}`,
+                data: UnifiedMemory.clampRecord(`Today's celebration: ${env.todayCelebration}`),
                 expiry: "24h"
             });
         }
@@ -375,7 +452,7 @@ export default class UnifiedMemory {
                     id: crypto.randomUUID(),
                     datetime: stamp,
                     tags,
-                    data: `Headlines: ${headline}`,
+                    data: UnifiedMemory.clampRecord(`Headlines: ${headline}`),
                     expiry: "24h"
                 });
             }
@@ -420,10 +497,11 @@ export default class UnifiedMemory {
 
             const time = block.timeRange || `${fmt(block.startHour)}-${fmt(block.endHour)}`;
             const goals = Array.isArray(block.characterGoals) ? block.characterGoals : [];
-            const goalText = goals.length
-                ? ` Goals: ${goals.map(g => `${g.id}: ${g.goal}`).join("; ")}.`
-                : "";
-            const data = `Upcoming scene ${time}: ${block.topic || "Casual hangout"} — ${block.mainGoal || "Chat naturally"}.${goalText}`;
+            // Records are hard-capped at 80 chars — the data line stays a compact
+            // scene pointer while goal owners travel as retrieval tags below.
+            const data = UnifiedMemory.clampRecord(
+                `Upcoming scene ${time}: ${block.topic || "Casual hangout"} — ${block.mainGoal || "Chat naturally"}.`
+            );
 
             // Retrieval tags: fixed planner keywords + topic words + goal owners.
             const topicWords = String(block.topic || "")

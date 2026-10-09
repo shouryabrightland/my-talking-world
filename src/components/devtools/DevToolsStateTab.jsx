@@ -314,7 +314,7 @@ export default function DevToolsStateTab({
                             <div className={styles.stateCardHeader}>
                                 <h4 className={styles.stateCardTitle}>🎯 Needle Query Router</h4>
                                 <span className={validState.needleRouter.isReady ? styles.badgeSuccess : styles.badgeWarning}>
-                                    {validState.needleRouter.isReady ? "Wasm Ready" : "Fallback"}
+                                    {validState.needleRouter.isReady ? "Sync Ready" : "Idle"}
                                 </span>
                             </div>
 
@@ -323,8 +323,8 @@ export default function DevToolsStateTab({
                                     <span className={styles.fieldLabel}>Worker Status:</span>
                                     <span className={styles.fieldValue}>
                                         {validState.needleRouter.isReady
-                                            ? "Needle 2 worker online (300ms route budget)"
-                                            : "Deterministic keyword fallback active"}
+                                            ? "Deterministic extractor online (≤1ms route budget)"
+                                            : "Router destroyed (engine teardown)"}
                                     </span>
                                 </div>
 
