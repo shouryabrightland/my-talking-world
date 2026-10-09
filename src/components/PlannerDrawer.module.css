@@ -1227,3 +1227,204 @@
     letter-spacing: 0.5px;
     white-space: nowrap;
 }
+
+/* ═══ Hybrid Planner: Filters, Recurrence & Creation ═══ */
+
+.filterBar {
+    display: flex;
+    align-items: center;
+    gap: clamp(6px, 1.5vw, 10px);
+    flex-wrap: wrap;
+    margin-bottom: clamp(4px, 1vw, 8px);
+}
+
+.filterTabs {
+    display: flex;
+    gap: 3px;
+    background: var(--bg-root, #070a13);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 3px;
+}
+
+.filterBtn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: clamp(10px, 2.2vw, 11px);
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.filterBtn:hover {
+    color: var(--text-primary);
+}
+
+.filterBtnActive {
+    background: var(--primary);
+    color: #fff;
+}
+
+.searchInput {
+    flex: 1;
+    min-width: 130px;
+    background: var(--bg-input, var(--bg-root, #070a13));
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: clamp(11px, 2.4vw, 12px);
+    padding: 6px 10px;
+    outline: none;
+}
+
+.searchInput:focus {
+    border-color: var(--primary);
+}
+
+.recurrencePill {
+    display: inline-block;
+    font-size: clamp(8px, 1.8vw, 9px);
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+}
+
+.recurrencePillDaily { color: #34d399; background: rgba(52, 211, 153, 0.12); }
+.recurrencePillWeekdays { color: #60a5fa; background: rgba(96, 165, 250, 0.12); }
+.recurrencePillWeekends { color: #c084fc; background: rgba(192, 132, 252, 0.12); }
+.recurrencePillDate { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
+
+/* One-off delta blocks: muted background + dashed border. */
+.sceneCardOnce {
+    background: rgba(15, 23, 42, 0.35);
+    border: 1.5px dashed var(--border-color);
+}
+
+/* Recurring template blocks: bright highlight border. */
+.sceneCardTemplate {
+    border: 1.5px solid var(--primary);
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25), 0 0 14px rgba(59, 130, 246, 0.15);
+}
+
+.emptyTimelineHint {
+    text-align: center;
+    color: var(--text-tertiary, #6b7280);
+    font-size: 12px;
+    padding: 14px 8px;
+}
+
+/* ─── New Block Creator ─── */
+
+.createCard {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: clamp(6px, 1.5vw, 10px);
+}
+
+.createToggleBtn {
+    align-self: flex-start;
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    color: var(--text-secondary);
+    font-size: clamp(11px, 2.4vw, 12px);
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.createToggleBtn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.createForm {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--bg-root, #070a13);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px;
+}
+
+.createTimeRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.timeInputCol {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.recurrenceRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.recurrenceRow .formLabel {
+    margin: 0;
+}
+
+.formTextarea {
+    width: 100%;
+    background: var(--bg-input, var(--bg-root, #070a13));
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: clamp(11px, 2.4vw, 12px);
+    font-family: inherit;
+    padding: 7px 10px;
+    resize: vertical;
+    min-height: 56px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.formTextarea:focus {
+    border-color: var(--primary);
+}
+
+.formSelect {
+    background: var(--bg-input, var(--bg-root, #070a13));
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: clamp(11px, 2.4vw, 12px);
+    padding: 6px 8px;
+    outline: none;
+}
+
+.formSelect:focus {
+    border-color: var(--primary);
+}
+
+.dateInput {
+    flex: 1;
+    min-width: 120px;
+    background: var(--bg-input, var(--bg-root, #070a13));
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: clamp(10px, 2.2vw, 11px);
+    padding: 6px 9px;
+    outline: none;
+}
+
+.dateInput:focus {
+    border-color: var(--director-gold, #fbbf24);
+}

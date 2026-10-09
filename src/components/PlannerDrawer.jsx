@@ -1,6 +1,6 @@
 // @ts-check
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./PlannerDrawer.module.css";
 import { useChat } from "../contexts/ChatContext";
 import { useInputBox } from "../contexts/InputBoxContext";
@@ -21,6 +21,9 @@ import { PlannerStreamEvents } from "../classes/WorldSetter";
  * @property {number} startHour Start hour decimal (e.g. 14.5 for 14:30).
  * @property {number} endHour End hour decimal (e.g. 16.0 for 16:00).
  * @property {string} topic Core topic description.
+ * @property {string} denseParagraph Macro atmospheric scene paragraph.
+ * @property {string} type Recurrence preset (once/forever/weekdays/weekends).
+ * @property {string} typeDate Optional specific calendar date (e.g. "9 oct").
  * @property {string} mainGoal Main overarching objective.
  * @property {CharacterGoalRecord[]} characterGoals Individual character goals.
  * @property {string[]} facts Array of interactive fact tags.
@@ -39,6 +42,20 @@ function formatHour(decimal) {
     const h = Math.floor(decimal);
     const m = Math.round((decimal - h) * 60);
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/**
+ * Human-readable recurrence pill label (null for one-off "once" blocks).
+ *
+ * @param {string|undefined} type
+ * @returns {string|null}
+ */
+function formatRecurrenceLabel(type) {
+    if (!type || type === "once") return null;
+    if (type === "forever") return "Daily";
+    if (type === "weekdays") return "Weekdays";
+    if (type === "weekends") return "Weekends";
+    return type; // specific calendar date, e.g. "9 oct"
 }
 
 /**
@@ -109,6 +126,34 @@ export default function PlannerDrawer() {
         startHour: 14,
         endHour: 15,
         topic: "",
+        denseParagraph: "",
+        type: "once",
+        typeDate: "",
+        mainGoal: "",
+        characterGoals: /** @type {CharacterGoalRecord[]} */ ([]),
+        facts: /** @type {string[]} */ ([]),
+        tagInput: "",
+        prePlot: "",
+        postPlot: ""
+    });
+
+    // ─── Hybrid Planner: Filters, Templates & Creation ───
+    /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
+    const [filterMode, setFilterMode] = useState("all"); // "all" | "today" | "templates"
+    /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
+    const [searchQuery, setSearchQuery] = useState("");
+    /** @type {[ScheduleRecord[], React.Dispatch<React.SetStateAction<ScheduleRecord[]>>]} */
+    const [templates, setTemplates] = useState(() => world?.worldSetter?.getTemplates?.() || []);
+    /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
+    const [isCreating, setIsCreating] = useState(false);
+    /** @type {[ScheduleFormState, React.Dispatch<React.SetStateAction<ScheduleFormState>>]} */
+    const [createForm, setCreateForm] = useState({
+        startHour: 14,
+        endHour: 15,
+        topic: "",
+        denseParagraph: "",
+        type: "once",
+        typeDate: "",
         mainGoal: "",
         characterGoals: /** @type {CharacterGoalRecord[]} */ ([]),
         facts: /** @type {string[]} */ ([]),
@@ -119,10 +164,14 @@ export default function PlannerDrawer() {
 
     const activeScheduleId = world?.activeSchedule?.id ?? null;
 
+    /** Ids of today's placed blocks — used to spot template-only cards. */
+    const todayIdSet = useMemo(() => new Set(records.map(r => r.id)), [records]);
+
     const refreshRecords = useCallback(() => {
         if (world?.worldSetter) {
             setRecords(world.worldSetter.getRecords());
             setIsDirty(world.worldSetter.isDirty);
+            setTemplates(world.worldSetter.getTemplates ? world.worldSetter.getTemplates() : []);
         }
     }, [world]);
 
@@ -301,11 +350,17 @@ export default function PlannerDrawer() {
     // ─── Inline Edit Handlers ────────────────────────────────────────────
 
     const handleStartEdit = useCallback((/** @type {ScheduleRecord} */ record) => {
+        const rawType = record.type || "once";
+        const isPreset = ["once", "forever", "weekdays", "weekends"].includes(rawType);
+
         setEditingCardId(record.id);
         setEditForm({
             startHour: record.startHour,
             endHour: record.endHour,
             topic: record.topic,
+            denseParagraph: record.denseParagraph || "",
+            type: isPreset ? rawType : "once",
+            typeDate: isPreset ? "" : rawType,
             mainGoal: record.mainGoal || "",
             characterGoals: Array.isArray(record.characterGoals) ? record.characterGoals.map(cg => ({ ...cg })) : [],
             facts: [...record.facts],
@@ -322,20 +377,31 @@ export default function PlannerDrawer() {
     const handleSaveEdit = useCallback(async (/** @type {string} */ recordId) => {
         if (!world?.worldSetter || !editForm.topic.trim()) return;
 
-        await world.worldSetter.updateRecord(recordId, {
+        const payload = {
             startHour: editForm.startHour,
             endHour: editForm.endHour,
             topic: editForm.topic.trim(),
+            title: editForm.topic.trim(),
+            denseParagraph: editForm.denseParagraph.trim(),
+            type: editForm.typeDate.trim() ? editForm.typeDate.trim() : editForm.type,
             mainGoal: editForm.mainGoal.trim(),
             characterGoals: editForm.characterGoals,
             facts: editForm.facts,
             prePlot: editForm.prePlot.trim(),
             postPlot: editForm.postPlot.trim()
-        });
+        };
+
+        // Template-only cards live in the library, not today's timeline.
+        const isTemplateOnly = !todayIdSet.has(recordId) && templates.some(t => t.id === recordId);
+        if (isTemplateOnly) {
+            await world.worldSetter.updateTemplate(recordId, payload);
+        } else {
+            await world.worldSetter.updateRecord(recordId, payload);
+        }
 
         setEditingCardId(null);
         refreshRecords();
-    }, [world, editForm, refreshRecords]);
+    }, [world, editForm, refreshRecords, todayIdSet, templates]);
 
     // ─── Tag Chip Handlers ───────────────────────────────────────────────
 
@@ -462,9 +528,65 @@ export default function PlannerDrawer() {
 
     const handleDeleteRecord = useCallback(async (/** @type {string} */ id) => {
         if (!world?.worldSetter) return;
-        await world.worldSetter.deleteRecord(id);
+        if (templates.some(t => t.id === id)) {
+            // Template delete removes the library entry AND its placed copy.
+            await world.worldSetter.deleteTemplate(id);
+        } else {
+            await world.worldSetter.deleteRecord(id);
+        }
         refreshRecords();
-    }, [world, refreshRecords]);
+    }, [world, refreshRecords, templates]);
+
+    const handleCreateBlock = useCallback(async () => {
+        if (!world?.worldSetter || !createForm.topic.trim()) return;
+
+        await world.worldSetter.createRecord({
+            startHour: createForm.startHour,
+            endHour: createForm.endHour,
+            topic: createForm.topic.trim(),
+            title: createForm.topic.trim(),
+            denseParagraph: createForm.denseParagraph.trim(),
+            type: createForm.typeDate.trim() ? createForm.typeDate.trim() : createForm.type,
+            mainGoal: createForm.mainGoal.trim() || "Hang out together"
+        });
+
+        setCreateForm({
+            startHour: 14,
+            endHour: 15,
+            topic: "",
+            denseParagraph: "",
+            type: "once",
+            typeDate: "",
+            mainGoal: "",
+            characterGoals: [],
+            facts: [],
+            tagInput: "",
+            prePlot: "",
+            postPlot: ""
+        });
+        setIsCreating(false);
+        refreshRecords();
+    }, [world, createForm, refreshRecords]);
+
+    // ─── Hybrid Planner: visible list (filters + title search) ───
+    const visibleRecords = useMemo(() => {
+        /** @type {ScheduleRecord[]} */
+        let list;
+        if (filterMode === "templates") {
+            list = [...templates];
+        } else if (filterMode === "today") {
+            list = [...records];
+        } else {
+            // "All": today's timeline + templates that aren't placed today.
+            list = [...templates.filter(t => !todayIdSet.has(t.id)), ...records];
+        }
+
+        list.sort((a, b) => a.startHour - b.startHour);
+
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return list;
+        return list.filter(r => String(r.title || r.topic || "").toLowerCase().includes(query));
+    }, [filterMode, records, templates, todayIdSet, searchQuery]);
 
     return (
         <div
@@ -678,15 +800,146 @@ export default function PlannerDrawer() {
                         </div>
                     )}
 
+                    {/* Hybrid Planner: Filter Tabs + Title Search */}
+                    <div className={styles.filterBar}>
+                        <div className={styles.filterTabs}>
+                            {[
+                                { id: "all", label: "All" },
+                                { id: "today", label: "Today" },
+                                { id: "templates", label: "Templates" }
+                            ].map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    className={`${styles.filterBtn} ${filterMode === tab.id ? styles.filterBtnActive : ""}`}
+                                    onClick={() => setFilterMode(tab.id)}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                        <input
+                            type="search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search by title..."
+                            className={styles.searchInput}
+                            aria-label="Search schedule blocks by title"
+                        />
+                    </div>
+
+                    {/* New Block Creator (once-only or recurring template) */}
+                    <div className={styles.createCard}>
+                        <button
+                            type="button"
+                            className={styles.createToggleBtn}
+                            onClick={() => setIsCreating(prev => !prev)}
+                        >
+                            {isCreating ? "✕ Close Creator" : "＋ New Scene Block"}
+                        </button>
+
+                        {isCreating && (
+                            <div className={styles.createForm}>
+                                <div className={styles.createTimeRow}>
+                                    <label className={styles.timeInputCol}>
+                                        <span className={styles.sliderSubLabel}>Start: {formatHour(createForm.startHour)}</span>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="23.5"
+                                            step="0.5"
+                                            value={createForm.startHour}
+                                            onChange={(e) => {
+                                                const newStart = Number(e.target.value);
+                                                setCreateForm(prev => ({ ...prev, startHour: newStart, endHour: Math.max(newStart + 0.5, prev.endHour) }));
+                                            }}
+                                            className={styles.rangeSlider}
+                                        />
+                                    </label>
+                                    <label className={styles.timeInputCol}>
+                                        <span className={styles.sliderSubLabel}>End: {formatHour(createForm.endHour)}</span>
+                                        <input
+                                            type="range"
+                                            min="0.5"
+                                            max="24"
+                                            step="0.5"
+                                            value={createForm.endHour}
+                                            onChange={(e) => setCreateForm(prev => ({ ...prev, endHour: Math.max(prev.startHour + 0.5, Number(e.target.value)) }))}
+                                            className={styles.rangeSlider}
+                                        />
+                                    </label>
+                                </div>
+
+                                <label className={styles.formLabel}>Scene Title:</label>
+                                <input
+                                    value={createForm.topic}
+                                    onChange={(e) => setCreateForm(prev => ({ ...prev, topic: e.target.value }))}
+                                    placeholder="e.g. Rooftop drone repair session"
+                                    className={styles.formInput}
+                                />
+
+                                <label className={styles.formLabel}>Dense Scene Paragraph:</label>
+                                <textarea
+                                    value={createForm.denseParagraph}
+                                    onChange={(e) => setCreateForm(prev => ({ ...prev, denseParagraph: e.target.value }))}
+                                    placeholder="2-3 sentence atmospheric scene setting injected into the dialogue prompt"
+                                    className={styles.formTextarea}
+                                    rows={3}
+                                />
+
+                                <div className={styles.recurrenceRow}>
+                                    <label className={styles.formLabel}>Recurrence:</label>
+                                    <select
+                                        value={createForm.type}
+                                        onChange={(e) => setCreateForm(prev => ({ ...prev, type: e.target.value }))}
+                                        className={styles.formSelect}
+                                    >
+                                        <option value="once">Once (today only)</option>
+                                        <option value="forever">Daily</option>
+                                        <option value="weekdays">Weekdays</option>
+                                        <option value="weekends">Weekends</option>
+                                    </select>
+                                    <input
+                                        value={createForm.typeDate}
+                                        onChange={(e) => setCreateForm(prev => ({ ...prev, typeDate: e.target.value }))}
+                                        placeholder='Specific date (e.g. "9 oct")'
+                                        className={styles.dateInput}
+                                    />
+                                </div>
+
+                                <div className={styles.editBtnRow}>
+                                    <button onClick={() => setIsCreating(false)} className={styles.btnCancel}>Cancel</button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCreateBlock}
+                                        disabled={!createForm.topic.trim()}
+                                        className={styles.btnSave}
+                                    >
+                                        Add to Timeline
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Timeline Card List */}
                     <div className={styles.timelineList} ref={timelineListRef}>
-                        {records.map((record, idx) => {
+                        {visibleRecords.length === 0 && (
+                            <p className={styles.emptyTimelineHint}>
+                                No blocks match this view — switch filters or clear the search.
+                            </p>
+                        )}
+                        {visibleRecords.map((record, idx) => {
                             const isCurrent = record.id === activeScheduleId;
                             const isExpanded = expandedCardIds.has(record.id);
                             const isEditing = editingCardId === record.id;
                             const isReordering = reorderingId === record.id;
                             const isFirst = idx === 0;
-                            const isLast = idx === records.length - 1;
+                            const isLast = idx === visibleRecords.length - 1;
+
+                            // Hybrid planner visuals: muted dashed one-offs vs bright templates.
+                            const recurrenceLabel = formatRecurrenceLabel(record.type);
+                            const variantClass = recurrenceLabel ? styles.sceneCardTemplate : styles.sceneCardOnce;
 
                             // Diff indicators: check if this block is proposed or removed
                             const isProposed = proposal?.changes.some(c => c.action === "add" && c.block.id === record.id);
@@ -694,7 +947,7 @@ export default function PlannerDrawer() {
                             const diffClass = isProposed ? styles.sceneCardProposed : (isRemoved ? styles.sceneCardRemoved : "");
 
                             // Timeline continuity: surface non-contiguous blocks with a gap line.
-                            const nextRecord = records[idx + 1];
+                            const nextRecord = visibleRecords[idx + 1];
                             const gapMinutes = nextRecord ? Math.round((nextRecord.startHour - record.endHour) * 60) : 0;
                             const hasGap = gapMinutes > 0;
                             const gapHours = Math.floor(gapMinutes / 60);
@@ -704,7 +957,7 @@ export default function PlannerDrawer() {
                             return (
                                 <React.Fragment key={record.id}>
                                 <div
-                                    className={`${styles.sceneCard} ${isCurrent ? styles.sceneCardCurrent : ""} ${isReordering ? styles.sceneCardReordering : ""} ${diffClass}`}
+                                    className={`${styles.sceneCard} ${variantClass} ${isCurrent ? styles.sceneCardCurrent : ""} ${isReordering ? styles.sceneCardReordering : ""} ${diffClass}`}
                                     style={isReordering ? { transform: "translate3d(0, -4px, 0)", opacity: 0.7 } : undefined}
                                 >
                                     {/* ─── Card Header (always visible) ─── */}
@@ -755,7 +1008,12 @@ export default function PlannerDrawer() {
                                                 <span className={isCurrent ? styles.timeBadgeCurrent : styles.timeBadge}>
                                                     {record.timeRange} {isCurrent && "• ACTIVE"}
                                                 </span>
-                                                <h4 className={styles.minimizedTitle}>{record.topic}</h4>
+                                                <h4 className={styles.minimizedTitle}>{record.title || record.topic}</h4>
+                                                {recurrenceLabel && (
+                                                    <span className={`${styles.recurrencePill} ${recurrenceLabel === "Daily" ? styles.recurrencePillDaily : recurrenceLabel === "Weekdays" ? styles.recurrencePillWeekdays : recurrenceLabel === "Weekends" ? styles.recurrencePillWeekends : styles.recurrencePillDate}`}>
+                                                        [{recurrenceLabel}]
+                                                    </span>
+                                                )}
                                                 {isProposed && <span className={styles.diffBadgeProposed}>+ PROPOSED</span>}
                                                 {isRemoved && <span className={styles.diffBadgeRemoved}>− REMOVED</span>}
                                             </div>
@@ -765,6 +1023,9 @@ export default function PlannerDrawer() {
                                     {/* ─── Expanded Read-Only Inspection ─── */}
                                     {isExpanded && !isEditing && (
                                         <div className={styles.expandedBody}>
+                                            {record.denseParagraph && (
+                                                <p className={styles.scenePlot}><strong>🎬 Scene:</strong> {record.denseParagraph}</p>
+                                            )}
                                             <p className={styles.scenePlot}><strong>🎯 Main Goal:</strong> {record.mainGoal || "Casual conversation"}</p>
 
                                             {Array.isArray(record.characterGoals) && record.characterGoals.length > 0 && (
@@ -873,13 +1134,42 @@ export default function PlannerDrawer() {
                                                 </div>
                                             </div>
 
-                                            <label className={styles.formLabel}>Topic to Discuss:</label>
+                                            <label className={styles.formLabel}>Scene Title:</label>
                                             <input
                                                 value={editForm.topic}
                                                 onChange={(e) => setEditForm(prev => ({ ...prev, topic: e.target.value }))}
                                                 placeholder="e.g. Creative project brainstorm"
                                                 className={styles.formInput}
                                             />
+
+                                            <label className={styles.formLabel}>Dense Scene Paragraph:</label>
+                                            <textarea
+                                                value={editForm.denseParagraph}
+                                                onChange={(e) => setEditForm(prev => ({ ...prev, denseParagraph: e.target.value }))}
+                                                placeholder="2-3 sentence atmospheric scene setting injected into the dialogue prompt"
+                                                className={styles.formTextarea}
+                                                rows={3}
+                                            />
+
+                                            <div className={styles.recurrenceRow}>
+                                                <label className={styles.formLabel}>Recurrence:</label>
+                                                <select
+                                                    value={editForm.type}
+                                                    onChange={(e) => setEditForm(prev => ({ ...prev, type: e.target.value, typeDate: "" }))}
+                                                    className={styles.formSelect}
+                                                >
+                                                    <option value="once">Once (today only)</option>
+                                                    <option value="forever">Daily</option>
+                                                    <option value="weekdays">Weekdays</option>
+                                                    <option value="weekends">Weekends</option>
+                                                </select>
+                                                <input
+                                                    value={editForm.typeDate}
+                                                    onChange={(e) => setEditForm(prev => ({ ...prev, typeDate: e.target.value }))}
+                                                    placeholder='Specific date (e.g. "9 oct") — overrides preset'
+                                                    className={styles.dateInput}
+                                                />
+                                            </div>
 
                                             <label className={styles.formLabel}>Main Session Goal:</label>
                                             <input

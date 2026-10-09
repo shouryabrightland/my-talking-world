@@ -9,6 +9,22 @@
  */
 
 /**
+ * Recurrence selector for a schedule block.
+ * - "once"    → one-off delta / horizon block for today only.
+ * - "forever" → daily template.
+ * - "weekdays"→ Monday-Friday template.
+ * - "weekends"→ Saturday-Sunday template.
+ * - any other string is a specific calendar date (e.g. "9 oct", "15 aug").
+ * @typedef {"once"|"forever"|"weekdays"|"weekends"|string} ScheduleType
+ */
+
+/**
+ * Origin of a schedule block — delta blocks are regenerated on persona edits,
+ * while user/demand blocks are preserved as-is.
+ * @typedef {"delta"|"user"|"demand"|"horizon"} ScheduleSource
+ */
+
+/**
  * Represents a single dynamic scheduled block in the rolling Horizon with structured goals and pre/post context.
  * @typedef {Object} ScheduleRecord
  * @property {string} id Unique UUID identifier.
@@ -21,6 +37,10 @@
  * @property {string[]} facts Specific context facts / tags active during this segment.
  * @property {string} prePlot Context of what happened just before this scene (momentum / backstory).
  * @property {string} postPlot Expected aftermath leading to the next scene or lead-up motivation hook.
+ * @property {ScheduleType} [type] Recurrence type — defaults to "once".
+ * @property {string} [title] Display title (kept in sync with `topic`).
+ * @property {string} [denseParagraph] Macro atmospheric scene paragraph injected into the dialogue prompt.
+ * @property {ScheduleSource} [source] Origin of the block (deltas are regenerated).
  * @property {number} createdAt Millisecond epoch when this record was created.
  * @property {number} updatedAt Millisecond epoch when this record was last modified.
  */

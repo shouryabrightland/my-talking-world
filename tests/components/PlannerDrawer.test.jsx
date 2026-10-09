@@ -56,9 +56,53 @@ describe("PlannerDrawer — Structural Invariants", () => {
     });
 });
 
+describe("PlannerDrawer — hybrid planner filters, recurrence & creation", () => {
+    it("has the [All | Today | Templates] filter bar with a title search input", () => {
+        expect(COMPONENT_SOURCE).toContain("filterBar");
+        expect(COMPONENT_SOURCE).toContain("filterTabs");
+        expect(COMPONENT_SOURCE).toContain("filterBtnActive");
+        expect(COMPONENT_SOURCE).toContain("Search by title...");
+        expect(COMPONENT_SOURCE).toContain("setFilterMode");
+    });
+
+    it("renders recurrence pills and once/template card variants", () => {
+        expect(COMPONENT_SOURCE).toContain("formatRecurrenceLabel");
+        expect(COMPONENT_SOURCE).toContain("recurrencePill");
+        expect(COMPONENT_SOURCE).toContain("sceneCardOnce");
+        expect(COMPONENT_SOURCE).toContain("sceneCardTemplate");
+        // Spec pills: [Daily] / [Weekdays] / [Weekends] / [date]
+        expect(COMPONENT_SOURCE).toContain("[{recurrenceLabel}]");
+    });
+
+    it("provides create + edit form inputs: title, dense paragraph & recurrence", () => {
+        expect(COMPONENT_SOURCE).toContain("New Scene Block");
+        expect(COMPONENT_SOURCE).toContain("Dense Scene Paragraph:");
+        expect(COMPONENT_SOURCE).toContain("Recurrence:");
+        expect(COMPONENT_SOURCE).toContain("denseParagraph");
+        expect(COMPONENT_SOURCE).toContain("handleCreateBlock");
+        // Free reordering must not demand the AI stabilizer.
+        expect(COMPONENT_SOURCE).toContain("world.worldSetter.updateTemplate");
+        expect(COMPONENT_SOURCE).toContain("world.worldSetter.deleteTemplate");
+        expect(COMPONENT_SOURCE).toContain("world.worldSetter.getTemplates");
+    });
+
+    it("styles the hybrid variants in the CSS module", () => {
+        const cssPath = resolve(import.meta.dirname, "../../src/components/PlannerDrawer.module.css");
+        const css = readFileSync(cssPath, "utf-8");
+
+        expect(css).toContain(".filterBar");
+        expect(css).toContain(".recurrencePill");
+        expect(css).toContain(".sceneCardOnce");
+        expect(css).toContain(".sceneCardTemplate");
+        // Spec: dashed one-off border + bright template highlight
+        expect(css).toMatch(/\.sceneCardOnce[\s\S]*?dashed/);
+        expect(css).toMatch(/\.sceneCardTemplate[\s\S]*?solid/);
+    });
+});
+
 describe("PlannerDrawer — timeline gap indicator", () => {
     it("computes a gap between non-contiguous blocks", () => {
-        expect(COMPONENT_SOURCE).toContain("const nextRecord = records[idx + 1]");
+        expect(COMPONENT_SOURCE).toContain("const nextRecord = visibleRecords[idx + 1]");
         expect(COMPONENT_SOURCE).toContain("Math.round((nextRecord.startHour - record.endHour) * 60)");
         expect(COMPONENT_SOURCE).toContain("const hasGap = gapMinutes > 0");
     });

@@ -241,10 +241,11 @@ describe("WorldSetter — Reorder Blocks", () => {
         ];
     });
 
-    it("reorderBlocks marks schedule as dirty", () => {
-        ws.isDirty = false;
+    it("reorderBlocks persists freely WITHOUT marking the schedule for AI stabilization", () => {
+        ws.isDirty = true; // unsaved manual edits
         ws.reorderBlocks(0, "down");
-        expect(ws.isDirty).toBe(true);
+        // Free reordering: committed directly, no stabilizer round-trip.
+        expect(ws.isDirty).toBe(false);
     });
 
     it("reorderBlocks swaps adjacent blocks (move down) and sanitization re-sorts by startHour", () => {
@@ -258,7 +259,7 @@ describe("WorldSetter — Reorder Blocks", () => {
 
         // After swap + sanitization, Block A (originally index 0) ends up at index 1
         // because its startHour gets pushed after Block B's endHour
-        expect(ws.isDirty).toBe(true);
+        expect(ws.isDirty).toBe(false); // free reorder — no stabilizer needed
         expect(ws.schedule.length).toBe(2);
     });
 
@@ -270,7 +271,7 @@ describe("WorldSetter — Reorder Blocks", () => {
 
         ws.reorderBlocks(1, "up");
 
-        expect(ws.isDirty).toBe(true);
+        expect(ws.isDirty).toBe(false);
         expect(ws.schedule.length).toBe(2);
     });
 
@@ -280,8 +281,8 @@ describe("WorldSetter — Reorder Blocks", () => {
         const topicOrder = ws.schedule.map(r => r.topic);
         ws.reorderBlocks(0, "down");
         // After reorder + sanitization, schedule is re-sorted
-        // The key assertion is that isDirty was set
-        expect(ws.isDirty).toBe(true);
+        // The key assertion is that the reorder committed without AI stabilization
+        expect(ws.isDirty).toBe(false);
     });
 
     it("reorderBlocks no-ops when index is out of bounds", () => {
@@ -446,8 +447,8 @@ describe("WorldSetter — 24-hour planner prompt (UnifiedMemory + continuity)", 
         expect(userText).toContain("24-hour storyline schedule");
     });
 
-    it("re-stabilizes the 24h horizon when a cast member bio changes", async () => {
-        const planSpy = vi.spyOn(ws, "planHorizon").mockResolvedValue([]);
+    it("regenerates upcoming delta scenes when a cast member bio changes", async () => {
+        const regenSpy = vi.spyOn(ws, "regenerateUpcomingDeltas").mockResolvedValue([]);
 
         /** @type {Record<string, Function>} */
         const handlers = {};
@@ -469,7 +470,7 @@ describe("WorldSetter — 24-hour planner prompt (UnifiedMemory + continuity)", 
         handlers[ChatMemberEvents.ABOUT]();
         await Promise.resolve();
 
-        expect(planSpy).toHaveBeenCalledTimes(1);
-        expect(planSpy).toHaveBeenCalledWith(world.now);
+        // Persona edits regenerate UPCOMING DELTA scenes (not the full horizon).
+        expect(regenSpy).toHaveBeenCalledTimes(1);
     });
 });

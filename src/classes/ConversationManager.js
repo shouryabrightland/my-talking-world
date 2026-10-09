@@ -967,6 +967,22 @@ export default class ConversationManager {
                 ? `\n## Active Memories\n\`\`\`\n${this.#pendingMemorySnippet}\n\`\`\`\n`
                 : "";
 
+            // Hybrid planner: inject the ACTIVE block's title + dense scene
+            // paragraph so the Groq dialogue model has direct, unambiguous
+            // awareness of the current macro scene.
+            const worldSetter = this.world.worldSetter;
+            const activeRecord = this.world.activeSchedule
+                || (worldSetter && typeof worldSetter.getActiveRecord === "function"
+                    ? worldSetter.getActiveRecord(this.world.now)
+                    : null);
+            const sceneLines = activeRecord
+                ? [
+                    "",
+                    `## Current Scene: ${activeRecord.title || activeRecord.topic} (${activeRecord.timeRange})`,
+                    activeRecord.denseParagraph || activeRecord.mainGoal || activeRecord.topic
+                ]
+                : [];
+
             return builder.part([
                 "# Live Group Chat: Tom & Friends (Lucknow, India)",
                 "",
@@ -978,6 +994,7 @@ export default class ConversationManager {
                 `- Time: ${this.world.dateTime}`,
                 `- Atmosphere: ${situation}`,
                 memorySection,
+                ...sceneLines,
                 "## Turn Priority",
                 "1) The human's LATEST message — answer it first.",
                 "2) The recent chat flow.",

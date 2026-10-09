@@ -33,8 +33,14 @@ import {
 } from "../util/Constants";
 import { PROMPT_AGE_MANDATE } from "../util/prompts";
 
+/** Legacy monolithic horizon key — migrated into `world:schedule_today` on boot. */
 const SCHEDULE_STORAGE_KEY = "world:schedule_v2";
+/** Today's resolved 24-hour timeline (templates placed + delta blocks). */
+const TODAY_STORAGE_KEY = "world:schedule_today";
+/** Template library: every non-"once" block, protected from today's overrides. */
+const TEMPLATES_STORAGE_KEY = "world:schedule_templates";
 const STREAM_PROGRESS_DEBOUNCE_MS = 150;
+const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 export const PlannerStreamEvents = {
     START: "planner:stream:start",
@@ -70,6 +76,7 @@ export default class WorldSetter {
         });
 
         /** @type {ScheduleRecord[]} */ this.schedule = [];
+        /** @type {ScheduleRecord[]} Recurrence template library (non-"once" blocks). */ this.templates = [];
         /** @type {boolean} */ this.isDirty = false;
         /** @type {boolean} */ this.isPlanning = false;
         /** @type {ScheduleProposal | null} */ this.pendingProposal = null;
@@ -311,13 +318,37 @@ export default class WorldSetter {
         this.logger.info("Initializing WorldSetter and restoring schedule...");
 
         try {
-            const raw = await this.storage.getItem(SCHEDULE_STORAGE_KEY);
+            // Prefer today's resolved timeline; fall back to the legacy
+            // monolithic horizon once (one-time migration).
+            const todayRaw = await this.storage.getItem(TODAY_STORAGE_KEY);
+            const legacyRaw = Array.isArray(todayRaw)
+                ? null
+                : await this.storage.getItem(SCHEDULE_STORAGE_KEY);
+            const raw = Array.isArray(todayRaw) ? todayRaw : legacyRaw;
+
             if (Array.isArray(raw)) {
-                this.schedule = this.#sanitizeAndSortSchedule(raw.filter(this.#isValidRecord));
+                this.schedule = this.#sanitizeAndSortSchedule(
+                    raw.filter(this.#isValidRecord).map(r => this.#withDerivedFields(/** @type {ScheduleRecord} */ (r)))
+                );
+                if (!Array.isArray(todayRaw)) {
+                    await this.#persistToday();
+                }
                 this.logger.info(`Restored ${this.schedule.length} schedule records from storage.`);
             }
         } catch (err) {
             this.logger.warn("Failed to load schedule from storage:", err);
+        }
+
+        try {
+            const tplRaw = await this.storage.getItem(TEMPLATES_STORAGE_KEY);
+            if (Array.isArray(tplRaw)) {
+                this.templates = tplRaw
+                    .filter(this.#isValidRecord)
+                    .map(r => this.#withDerivedFields(/** @type {ScheduleRecord} */ (r)));
+                this.logger.info(`Restored ${this.templates.length} recurrence template(s).`);
+            }
+        } catch (err) {
+            this.logger.warn("Failed to load schedule templates from storage:", err);
         }
 
         try {
@@ -348,9 +379,9 @@ export default class WorldSetter {
         for (const member of this.world.members.values()) {
             if (!member || !member.events || typeof member.events.on !== "function") continue;
             member.events.on(ChatMemberEvents.ABOUT, () => {
-                this.logger.info(`Profile changed for ${member.name}. Triggering 24h schedule re-stabilization...`);
-                void this.planHorizon(this.world.now).catch((/** @type {unknown} */ err) => {
-                    this.logger.warn("Profile-driven re-stabilization failed:", err);
+                this.logger.info(`Profile changed for ${member.name}. Regenerating upcoming delta scenes...`);
+                void this.regenerateUpcomingDeltas().catch((/** @type {unknown} */ err) => {
+                    this.logger.warn("Persona-driven delta regeneration failed:", err);
                 });
             }, `WorldSetter: ABOUT listener for ${member.id}`);
         }
@@ -388,8 +419,8 @@ export default class WorldSetter {
         const hasUpcomingCoverage = this.schedule.some(rec => rec.endHour >= currentDecimalHour + 3);
 
         if (!hasUpcomingCoverage && !this.isPlanning) {
-            this.logger.info("Schedule horizon < 3 hours. Generating next horizon...");
-            await this.planHorizon(now);
+            this.logger.info("Schedule horizon < 3 hours. Resolving today's timeline (templates + gap deltas)...");
+            await this.resolveTodaySchedule(now);
         }
 
         getEnvironmentSnapshot().then(snapshot => {
@@ -397,6 +428,455 @@ export default class WorldSetter {
         }).catch(() => {});
 
         return this.schedule;
+    }
+
+    // ─── Hybrid 24-Hour Planner: Templates + Deltas ────────────────────
+
+    /**
+     * Applies hybrid-planner default fields (title / type / source /
+     * denseParagraph) to a record loaded from storage or built by a legacy
+     * path, so every block satisfies the ScheduleRecord contract.
+     *
+     * @param {ScheduleRecord} record
+     * @returns {ScheduleRecord}
+     */
+    #withDerivedFields(record) {
+        if (!record.title) record.title = record.topic;
+        if (!record.type) record.type = "once";
+        if (!record.source) record.source = "user";
+        if (!record.denseParagraph) record.denseParagraph = this.#composeDenseParagraph(record);
+        return record;
+    }
+
+    /**
+     * Default macro scene paragraph for records the model didn't provide one.
+     *
+     * @param {ScheduleRecord} record
+     * @returns {string}
+     */
+    #composeDenseParagraph(record) {
+        const text = [record.topic, record.mainGoal, record.prePlot]
+            .filter(Boolean)
+            .join(". ")
+            .trim();
+        if (!text) return "The cast hangs out together in Lucknow, chatting naturally.";
+        return text.endsWith(".") ? text : `${text}.`;
+    }
+
+    /** Persists today's resolved timeline. @returns {Promise<void>} */
+    async #persistToday() {
+        try {
+            await this.storage.setItem(TODAY_STORAGE_KEY, this.schedule);
+        } catch (err) {
+            this.logger.warn("Failed to persist today's schedule:", err);
+        }
+    }
+
+    /** Persists the recurrence template library. @returns {Promise<void>} */
+    async #persistTemplates() {
+        try {
+            await this.storage.setItem(TEMPLATES_STORAGE_KEY, this.templates);
+        } catch (err) {
+            this.logger.warn("Failed to persist schedule templates:", err);
+        }
+    }
+
+    /**
+     * Snapshot of the recurrence template library (non-"once" blocks).
+     * @returns {ScheduleRecord[]}
+     */
+    getTemplates() {
+        return [...this.templates];
+    }
+
+    /**
+     * Resolves today's contiguous 24-hour timeline — Hybrid Templates + Deltas.
+     *
+     * Priority ladder for template placement:
+     *   specific calendar date > day group (weekdays/weekends) > "forever".
+     * Existing today blocks (user/demand overrides) always win their window —
+     * templates are NEVER mutated here, so an override for today stays
+     * non-destructive for future days.
+     *
+     * Remaining empty gaps in the 0..24 span are filled by Gemini with delta
+     * blocks ONLY (`type: "once"`, `source: "delta"`). Gaps fully in the past
+     * are left alone — expired blocks are pruned anyway.
+     *
+     * @param {Date} [now=new Date()]
+     * @returns {Promise<ScheduleRecord[]>} The sorted, contiguous schedule.
+     */
+    async resolveTodaySchedule(now = new Date()) {
+        if (this.isPlanning) return this.schedule;
+        this.isPlanning = true;
+
+        try {
+            const decimalNow = now.getHours() + now.getMinutes() / 60;
+
+            /** @type {ScheduleRecord[]} */
+            const placed = this.schedule.map(r => this.#withDerivedFields(r));
+            /** @type {Array<{ start: number, end: number }>} */
+            const occupied = placed.map(r => ({ start: r.startHour, end: r.endHour }));
+
+            // 1. Resolution priority: specific date (3) > day group (2) > forever (1).
+            const dateKey = `${now.getDate()} ${MONTH_KEYS[now.getMonth()]}`;
+            const dayType = (now.getDay() === 0 || now.getDay() === 6) ? "weekends" : "weekdays";
+            const rankOf = (/** @type {ScheduleRecord} */ t) =>
+                t.type === dateKey ? 3 : (t.type === dayType ? 2 : (t.type === "forever" ? 1 : 0));
+
+            const matched = this.templates
+                .filter(t => rankOf(t) > 0)
+                .sort((a, b) => rankOf(b) - rankOf(a) || a.createdAt - b.createdAt);
+
+            for (const tpl of matched) {
+                const overlaps = occupied.some(o => tpl.startHour < o.end && tpl.endHour > o.start);
+                if (overlaps) continue; // a higher-priority or existing block owns this window
+                placed.push({
+                    ...tpl,
+                    characterGoals: Array.isArray(tpl.characterGoals) ? [...tpl.characterGoals] : [],
+                    facts: Array.isArray(tpl.facts) ? [...tpl.facts] : []
+                });
+                occupied.push({ start: tpl.startHour, end: tpl.endHour });
+            }
+
+            // 2. Empty gaps across 0..24 — only present/future gaps need deltas.
+            const fillable = this.#findGaps(occupied).filter(g => g.end > decimalNow);
+
+            // 3. Gemini generates Delta Blocks ONLY for those gaps.
+            for (const gap of fillable) {
+                const deltas = await this.#generateDeltaBlocks(gap, now);
+                for (const delta of deltas) {
+                    placed.push(delta);
+                    occupied.push({ start: delta.startHour, end: delta.endHour });
+                }
+            }
+
+            this.schedule = this.#sanitizeAndSortSchedule(placed);
+            this.isDirty = false;
+            await this.#persistToday();
+            this.world.tick(this.world.now);
+            this.logger.info(
+                `Resolved today's schedule: ${this.schedule.length} block(s), ${fillable.length} gap(s) filled.`
+            );
+            return this.schedule;
+        } finally {
+            this.isPlanning = false;
+        }
+    }
+
+    /**
+     * Removes UPCOMING delta blocks (persona edit hook) and re-resolves today's
+     * schedule so fresh deltas reflect the edited bio. Templates, user and
+     * demand blocks are preserved untouched.
+     *
+     * @returns {Promise<ScheduleRecord[]>}
+     */
+    async regenerateUpcomingDeltas() {
+        const now = this.world.now instanceof Date ? this.world.now : new Date();
+        const decimalNow = now.getHours() + now.getMinutes() / 60;
+
+        const before = this.schedule.length;
+        this.schedule = this.schedule.filter(
+            r => !(r.source === "delta" && r.endHour > decimalNow)
+        );
+        const removed = before - this.schedule.length;
+        if (removed > 0) {
+            this.logger.info(`Dropped ${removed} upcoming delta block(s) for regeneration.`);
+        }
+
+        return this.resolveTodaySchedule(now);
+    }
+
+    /**
+     * Computes empty spans across the 0..24 day from occupied intervals.
+     *
+     * @param {Array<{ start: number, end: number }>} occupied
+     * @returns {Array<{ start: number, end: number }>}
+     */
+    #findGaps(occupied) {
+        const sorted = [...occupied].sort((a, b) => a.start - b.start);
+        /** @type {Array<{ start: number, end: number }>} */
+        const gaps = [];
+        let cursor = 0;
+
+        for (const o of sorted) {
+            if (o.start > cursor + 0.01) gaps.push({ start: cursor, end: o.start });
+            cursor = Math.max(cursor, o.end);
+        }
+        if (cursor < 24 - 0.01) gaps.push({ start: cursor, end: 24 });
+
+        return gaps;
+    }
+
+    /**
+     * Generates delta blocks (`type: "once"`, `source: "delta"`) for ONE gap
+     * via Gemini, clipping the model output into the gap and backfilling any
+     * remainder deterministically so the day stays contiguous.
+     *
+     * @param {{ start: number, end: number }} gap
+     * @param {Date} now
+     * @returns {Promise<ScheduleRecord[]>}
+     */
+    async #generateDeltaBlocks(gap, now) {
+        const fmt = (/** @type {number} */ h) => {
+            const hh = Math.floor(h);
+            const mm = Math.round((h - hh) * 60);
+            return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+        };
+        const gapLen = gap.end - gap.start;
+
+        const members = this.world.members instanceof Map
+            ? [...this.world.members.values()]
+            : [];
+        const castLine = members.length > 0
+            ? members.map(m => `- **${m.name}** (ID: \`${m.id}\`, Age: ${m.age}y): ${m.about}`).join("\n")
+            : "- tom, angela, ben, ginger, hank, becca (cast profiles unavailable)";
+        const goalSchema = (members.length > 0
+            ? members
+            : [{ id: "tom", name: "Tom" }, { id: "angela", name: "Angela" }, { id: "ben", name: "Ben" },
+                { id: "ginger", name: "Ginger" }, { id: "hank", name: "Hank" }, { id: "becca", name: "Becca" }]
+        ).map(m => `      <goal id="${XmlEncoder.encode(String(m.id))}" name="${XmlEncoder.encode(String(m.name))}">Goal</goal>`).join("\n");
+
+        const promptBuilder = new PromptBuilderClass();
+        promptBuilder.useSystem(() => promptBuilder.part([
+            "# 24-Hour Planner — Gap Delta Generator",
+            'You are the Assistant Director for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
+            `Fill the missing time gap from ${fmt(gap.start)} to ${fmt(gap.end)} with 1-2 plausible scene blocks for Tom & Friends in Lucknow.`,
+            gapLen > 4
+                ? `The gap is ${gapLen} hours long — emit consecutive 1-2 hour blocks that COVER THE ENTIRE gap with no holes.`
+                : "Emit blocks that exactly fill the gap end-to-end.",
+            "",
+            "## Cast Profiles",
+            castLine,
+            "",
+            "## Rules",
+            "1. Blocks stay strictly inside the gap: contiguous, non-overlapping.",
+            "2. Rotate varied Lucknow settings (Gomti Nagar riverfront, Aliganj markets, rooftop addas, balconies, study rooms, tea stalls).",
+            "3. Every cast member gets an individual <goal> in every block.",
+            "4. <dense_paragraph> is a vivid 2-3 sentence atmospheric scene setting: who is where, what prop in hand, room vibe.",
+            "",
+            "## Age Factor",
+            PROMPT_AGE_MANDATE,
+            "",
+            "## Output Schema",
+            "Output strictly valid XML matching this structure:",
+            "<schedule>",
+            `  <block start="${gap.start}" end="${gap.end}">`,
+            "    <topic>Scene title</topic>",
+            "    <dense_paragraph>2-3 sentence atmospheric scene setting paragraph.</dense_paragraph>",
+            "    <main_goal>Primary group objective</main_goal>",
+            "    <character_goals>",
+            goalSchema,
+            "    </character_goals>",
+            "    <pre_plot>Backstory leading into this scene</pre_plot>",
+            "    <post_plot>Transition hook leading to next scene</post_plot>",
+            "    <facts><fact>Concrete item or constraint</fact></facts>",
+            "  </block>",
+            "</schedule>"
+        ].join("\n")));
+
+        promptBuilder.useUser(() => promptBuilder.part(
+            `Today is ${now.toDateString()}. Fill ONLY the gap ${fmt(gap.start)} - ${fmt(gap.end)}.`
+        ));
+
+        /** @type {ScheduleRecord[]} */
+        let clipped = [];
+        try {
+            const payload = await promptBuilder.build();
+            const xml = await this.#generatePlannerXml(payload, "scheduler");
+            const parsed = this.#parseXmlScheduleResponse(xml, Math.floor(gap.start));
+
+            for (const block of parsed) {
+                const s = Math.max(block.startHour, gap.start);
+                const e = Math.min(block.endHour, gap.end);
+                if (e - s < 0.5) continue;
+                clipped.push(this.#withDerivedFields({
+                    ...block,
+                    startHour: s,
+                    endHour: e,
+                    timeRange: this.#formatDecimalRange(s, e),
+                    type: "once",
+                    source: "delta"
+                }));
+            }
+        } catch (err) {
+            this.logger.warn("Delta generation failed; backfilling deterministically:", err);
+        }
+
+        // Contiguity guarantee: whatever the model skipped inside the gap is
+        // backfilled with quiet deterministic blocks.
+        return [...clipped, ...this.#buildDeltaFallback(gap, clipped)];
+    }
+
+    /**
+     * Deterministic fallback blocks covering the UNSPECIFIED remainder of a gap.
+     *
+     * @param {{ start: number, end: number }} gap
+     * @param {ScheduleRecord[]} generated Blocks already generated inside the gap.
+     * @returns {ScheduleRecord[]}
+     */
+    #buildDeltaFallback(gap, generated) {
+        const covered = [...generated]
+            .map(g => ({ start: g.startHour, end: g.endHour }))
+            .sort((a, b) => a.start - b.start);
+
+        /** @type {Array<{ start: number, end: number }>} */
+        const holes = [];
+        let cursor = gap.start;
+        for (const c of covered) {
+            if (c.start > cursor + 0.01) holes.push({ start: cursor, end: c.start });
+            cursor = Math.max(cursor, c.end);
+        }
+        if (cursor < gap.end - 0.01) holes.push({ start: cursor, end: gap.end });
+
+        const fillerTopics = [
+            { topic: "Casual catch-up & chai", mainGoal: "Share the day's updates", facts: ["Chai and biscuits on the table"] },
+            { topic: "Focused work & study session", mainGoal: "Make progress on personal goals", facts: ["Books and laptops out"] },
+            { topic: "Evening stroll & street food", mainGoal: "Wind down together", facts: ["Snacks from the corner stall"] },
+            { topic: "Late-night banter", mainGoal: "Relax and joke around", facts: ["Low light, sleepy vibes"] }
+        ];
+
+        /** @type {ScheduleRecord[]} */
+        const blocks = [];
+        let i = 0;
+        for (const hole of holes) {
+            let s = hole.start;
+            while (s < hole.end - 0.01) {
+                const e = Math.min(hole.end, s + 1);
+                const t = fillerTopics[i++ % fillerTopics.length];
+                blocks.push(this.#withDerivedFields({
+                    id: crypto.randomUUID(),
+                    startHour: s,
+                    endHour: e,
+                    timeRange: this.#formatDecimalRange(s, e),
+                    topic: t.topic,
+                    mainGoal: t.mainGoal,
+                    characterGoals: [],
+                    facts: t.facts,
+                    prePlot: "Friends hanging out in the space",
+                    postPlot: "Transitioning to the next activity",
+                    type: "once",
+                    source: "delta",
+                    createdAt: Date.now(),
+                    updatedAt: Date.now()
+                }));
+                s = e;
+            }
+        }
+        return blocks;
+    }
+
+    /**
+     * Keeps the template library in sync with a record's recurrence type:
+     * non-"once" records are (up)serted into the library, "once" records are
+     * removed from it. The library copy is always a deep-enough clone so
+     * today's overrides never mutate a stored template.
+     *
+     * @param {ScheduleRecord} record
+     * @returns {Promise<void>}
+     */
+    async #syncTemplateLibrary(record) {
+        const idx = this.templates.findIndex(t => t.id === record.id);
+        const isTemplate = Boolean(record.type && record.type !== "once");
+
+        if (isTemplate) {
+            const clone = {
+                ...record,
+                characterGoals: Array.isArray(record.characterGoals) ? record.characterGoals.map(cg => ({ ...cg })) : [],
+                facts: Array.isArray(record.facts) ? [...record.facts] : []
+            };
+            if (idx === -1) this.templates.push(clone);
+            else this.templates[idx] = clone;
+        } else if (idx !== -1) {
+            this.templates.splice(idx, 1);
+        } else {
+            return;
+        }
+
+        await this.#persistTemplates();
+    }
+
+    /**
+     * Applies partial field updates to a record while keeping the hybrid
+     * fields (title / denseParagraph / type) in sync.
+     *
+     * @param {ScheduleRecord} record
+     * @param {Partial<ScheduleRecord>} updates
+     * @returns {void}
+     */
+    #applyUpdates(record, updates) {
+        if (updates.topic !== undefined) {
+            record.topic = String(updates.topic).trim();
+            record.title = record.topic;
+        }
+        if (updates.title !== undefined) {
+            record.title = String(updates.title).trim() || record.topic;
+            record.topic = record.title;
+        }
+        if (updates.mainGoal !== undefined) record.mainGoal = String(updates.mainGoal).trim();
+        if (updates.denseParagraph !== undefined) record.denseParagraph = String(updates.denseParagraph).trim();
+        if (updates.type !== undefined) record.type = String(updates.type).trim() || "once";
+        if (updates.characterGoals !== undefined && Array.isArray(updates.characterGoals)) {
+            record.characterGoals = updates.characterGoals;
+        }
+        if (updates.facts !== undefined && Array.isArray(updates.facts)) {
+            record.facts = updates.facts.map(String).filter(Boolean);
+        }
+        if (updates.startHour !== undefined) record.startHour = Number(updates.startHour);
+        if (updates.endHour !== undefined) record.endHour = Number(updates.endHour);
+        if (updates.prePlot !== undefined) record.prePlot = String(updates.prePlot).trim();
+        if (updates.postPlot !== undefined) record.postPlot = String(updates.postPlot).trim();
+
+        if (!record.title) record.title = record.topic;
+        if (!record.denseParagraph) record.denseParagraph = this.#composeDenseParagraph(record);
+        if (!record.type) record.type = "once";
+        record.updatedAt = Date.now();
+    }
+
+    /**
+     * Updates a template in the library (and its placed copy in today's
+     * timeline when the ids match). Returns null when the id is unknown.
+     *
+     * @param {string} id
+     * @param {Partial<ScheduleRecord>} updates
+     * @returns {Promise<ScheduleRecord|null>}
+     */
+    async updateTemplate(id, updates) {
+        const template = this.templates.find(t => t.id === id);
+        if (!template) return null;
+
+        this.#applyUpdates(template, updates);
+        if (template.type === "once") {
+            // Recurrence dropped back to one-off — leave the library.
+            this.templates = this.templates.filter(t => t.id !== id);
+            await this.#persistTemplates();
+            return template;
+        }
+
+        const placed = this.schedule.find(r => r.id === id);
+        if (placed) this.#applyUpdates(placed, updates);
+
+        await this.#persistTemplates();
+        await this.#persistToday();
+        this.world.tick(this.world.now);
+        return template;
+    }
+
+    /**
+     * Deletes a template from the library and today's placed copy (same id).
+     *
+     * @param {string} id
+     * @returns {Promise<boolean>}
+     */
+    async deleteTemplate(id) {
+        const before = this.templates.length;
+        this.templates = this.templates.filter(t => t.id !== id);
+        if (this.templates.length === before) return false;
+
+        this.schedule = this.schedule.filter(r => r.id !== id);
+        await this.#persistTemplates();
+        await this.#persistToday();
+        this.world.tick(this.world.now);
+        return true;
     }
 
     /**
@@ -494,6 +974,7 @@ export default class WorldSetter {
                 "  <summary>Brief 1-2 sentence overview of the daily arc.</summary>",
                 '  <block start="14.0" end="15.5">',
                 "    <topic>Scene title</topic>",
+                "    <dense_paragraph>2-3 sentence atmospheric scene setting paragraph (macro scene).</dense_paragraph>",
                 "    <setting>Specific location</setting>",
                 "    <main_goal>Primary group objective</main_goal>",
                 "    <character_goals>",
@@ -519,7 +1000,8 @@ export default class WorldSetter {
             const promptPayload = await promptBuilder.build();
             const xmlResponseText = await this.#generatePlannerXml(promptPayload, "scheduler");
 
-            const parsedRecords = this.#parseXmlScheduleResponse(xmlResponseText, startHour);
+            const parsedRecords = this.#parseXmlScheduleResponse(xmlResponseText, startHour)
+                .map(r => ({ ...r, type: /** @type {import("./types/World.types").ScheduleType} */ ("once"), source: /** @type {import("./types/World.types").ScheduleSource} */ ("horizon") }));
 
             for (const newRec of parsedRecords) {
                 const existingIdx = this.schedule.findIndex(r => r.startHour === newRec.startHour);
@@ -533,7 +1015,7 @@ export default class WorldSetter {
             this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
             this.isDirty = false;
 
-            await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+            await this.#persistToday();
             return this.schedule;
         } catch (err) {
             this.logger.error("Failed to generate schedule, applying fallbacks:", err);
@@ -544,7 +1026,7 @@ export default class WorldSetter {
                 }
             }
             this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
-            await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+            await this.#persistToday();
             return this.schedule;
         } finally {
             this.isPlanning = false;
@@ -649,7 +1131,8 @@ export default class WorldSetter {
         const line1 = line1Match ? XmlEncoder.decode(line1Match[1].trim()) : `Scheduled: ${cleanDemand}`;
         const line2 = line2Match ? XmlEncoder.decode(line2Match[1].trim()) : `Timeline updated.`;
 
-        const updatedBlocks = this.#parseXmlScheduleResponse(xmlResponseText, currentHour, cleanDemand);
+        const updatedBlocks = this.#parseXmlScheduleResponse(xmlResponseText, currentHour, cleanDemand)
+            .map(b => ({ ...b, type: /** @type {import("./types/World.types").ScheduleType} */ ("once"), source: /** @type {import("./types/World.types").ScheduleSource} */ ("demand") }));
         const report = this.#parseNarrativeReport(xmlResponseText);
 
         const proposal = this.#computeProposal(this.schedule, updatedBlocks);
@@ -682,7 +1165,7 @@ export default class WorldSetter {
         this.isDirty = false;
         this.pendingProposal = null;
 
-        await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+        await this.#persistToday();
         this.world.tick(this.world.now);
         this.logger.info("Proposal accepted and schedule committed.");
         return this.schedule;
@@ -727,9 +1210,11 @@ export default class WorldSetter {
 
     async discardManualChanges() {
         try {
-            const raw = await this.storage.getItem(SCHEDULE_STORAGE_KEY);
+            const raw = await this.storage.getItem(TODAY_STORAGE_KEY);
             if (Array.isArray(raw)) {
-                this.schedule = this.#sanitizeAndSortSchedule(raw.filter(this.#isValidRecord));
+                this.schedule = this.#sanitizeAndSortSchedule(
+                    raw.filter(this.#isValidRecord).map(r => this.#withDerivedFields(/** @type {ScheduleRecord} */ (r)))
+                );
             }
         } catch (err) {
             this.logger.warn("Failed to reload schedule from storage:", err);
@@ -783,7 +1268,8 @@ export default class WorldSetter {
             const xmlResponseText = await this.#generatePlannerXml(promptPayload, "stabilizer");
 
             const startHour = this.schedule.length > 0 ? this.schedule[0].startHour : 0;
-            const stabilizedBlocks = this.#parseXmlScheduleResponse(xmlResponseText, startHour);
+            const stabilizedBlocks = this.#parseXmlScheduleResponse(xmlResponseText, startHour)
+                .map(r => ({ ...r, source: /** @type {import("./types/World.types").ScheduleSource} */ ("horizon") }));
 
             const validationErrors = this.#validateStabilizedSchedule(stabilizedBlocks);
 
@@ -798,7 +1284,7 @@ export default class WorldSetter {
 
             this.schedule = this.#sanitizeAndSortSchedule(stabilizedBlocks);
             this.isDirty = false;
-            await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+            await this.#persistToday();
             this.world.tick(this.world.now);
 
             this.logger.info(`Stabilization complete. ${this.schedule.length} blocks persisted.`);
@@ -858,7 +1344,7 @@ export default class WorldSetter {
             this.logger.warn("Direct save blocked: schedule is dirty. Use restabilizeAndSave() instead.");
             throw new Error("Schedule has unsaved manual changes. Please use 'Stabilize & Save' to validate and persist.");
         }
-        await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+        await this.#persistToday();
         this.world.tick(this.world.now);
         this.logger.info("Direct save completed (schedule was stable).");
         return this.schedule;
@@ -913,12 +1399,16 @@ export default class WorldSetter {
         const eHour = Math.max(sHour + 0.5, Math.min(24, Number(recordData.endHour)));
 
         /** @type {ScheduleRecord} */
-        const newRecord = {
+        const newRecord = this.#withDerivedFields({
             id: crypto.randomUUID(),
             startHour: sHour,
             endHour: eHour,
             timeRange: this.#formatDecimalRange(sHour, eHour),
             topic: String(recordData.topic || "Casual conversation").trim(),
+            title: String(recordData.title || recordData.topic || "Casual conversation").trim(),
+            denseParagraph: recordData.denseParagraph ? String(recordData.denseParagraph).trim() : "",
+            type: String(recordData.type || "once").trim() || "once",
+            source: "user",
             mainGoal: String(recordData.mainGoal || "Hang out together").trim(),
             characterGoals: Array.isArray(recordData.characterGoals) ? recordData.characterGoals : [],
             facts: Array.isArray(recordData.facts) ? recordData.facts.map(String).filter(Boolean) : [],
@@ -926,13 +1416,14 @@ export default class WorldSetter {
             postPlot: recordData.postPlot || "Transitioning to next activity",
             createdAt: Date.now(),
             updatedAt: Date.now()
-        };
+        });
 
         this.schedule.push(newRecord);
         this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
         this.isDirty = true;
 
-        await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+        await this.#syncTemplateLibrary(newRecord);
+        await this.#persistToday();
         this.world.tick(this.world.now);
 
         this.logger.info(`User created schedule block: "${newRecord.topic}" [${newRecord.timeRange}]`);
@@ -948,24 +1439,13 @@ export default class WorldSetter {
         const record = this.schedule.find(r => r.id === id);
         if (!record) return null;
 
-        if (updates.topic !== undefined) record.topic = String(updates.topic).trim();
-        if (updates.mainGoal !== undefined) record.mainGoal = String(updates.mainGoal).trim();
-        if (updates.characterGoals !== undefined && Array.isArray(updates.characterGoals)) {
-            record.characterGoals = updates.characterGoals;
-        }
-        if (updates.facts !== undefined && Array.isArray(updates.facts)) {
-            record.facts = updates.facts.map(String).filter(Boolean);
-        }
-        if (updates.startHour !== undefined) record.startHour = Number(updates.startHour);
-        if (updates.endHour !== undefined) record.endHour = Number(updates.endHour);
-        if (updates.prePlot !== undefined) record.prePlot = String(updates.prePlot).trim();
-        if (updates.postPlot !== undefined) record.postPlot = String(updates.postPlot).trim();
-
-        record.updatedAt = Date.now();
+        this.#applyUpdates(record, updates);
         this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
         this.isDirty = true;
 
-        await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+        // Recurrence change ⇄ template library (non-destructive for today).
+        await this.#syncTemplateLibrary(record);
+        await this.#persistToday();
         this.world.tick(this.world.now);
 
         return record;
@@ -982,7 +1462,7 @@ export default class WorldSetter {
         if (this.schedule.length === initialLen) return false;
 
         this.isDirty = true;
-        await this.storage.setItem(SCHEDULE_STORAGE_KEY, this.schedule);
+        await this.#persistToday();
         this.world.tick(this.world.now);
         return true;
     }
@@ -1026,6 +1506,7 @@ export default class WorldSetter {
                 || content.match(/<\s*goal\b[^>]*>([\s\S]*?)<\/\s*goal\s*>/i);
             const preMatch = content.match(/<\s*pre_plot\b[^>]*>([\s\S]*?)<\/\s*pre_plot\s*>/i);
             const postMatch = content.match(/<\s*post_plot\b[^>]*>([\s\S]*?)<\/\s*post_plot\s*>/i);
+            const denseMatch = content.match(/<\s*(?:dense_paragraph|scene_paragraph|scene)\b[^>]*>([\s\S]*?)<\/\s*(?:dense_paragraph|scene_paragraph|scene)\s*>/i);
 
             const topic = topicMatch ? topicMatch[1].trim() : (fallbackTopic || "Afternoon hangout & plans");
             const mainGoal = mainGoalMatch ? mainGoalMatch[1].trim() : "Banter and share daily news";
@@ -1054,12 +1535,13 @@ export default class WorldSetter {
                 if (f) facts.push(XmlEncoder.decode(f));
             }
 
-            records.push({
+            records.push(this.#withDerivedFields({
                 id: crypto.randomUUID(),
                 startHour: sHour,
                 endHour: eHour,
                 timeRange: this.#formatDecimalRange(sHour, eHour),
                 topic: XmlEncoder.decode(topic),
+                denseParagraph: denseMatch ? XmlEncoder.decode(denseMatch[1].trim()) : "",
                 mainGoal: XmlEncoder.decode(mainGoal),
                 characterGoals,
                 prePlot: XmlEncoder.decode(prePlot),
@@ -1067,7 +1549,7 @@ export default class WorldSetter {
                 facts: facts.length > 0 ? facts : ["Enjoying local snacks together"],
                 createdAt: Date.now(),
                 updatedAt: Date.now()
-            });
+            }));
 
             index++;
         }
@@ -1075,7 +1557,7 @@ export default class WorldSetter {
         if (records.length === 0) {
             this.logger.warn("Zero XML blocks matched. Synthesizing fallback block.");
             const fbEnd = this.#clampHour(startHour + 1);
-            records.push({
+            records.push(this.#withDerivedFields({
                 id: crypto.randomUUID(),
                 startHour,
                 endHour: fbEnd,
@@ -1088,7 +1570,7 @@ export default class WorldSetter {
                 facts: ["Activity in progress"],
                 createdAt: Date.now(),
                 updatedAt: Date.now()
-            });
+            }));
         }
 
         return records;
@@ -1289,7 +1771,9 @@ export default class WorldSetter {
         }
 
         this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
-        this.isDirty = true;
+        // Free reordering: persisted directly, NO AI stabilizer round-trip.
+        this.isDirty = false;
+        void this.#persistToday();
 
         this.world.tick(this.world.now);
         this.logger.info(`Reordered block: moved index ${index} ${direction} to index ${targetIndex}.`);
