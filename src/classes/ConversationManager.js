@@ -128,6 +128,7 @@ export default class ConversationManager {
 
         this.client.abort();
         this.world.pause();
+        this.situationEngine?.stopTicker();
 
         if (this.#scheduleNextRequest_TimeOut) {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
@@ -333,6 +334,8 @@ export default class ConversationManager {
 
         if (this.situationEngine) {
             await this.situationEngine.init();
+            // 1-minute periodic ticker: runs only while unread messages exist.
+            this.situationEngine.startTicker();
             this.#runInitialSituationPass();
         }
 
@@ -503,7 +506,7 @@ export default class ConversationManager {
     #runInitialSituationPass() {
         if (!this.situationEngine || !navigator.onLine) return;
 
-        this.logger.info("Triggering ambient situation pass...");
+        this.logger.info("Triggering initial memory extraction pass...");
         void this.situationEngine.executeIfDue(this.#buildSituationContext(), true).catch((/** @type {unknown} */ err) => {
             this.logger.warn("Ambient situation pass failed:", err);
         });
