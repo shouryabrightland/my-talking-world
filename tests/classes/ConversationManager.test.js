@@ -54,7 +54,20 @@ vi.mock("../../src/classes/World.js", () => ({
     default: class MockWorld {
         constructor() {
             this.members = new Map();
-            this.events = { on() {}, emit() {} };
+            // Functional world event bus so tests can emit ENVIRONMENT_CHANGE etc.
+            const worldListeners = {};
+            this.events = {
+                on(event, handler) {
+                    if (!worldListeners[event]) worldListeners[event] = [];
+                    worldListeners[event].push(handler);
+                    return () => {
+                        worldListeners[event] = (worldListeners[event] || []).filter(h => h !== handler);
+                    };
+                },
+                emit(event, data) {
+                    for (const h of (worldListeners[event] || [])) h(data);
+                }
+            };
             this.activeSchedule = null;
             this.destroyed = false;
             // Stable chat event bus so tests can emit MESSAGE_ADD.
@@ -92,7 +105,11 @@ vi.mock("../../src/classes/World.js", () => ({
         destroy() { this.destroyed = true; }
         toString() { return this._worldContext ?? "Mock World"; }
     },
-    WorldEvents: { SCHEDULE_CHANGE: "schedule:change", BIRTHDAY_TODAY: "world:birthday:today" }
+    WorldEvents: {
+        SCHEDULE_CHANGE: "schedule:change",
+        BIRTHDAY_TODAY: "world:birthday:today",
+        ENVIRONMENT_CHANGE: "world:environment:change"
+    }
 }));
 
 vi.mock("../../src/classes/EventManager.js", () => ({
@@ -1454,5 +1471,41 @@ describe("parseTwistAnalysis", () => {
         expect(parsed.prePlot).toBe("boom");
         expect(parsed.postPlot).toBe("calm");
         expect(parsed.cancellations).toEqual([]);
+    });
+});
+
+// ─── Environment sync (Phase 7.1) ─────────────────────────────────
+
+describe("ConversationManager — Environment → SituationEngine sync", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("distills fresh headlines into SituationEngine + syncs UnifiedMemory on ENVIRONMENT_CHANGE", () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+
+        const ingestSpy = vi.spyOn(manager.situationEngine, "ingestNews").mockResolvedValue(0);
+        const syncSpy = vi.spyOn(manager.unifiedMemory, "syncEnvironment").mockResolvedValue(undefined);
+
+        const headlines = ["Headline one", "Headline two", "Headline three"];
+        manager.world.events.emit("world:environment:change", { newsHeadlines: headlines });
+
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+        expect(syncSpy).toHaveBeenCalledWith({ newsHeadlines: headlines });
+        expect(ingestSpy).toHaveBeenCalledTimes(1);
+        expect(ingestSpy).toHaveBeenCalledWith(headlines);
+    });
+
+    it("skips news ingestion when the snapshot carries no headlines", () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+
+        const ingestSpy = vi.spyOn(manager.situationEngine, "ingestNews").mockResolvedValue(0);
+        vi.spyOn(manager.unifiedMemory, "syncEnvironment").mockResolvedValue(undefined);
+
+        manager.world.events.emit("world:environment:change", { newsHeadlines: [] });
+
+        expect(ingestSpy).not.toHaveBeenCalled();
     });
 });

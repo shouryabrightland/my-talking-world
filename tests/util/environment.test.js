@@ -100,3 +100,54 @@ describe("Calendar Bharat festival parsing (live nested payload)", () => {
         expect(snapshot.upcomingFestivals.length).toBeGreaterThan(0);
     });
 });
+
+// ─── Phase 7.1: top-50 headline batch ───────────────────────────
+
+describe("Google News headline batch (Phase 7.1)", () => {
+    beforeEach(() => {
+        const items = Array.from({ length: 60 }, (_, i) => ({
+            title: `Story ${i} - Source Publication`
+        }));
+
+        vi.stubGlobal("fetch", vi.fn(async (/** @type {string} */ url) => {
+            const target = String(url);
+            if (target.includes("open-meteo")) {
+                return new Response(JSON.stringify({
+                    current: { temperature_2m: 31, relative_humidity_2m: 48, weather_code: 1 }
+                }), { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+            if (target.includes("rss2json")) {
+                return new Response(JSON.stringify({ items }), { status: 200, headers: { "Content-Type": "application/json" } });
+            }
+            // Calendar endpoint: empty payload → seasonal fallbacks.
+            return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
+        }));
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+        globalThis.fetch = originalFetch;
+    });
+
+    it("collects up to 50 top headlines with the publisher suffix stripped", async () => {
+        const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
+        const snapshot = await getEnvironmentSnapshot(true);
+
+        expect(snapshot.newsHeadlines).toHaveLength(50);
+        expect(snapshot.newsHeadlines[0]).toBe("Story 0");
+        expect(snapshot.newsHeadlines[49]).toBe("Story 49");
+    });
+
+    it("passes the count=50 request to the RSS gateway", async () => {
+        const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
+        await getEnvironmentSnapshot(true);
+
+        const gatewayCall = vi.mocked(globalThis.fetch).mock.calls
+            .map((/** @type {any[]} */ call) => String(call[0]))
+            .find(url => url.includes("rss2json"));
+
+        expect(gatewayCall).toBeTruthy();
+        expect(gatewayCall).toContain("count=50");
+    });
+});

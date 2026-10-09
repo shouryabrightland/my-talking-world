@@ -329,6 +329,17 @@ export default class ConversationManager {
             WorldEvents.ENVIRONMENT_CHANGE,
             (/** @type {import("./types/World.types").EnvironmentSnapshot} */ env) => {
                 if (env) void this.unifiedMemory.syncEnvironment(env);
+                // Phase 7.1: distill the fresh headline batch (top 50) into
+                // <=80-char %world% memories with a 1h TTL so the cast can
+                // recall real-world events through Active Memories.
+                if (
+                    env &&
+                    this.situationEngine &&
+                    Array.isArray(env.newsHeadlines) &&
+                    env.newsHeadlines.length > 0
+                ) {
+                    void this.situationEngine.ingestNews(env.newsHeadlines);
+                }
             },
             "ConversationManager: sync environment to unified memory"
         );

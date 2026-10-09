@@ -7,7 +7,8 @@
  * Responsibilities:
  * - Fetches live weather from Open-Meteo API (temperature, humidity, weather code).
  * - Fetches Indian festivals from Calendar Bharat JSON.
- * - Fetches Google News RSS headlines via rss2json gateway.
+ * - Fetches up to 50 Google News RSS headlines via rss2json gateway
+ *   (consumed by SituationEngine.ingestNews() on the hourly World refresh).
  * - Implements 20-minute in-memory cache to reduce API calls.
  * - Provides graceful fallbacks when external services are unavailable.
  */
@@ -227,13 +228,16 @@ async function fetchCalendarBharatFestivals(date) {
 }
 
 /**
- * Fetches top real news headlines via Google News RSS through public RSS-to-JSON gateway.
+ * Fetches the TOP 50 real news headlines via Google News RSS through the
+ * public RSS-to-JSON gateway. The hourly World refresh passes the full batch
+ * to SituationEngine.ingestNews(), which distills it into a few <=80-char
+ * `%world%` memories (1h TTL) — prompt surfaces still display only the top 3.
  *
  * @returns {Promise<string[]>}
  */
 async function fetchGoogleNewsHeadlines() {
     const rssFeedUrl = encodeURIComponent("https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en");
-    const gatewayUrl = `https://api.rss2json.com/v1/api.json?rss_url=${rssFeedUrl}`;
+    const gatewayUrl = `https://api.rss2json.com/v1/api.json?rss_url=${rssFeedUrl}&count=50`;
 
     try {
         const response = await fetchWithTimeout(gatewayUrl);
@@ -244,7 +248,7 @@ async function fetchGoogleNewsHeadlines() {
         const headlines = [];
 
         if (Array.isArray(data?.items)) {
-            for (let i = 0; i < Math.min(data.items.length, 4); i++) {
+            for (let i = 0; i < Math.min(data.items.length, 50); i++) {
                 const title = String(data.items[i]?.title || "").replace(/ - [^-]+$/, "").trim();
                 if (title) headlines.push(title);
             }

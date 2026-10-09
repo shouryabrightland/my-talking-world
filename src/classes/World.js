@@ -26,6 +26,7 @@ import Chat from "./Chat";
 import WorldSetter from "./WorldSetter";
 import XmlEncoder from "./lib/XmlEncoder";
 import { Members } from "../util/member";
+import { getEnvironmentSnapshot } from "../util/environment";
 import {
     SIMULATION_LOCATION_FULL
 } from "../util/Constants";
@@ -43,6 +44,15 @@ export const WorldEvents = {
     ENVIRONMENT_CHANGE: "world:environment:change",
     BIRTHDAY_TODAY: "world:birthday:today"
 };
+
+/**
+ * Recurring environment refresh cadence (Phase 7.1): every hour the world
+ * re-fetches weather, festivals and the top 50 headlines past the util's
+ * 20-minute cache and announces the snapshot via WorldEvents.ENVIRONMENT_CHANGE
+ * so SituationEngine.ingestNews() can distill fresh `%world%` memories.
+ * @readonly
+ */
+export const ENVIRONMENT_REFRESH_MS = 3_600_000;
 
 /**
  * Pure State Container for the Simulation Environment.
@@ -133,6 +143,13 @@ export default class World {
          * @type {ReturnType<typeof setInterval>|null} 
          */
         this.heartbeatTimer = null;
+
+        /**
+         * 1-Hour environment refresh interval pointer (Phase 7.1).
+         *
+         * @type {ReturnType<typeof setInterval>|null}
+         */
+        this.environmentTimer = null;
 
         /** @type {boolean} */
         this.isReady = false;
@@ -236,9 +253,17 @@ export default class World {
         this.tick(this.now);
         this.startHeartbeat();
 
+        // Phase 7.1: announce the boot-time environment (loaded by
+        // WorldSetter.init) so listeners distill the day's headlines, then
+        // keep it fresh on the recurring 1-hour cycle.
+        if (this.environment) {
+            this.events.emit(WorldEvents.ENVIRONMENT_CHANGE, this.environment);
+        }
+        this.startEnvironmentRefresh();
+
         this.initialized = true;
         this.setReady(true);
-        this.logger.info("World state container fully initialized with 30s heartbeat.");
+        this.logger.info("World state container fully initialized with 30s heartbeat + hourly environment sync.");
     }
 
     /**
@@ -268,6 +293,51 @@ export default class World {
     }
 
     /**
+     * Starts (or restarts) the recurring 1-HOUR environment refresh cycle
+     * (Phase 7.1). Safe to call repeatedly — any existing interval is cleared
+     * first.
+     *
+     * @returns {void}
+     */
+    startEnvironmentRefresh() {
+        this.stopEnvironmentRefresh();
+
+        this.environmentTimer = setInterval(() => {
+            void this.refreshEnvironment();
+        }, ENVIRONMENT_REFRESH_MS);
+    }
+
+    /**
+     * Clears the hourly environment refresh interval cleanly.
+     *
+     * @returns {void}
+     */
+    stopEnvironmentRefresh() {
+        if (this.environmentTimer !== null) {
+            clearInterval(this.environmentTimer);
+            this.environmentTimer = null;
+        }
+    }
+
+    /**
+     * Force-refreshes the environment snapshot (bypassing the util's
+     * 20-minute cache), applies it to the world, and announces it via
+     * WorldEvents.ENVIRONMENT_CHANGE. Failures are logged and swallowed —
+     * the world keeps its last-known environment.
+     *
+     * @returns {Promise<void>}
+     */
+    async refreshEnvironment() {
+        try {
+            const snapshot = await getEnvironmentSnapshot(true);
+            this.environment = snapshot;
+            this.events.emit(WorldEvents.ENVIRONMENT_CHANGE, snapshot);
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Environment refresh failed — keeping last snapshot:", err);
+        }
+    }
+
+    /**
      * Non-destructive session pause (used on logout): halts the heartbeat so it
      * cannot tick in the background, but keeps members, Chat context, memories,
      * schedule and event listeners fully intact for a later resume().
@@ -276,7 +346,8 @@ export default class World {
      */
     pause() {
         this.stopHeartbeat();
-        this.logger.info("World paused for session logout — heartbeat halted, Chat context preserved.");
+        this.stopEnvironmentRefresh();
+        this.logger.info("World paused for session logout — heartbeat + environment sync halted, Chat context preserved.");
     }
 
     /**
@@ -287,7 +358,8 @@ export default class World {
      */
     resume() {
         this.startHeartbeat();
-        this.logger.info("World resumed — 30s heartbeat restarted.");
+        this.startEnvironmentRefresh();
+        this.logger.info("World resumed — 30s heartbeat + hourly environment sync restarted.");
     }
 
     /**
@@ -553,6 +625,7 @@ export default class World {
      */
     destroy() {
         this.stopHeartbeat();
+        this.stopEnvironmentRefresh();
 
         this.events.clearAll();
         this.chat.destroy();
