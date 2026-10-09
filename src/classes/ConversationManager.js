@@ -29,12 +29,105 @@ import { Members } from "../util/member";
 import { AmbientAudio } from "../util/sound";
 import Logger from "./lib/Logger";
 
+/** Cooldown between director twist injections (30s, Phase 6.2). @type {number} */
+export const DIRECTOR_COOLDOWN_MS = 30_000;
+
+/** Maximum concurrent active twists (Phase 6.2). @type {number} */
+export const MAX_ACTIVE_DIRECTIVES = 5;
+
+/**
+ * A single active director incident managed by the Twist Engine.
+ * @typedef {Object} DirectorTwist
+ * @property {string} id Unique twist id (crypto.randomUUID).
+ * @property {string} title Short incident title (model-written or directive excerpt).
+ * @property {string} directive Original director directive text.
+ * @property {string} prePlot Immediate shock / inciting action (first turn).
+ * @property {string} midPlot Ongoing situation / background tension (later turns).
+ * @property {string} postPlot Resolution / aftermath (ending turn).
+ * @property {"pre"|"mid"|"ending"} status Lifecycle status.
+ */
+
+/**
+ * Shared acceptance gate for director injections (UI pre-check + engine).
+ * @typedef {Object} DirectorGateResult
+ * @property {boolean} ok Whether the operation is allowed.
+ * @property {string} [reason] "offline" | "cooldown" | "limit" | "empty" | "locked" | "not-found".
+ * @property {number} [waitSeconds] Seconds left on the cooldown (reason "cooldown").
+ */
+
+/**
+ * Outcome of `injectDirectorPlot()`.
+ * @typedef {DirectorGateResult & { twistId?: string, cancelled?: number }} DirectorInjectResult
+ */
+
+/**
+ * Parsed Gemma twist synthesis output (three-beat plot + cancellations).
+ * @typedef {Object} TwistAnalysis
+ * @property {string} title Short incident title.
+ * @property {string} prePlot Immediate shock / inciting action.
+ * @property {string} midPlot Ongoing situation / background tension.
+ * @property {string} postPlot Resolution / aftermath.
+ * @property {string[]} cancellations Existing twist ids superseded by the new one.
+ */
+
+/**
+ * Parses Gemma's `<twist_analysis>` XML into structured plots + cancellations.
+ * Returns null when either required plot anchor (`<pre_plot>` / `<post_plot>`)
+ * is missing so the caller can fall back to a deterministic synthesis.
+ *
+ * @param {string} xml Raw model output.
+ * @returns {TwistAnalysis|null} Parsed analysis or null when unusable.
+ */
+export function parseTwistAnalysis(xml) {
+    const text = String(xml || "");
+
+    const prePlot = /<pre_plot\s*>([\s\S]*?)<\/pre_plot\s*>/i.exec(text)?.[1]?.trim() || "";
+    const postPlot = /<post_plot\s*>([\s\S]*?)<\/post_plot\s*>/i.exec(text)?.[1]?.trim() || "";
+    if (!prePlot || !postPlot) return null;
+
+    const midPlot = /<mid_plot\s*>([\s\S]*?)<\/mid_plot\s*>/i.exec(text)?.[1]?.trim() || "";
+    const title = /<title\s*>([\s\S]*?)<\/title\s*>/i.exec(text)?.[1]?.trim() || "";
+
+    /** @type {string[]} */
+    const cancellations = [];
+    const cancelRe = /<cancel\s+id\s*=\s*"([^"]+)"/gi;
+    /** @type {RegExpExecArray|null} */
+    let match;
+    while ((match = cancelRe.exec(text)) !== null) {
+        cancellations.push(match[1]);
+    }
+
+    return { title, prePlot, midPlot, postPlot, cancellations };
+}
+
+/**
+ * Deterministic twist synthesis used when Gemma is unavailable or its output
+ * is unparseable — preserves the three-beat contract so prompt feeding and
+ * the ending flow never dead-end on a model failure.
+ *
+ * @param {string} directive Raw director directive.
+ * @returns {TwistAnalysis}
+ */
+function fallbackTwistAnalysis(directive) {
+    const clean = directive.trim();
+    const title = clean.length > 48 ? `${clean.slice(0, 48).trimEnd()}…` : clean;
+    return {
+        title,
+        prePlot: `Right now, the cast is hit by this: ${clean}`,
+        midPlot: `The fallout from "${title}" keeps simmering under the conversation.`,
+        postPlot: `The incident "${title}" winds down and the group settles back to normal.`,
+        cancellations: []
+    };
+}
+
 export const ConversationEvents = {
     READY: "conversation:ready",
     ERROR: "conversation:error",
     SCHEDULE_SYNC: "conversation:schedule:sync",
     DIRECTOR_EVENT: "conversation:director:event",
     DIRECTOR_RESPONSE_START: "conversation:director:response:start",
+    DIRECTOR_TWIST_CHANGE: "conversation:director:twist:change",
+    DIRECTOR_REJECTED: "conversation:director:rejected",
     MEMORY_COMPRESS_START: "conversation:memory:compress:start",
     MEMORY_COMPRESS_DONE: "conversation:memory:compress:done",
     MEMORY_COMPRESS_ERROR: "conversation:memory:compress:error",
@@ -94,6 +187,13 @@ export default class ConversationManager {
         /** @type {number} */ this.consecutiveErrors = 0;
         /** @type {string|null} */ this.pendingDirectorPlot = null;
 
+        /** @type {DirectorTwist[]} Active director twists (max {@link MAX_ACTIVE_DIRECTIVES}). */
+        this.activeDirectives = [];
+        /** @type {number} Epoch ms before which a new twist is rejected (30s cooldown). */
+        this.directorCooldownUntil = 0;
+        /** @type {number} Turn sequence at which ending controls unlock (1-turn lock). */
+        this.endLockUntilTurn = 0;
+
         /** Last Needle route ("member: kw1, kw2") kept for DevTools inspection. @type {string|null} */
         this.lastNeedleRoute = null;
         /** Last Tier-3 memory lines injected into the prompt (DevTools). @type {string} */
@@ -122,6 +222,7 @@ export default class ConversationManager {
     /** @type {string} Fresh human utterance for the ACTIVE turn (empty on autonomous turns). */ #activeHumanUtterance = "";
     /** @type {number|null} */ #pendingDelayMs = null;
     /** @type {string|null} */ #pendingNextTime = null;
+    /** @type {number} Monotonic completed-turn counter driving the ending lock. */ #turnSequence = 0;
 
     logout() {
         this.logger.info("User initiated logout. Closing conversation engine...");
@@ -168,6 +269,9 @@ export default class ConversationManager {
         this.#pendingNextTime = null;
         this.pendingDirectorPlot = null;
         this.#directorResponseStarted = false;
+        this.activeDirectives = [];
+        this.directorCooldownUntil = 0;
+        this.endLockUntilTurn = 0;
 
         this.events.emit(ConversationEvents.LOGOUT);
     }
@@ -231,21 +335,49 @@ export default class ConversationManager {
     }
 
     /**
-     * Injects a Stage Directive from Director Mode into the live conversation.
+     * Synchronous injection gate shared by the Director footer UI and
+     * `injectDirectorPlot()` so the UI can disable/notify WITHOUT waiting on
+     * the Gemma synthesis round-trip.
      *
-     * @param {string} plotText
-     * @returns {Promise<void>}
+     * @returns {DirectorGateResult} `ok:false` with a machine-readable reason when blocked.
      */
-    async injectDirectorPlot(plotText) {
-        if (!plotText || typeof plotText !== "string" || !plotText.trim()) return;
-        if (!navigator.onLine) {
-            this.logger.warn("Director plot injection skipped: App is offline.");
-            return;
+    directorGate() {
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+            return { ok: false, reason: "offline" };
         }
 
-        const cleanPlot = plotText.trim();
-        this.logger.info(`[Director Mode] Injecting Stage Directive: "${cleanPlot}"`);
+        const now = Date.now();
+        if (now < this.directorCooldownUntil) {
+            return {
+                ok: false,
+                reason: "cooldown",
+                waitSeconds: Math.ceil((this.directorCooldownUntil - now) / 1000)
+            };
+        }
 
+        if (this.activeDirectives.length >= MAX_ACTIVE_DIRECTIVES) {
+            return { ok: false, reason: "limit" };
+        }
+
+        return { ok: true };
+    }
+
+    /**
+     * Whether ending twists is locked for 1 turn after an end operation.
+     *
+     * @returns {boolean} True while the post-plot resolution turn is pending.
+     */
+    isEndingLocked() {
+        return this.#turnSequence < this.endLockUntilTurn;
+    }
+
+    /**
+     * Aborts any in-flight Groq stream and clears the cast's scheduled
+     * activity so a director-driven turn starts immediately.
+     *
+     * @returns {void}
+     */
+    #haltScheduledDialogue() {
         this.client.abort();
 
         for (const member of this.chat.getMembers()) {
@@ -260,6 +392,190 @@ export default class ConversationManager {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
             this.#scheduleNextRequest_TimeOut = null;
         }
+    }
+
+    /**
+     * Runs the Gemma Twist Synthesizer for a new director directive:
+     * returns conflict cancellations plus the incident's pre/mid/post plots
+     * (Phase 6.2). Falls back to a deterministic synthesis when no Gemini
+     * client exists or the model output is unusable — injection never dead-ends.
+     *
+     * @param {string} directive Raw director directive.
+     * @returns {Promise<TwistAnalysis>} Analysis to apply.
+     */
+    async #synthesizeTwist(directive) {
+        const client = this.world?.worldSetter?.geminiClient || null;
+        if (!client) return fallbackTwistAnalysis(directive);
+
+        const activeRecord = this.world.activeSchedule;
+        const scene = activeRecord
+            ? `${activeRecord.title || activeRecord.topic}: ${activeRecord.denseParagraph || activeRecord.mainGoal || ""}`
+            : "The cast is hanging out in the Lucknow studio apartment.";
+
+        const existing = this.activeDirectives.length > 0
+            ? this.activeDirectives.map(t => `- id="${t.id}" title="${t.title}" mid="${t.midPlot}"`).join("\n")
+            : "(none — this is the first active incident)";
+
+        const systemInstruction = [
+            'You are the Twist Synthesizer for the sitcom group chat "Tom & Friends" (Lucknow, India).',
+            "Given the CURRENT SCENE, the ACTIVE INCIDENTS, and a NEW director directive, decide which active incidents the new one cancels and write the new incident's three-beat plot.",
+            "Reply with ONLY the XML below — no markdown, no commentary:",
+            "<twist_analysis>",
+            "  <cancellations>",
+            '    <cancel id="twist-id-to-remove" />',
+            "  </cancellations>",
+            "  <plot>",
+            "    <title>Short incident title, max 6 words</title>",
+            "    <pre_plot>Immediate shock / inciting action the cast reacts to RIGHT NOW (1-2 sentences)</pre_plot>",
+            "    <mid_plot>Ongoing situation / background tension carried across subsequent turns (1-2 sentences)</mid_plot>",
+            "    <post_plot>Resolution / aftermath that concludes the incident (1-2 sentences)</post_plot>",
+            "  </plot>",
+            "</twist_analysis>",
+            "Rules:",
+            '- Emit <cancel id="..." /> ONLY for an ACTIVE INCIDENT id listed above that the new directive directly makes obsolete or supersedes; keep unrelated incidents untouched. Use an empty <cancellations></cancellations> when nothing is cancelled.',
+            "- Plots must be concrete, situational, and playable by the ensemble — never claim a specific cast member's private feelings.",
+            "- Keep each beat under 280 characters."
+        ].join("\n");
+
+        const userContent = [
+            "## Current Scene",
+            scene,
+            "",
+            "## Active Incidents",
+            existing,
+            "",
+            "## New Director Directive",
+            directive
+        ].join("\n");
+
+        try {
+            const model = typeof client.resolveGemmaModel === "function"
+                ? await client.resolveGemmaModel()
+                : null;
+
+            const result = await client.generateText(
+                [{ role: "user", content: userContent }],
+                { model, thinkingBudget: 0, promptType: "situation", temperature: 0.8, maxRetries: 1 }
+            );
+
+            const parsed = parseTwistAnalysis(result?.text || "");
+            if (parsed) {
+                return {
+                    ...parsed,
+                    title: parsed.title || directive.slice(0, 48),
+                    midPlot: parsed.midPlot || parsed.prePlot
+                };
+            }
+
+            this.logger.warn("Twist synthesis returned unparseable XML — using deterministic fallback.");
+        } catch (/** @type {unknown} */ err) {
+            this.logger.warn("Twist synthesis failed — using deterministic fallback:", err);
+        }
+
+        return fallbackTwistAnalysis(directive);
+    }
+
+    /**
+     * Advances twist lifecycles after a COMPLETED turn (Phase 6.3): "pre"
+     * twists flip to "mid" (their pre_plot was just delivered), "ending"
+     * twists are pruned (post_plot delivered), and the turn sequence ticks so
+     * the one-turn ending lock expires.
+     *
+     * @returns {void}
+     */
+    #advanceActiveDirectives() {
+        this.#turnSequence++;
+
+        let changed = false;
+        /** @type {DirectorTwist[]} */
+        const pruned = [];
+
+        this.activeDirectives = this.activeDirectives.filter(twist => {
+            if (twist.status === "ending") {
+                pruned.push(twist);
+                changed = true;
+                return false;
+            }
+            if (twist.status === "pre") {
+                twist.status = "mid";
+                changed = true;
+            }
+            return true;
+        });
+
+        if (pruned.length > 0) {
+            this.logger.info(`Pruned ${pruned.length} ended director twist(es) after the turn.`);
+        }
+        if (changed) {
+            this.events.emit(ConversationEvents.DIRECTOR_TWIST_CHANGE, [...this.activeDirectives]);
+        }
+    }
+
+    /**
+     * Marks the given twists as "ending" (their post_plot leads the next
+     * turn), locks ending controls for 1 turn, and triggers that fresh turn
+     * immediately (Phase 6.4).
+     *
+     * @param {string[]} ids Twist ids to end.
+     * @returns {DirectorGateResult & { count?: number }} Result with the number of twists ending.
+     */
+    endTwists(ids) {
+        const targets = (Array.isArray(ids) ? ids : []).map(id => String(id));
+        if (targets.length === 0) return { ok: false, reason: "empty" };
+        if (this.isEndingLocked()) return { ok: false, reason: "locked" };
+
+        let count = 0;
+        for (const twist of this.activeDirectives) {
+            if (targets.includes(twist.id) && twist.status !== "ending") {
+                twist.status = "ending";
+                count++;
+            }
+        }
+        if (count === 0) return { ok: false, reason: "not-found" };
+
+        this.endLockUntilTurn = this.#turnSequence + 1;
+        this.events.emit(ConversationEvents.DIRECTOR_TWIST_CHANGE, [...this.activeDirectives]);
+        this.logger.info(`Ending ${count} director twist(es). Ending locked for 1 turn.`);
+
+        if (typeof navigator === "undefined" || navigator.onLine) {
+            this.#haltScheduledDialogue();
+            void this.requestTurn();
+        }
+
+        return { ok: true, count };
+    }
+
+    /**
+     * Injects a Stage Directive from Director Mode as an ACTIVE TWIST:
+     * validates the 30s cooldown / 5-twist limit (Phase 6.2), synthesizes the
+     * incident through Gemma (conflict cancellations + pre/mid/post plots),
+     * aborts any in-flight Groq stream, and triggers a fresh turn so the cast
+     * reacts to the new incident immediately.
+     *
+     * @param {string} plotText Raw director directive.
+     * @returns {Promise<DirectorInjectResult>} Acceptance or rejection outcome.
+     */
+    async injectDirectorPlot(plotText) {
+        if (!plotText || typeof plotText !== "string" || !plotText.trim()) {
+            return { ok: false, reason: "empty" };
+        }
+
+        const gate = this.directorGate();
+        if (!gate.ok) {
+            this.logger.warn(`Director twist REJECTED (${gate.reason}).`);
+            this.events.emit(ConversationEvents.DIRECTOR_REJECTED, gate);
+            return gate;
+        }
+
+        const cleanPlot = plotText.trim();
+
+        // Arm the 30s cooldown BEFORE synthesis (spec ordering 1→4).
+        this.directorCooldownUntil = Date.now() + DIRECTOR_COOLDOWN_MS;
+
+        this.logger.info(`[Director Mode] Injecting Stage Directive: "${cleanPlot}"`);
+
+        // Abort the in-flight stream + clear the cast's scheduled activity.
+        this.#haltScheduledDialogue();
 
         const directiveMessage = new Message({
             sender: null,
@@ -272,8 +588,33 @@ export default class ConversationManager {
         this.#directorResponseStarted = false;
         this.events.emit(ConversationEvents.DIRECTOR_EVENT, cleanPlot);
 
+        // Gemma synthesis → apply cancellations → register the new twist.
+        const analysis = await this.#synthesizeTwist(cleanPlot);
+        const cancelIds = analysis.cancellations || [];
+        const cancelled = this.activeDirectives.filter(t => cancelIds.includes(t.id));
+        if (cancelled.length > 0) {
+            this.activeDirectives = this.activeDirectives.filter(t => !cancelIds.includes(t.id));
+            this.logger.info(`Twist synthesis cancelled ${cancelled.length} conflicting incident(s).`);
+        }
+
+        /** @type {DirectorTwist} */
+        const twist = {
+            id: crypto.randomUUID(),
+            title: analysis.title || cleanPlot.slice(0, 48),
+            directive: cleanPlot,
+            prePlot: analysis.prePlot,
+            midPlot: analysis.midPlot,
+            postPlot: analysis.postPlot,
+            status: "pre"
+        };
+        this.activeDirectives.push(twist);
+        this.events.emit(ConversationEvents.DIRECTOR_TWIST_CHANGE, [...this.activeDirectives]);
+
+        // Fresh turn so the cast reacts to the new incident immediately.
         await this.requestTurn();
         this.pendingDirectorPlot = null;
+
+        return { ok: true, twistId: twist.id, cancelled: cancelled.length };
     }
 
     #handleHumanInterruption() {
@@ -380,6 +721,9 @@ export default class ConversationManager {
             : "";
         this.logger.info("Requesting fresh conversational turn from Groq...");
 
+        /** True once this turn's stream completed successfully (drives twist advancement). @type {boolean} */
+        let turnCompleted = false;
+
         try {
             // Tier 3: route the live chat (human message first) through Needle → UnifiedMemory.
             await this.#resolveMemorySnippet(isUserInitiated, userMessageText);
@@ -396,6 +740,7 @@ export default class ConversationManager {
             });
 
             this.consecutiveErrors = 0;
+            turnCompleted = true;
 
             this.#tickSituationEngine();
         } catch (err) {
@@ -416,6 +761,11 @@ export default class ConversationManager {
                 return;
             }
         } finally {
+            // Advance twist lifecycles only on a COMPLETED turn: a failed or
+            // aborted turn must keep "pre" (undelivered) and "ending" (post_plot
+            // not yet spoken) statuses intact for the retry.
+            if (turnCompleted) this.#advanceActiveDirectives();
+
             this.#generationActive = false;
             this.#flushRemainingBuffer();
             this.protocolBuffer = "";
@@ -914,6 +1264,9 @@ export default class ConversationManager {
         this.#pendingNextTime = null;
         this.lastNeedleRoute = null;
         this.lastRetrievedMemory = "";
+        this.activeDirectives = [];
+        this.directorCooldownUntil = 0;
+        this.endLockUntilTurn = 0;
 
         this.unifiedMemory.entries = [];
         await this.unifiedMemory.persist();
@@ -983,6 +1336,19 @@ export default class ConversationManager {
                 ]
                 : [];
 
+            // Phase 6.3: feed each active director twist's per-status beat
+            // under a dedicated heading. Lifecycle advancement (pre → mid →
+            // pruned) happens after the turn completes in requestTurn().
+            const beats = this.activeDirectives.map(twist => {
+                const beat = twist.status === "pre"
+                    ? twist.prePlot
+                    : twist.status === "ending" ? twist.postPlot : twist.midPlot;
+                return `- [${twist.title}] ${beat}`;
+            });
+            const directorSection = beats.length > 0
+                ? ["", "## Active Director Beats", "Stage incidents in progress — weave these into the dialogue.", ...beats]
+                : [];
+
             return builder.part([
                 "# Live Group Chat: Tom & Friends (Lucknow, India)",
                 "",
@@ -995,6 +1361,7 @@ export default class ConversationManager {
                 `- Atmosphere: ${situation}`,
                 memorySection,
                 ...sceneLines,
+                ...directorSection,
                 "## Turn Priority",
                 "1) The human's LATEST message — answer it first.",
                 "2) The recent chat flow.",

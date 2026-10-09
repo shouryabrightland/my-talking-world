@@ -192,7 +192,7 @@ vi.mock("../../src/util/sound.js", () => ({ AmbientAudio: { stop() {} } }));
 
 // ─── Import after mocks ───
 
-import ConversationManager, { ConversationEvents } from "../../src/classes/ConversationManager.js";
+import ConversationManager, { ConversationEvents, parseTwistAnalysis } from "../../src/classes/ConversationManager.js";
 import Reaction from "../../src/classes/Reaction.js";
 import { ChatEvents } from "../../src/classes/Chat.js";
 import { ChatMemberEvents } from "../../src/classes/ChatMember.js";
@@ -1184,5 +1184,275 @@ describe("ConversationManager — macro pacing (<delay> / <next>)", () => {
         await vi.advanceTimersByTimeAsync(3000);
 
         expect(requestSpy).toHaveBeenCalledWith(true, "chai ke plan ke baare mein batao");
+    });
+});
+
+// ─── Director Twist Engine (Phase 6) ──────────────────────────────
+
+describe("ConversationManager — Director Twist Engine", () => {
+    /** @type {ConversationManager} */
+    let manager;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        const result = createManager();
+        manager = result.manager;
+        manager.initialized = true;
+        manager.client.streamChat = async () => "ok";
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    /**
+     * Builds a fully-specified active twist.
+     * @param {string} id
+     * @param {"pre"|"mid"|"ending"} status
+     * @param {string} [title]
+     */
+    function makeTwist(id, status, title = `Twist ${id}`) {
+        return {
+            id,
+            title,
+            directive: `directive ${id}`,
+            prePlot: `PRE ${id}`,
+            midPlot: `MID ${id}`,
+            postPlot: `POST ${id}`,
+            status
+        };
+    }
+
+    // ─── 6.1 State & Cooldown ───
+
+    it("directorGate() enforces the 30s cooldown with a waitSeconds hint", () => {
+        expect(manager.directorGate().ok).toBe(true);
+
+        manager.directorCooldownUntil = Date.now() + 7_400;
+        const gate = manager.directorGate();
+        expect(gate.ok).toBe(false);
+        expect(gate.reason).toBe("cooldown");
+        expect(gate.waitSeconds).toBe(8); // 7.4s remaining rounds up to 8s
+
+        manager.directorCooldownUntil = 0;
+        expect(manager.directorGate().ok).toBe(true);
+    });
+
+    it("rejects past the 5-twist limit", async () => {
+        for (let i = 0; i < 5; i++) {
+            manager.directorCooldownUntil = 0;
+            const res = await manager.injectDirectorPlot(`Twist ${i}`);
+            expect(res.ok).toBe(true);
+        }
+
+        manager.directorCooldownUntil = 0;
+        const overflow = await manager.injectDirectorPlot("Overflow twist");
+        expect(overflow.ok).toBe(false);
+        expect(overflow.reason).toBe("limit");
+        expect(manager.activeDirectives).toHaveLength(5);
+    });
+
+    // ─── 6.2 Gemma Twist Synthesizer ───
+
+    it("injects a twist, arms the cooldown, and rejects inside the window (DIRECTOR_REJECTED)", async () => {
+        /** @type {Array<{reason?: string}>} */
+        const rejected = [];
+        manager.events.on(
+            ConversationEvents.DIRECTOR_REJECTED,
+            (/** @type {{reason?: string}} */ gate) => rejected.push(gate),
+            "test: director rejected"
+        );
+
+        const first = await manager.injectDirectorPlot("A mysterious door appears on the terrace");
+        expect(first.ok).toBe(true);
+        expect(first.cancelled).toBe(0);
+        expect(first.twistId).toBeTruthy();
+        expect(manager.activeDirectives).toHaveLength(1);
+        // The opening turn completed → pre flipped to mid (6.3).
+        expect(manager.activeDirectives[0].status).toBe("mid");
+        expect(Date.now() < manager.directorCooldownUntil).toBe(true);
+
+        const second = await manager.injectDirectorPlot("Second twist");
+        expect(second.ok).toBe(false);
+        expect(second.reason).toBe("cooldown");
+        expect(manager.activeDirectives).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        expect(rejected[0].reason).toBe("cooldown");
+    });
+
+    it("allows the next twist once the cooldown window closes", async () => {
+        await manager.injectDirectorPlot("Twist A");
+        manager.directorCooldownUntil = 0;
+
+        const second = await manager.injectDirectorPlot("Twist B");
+        expect(second.ok).toBe(true);
+        expect(manager.activeDirectives).toHaveLength(2);
+    });
+
+    it("applies Gemma cancellations and registers the synthesized three-beat plot", async () => {
+        manager.activeDirectives.push(/** @type {any} */ (makeTwist("old-1", "mid", "Old Rivalry")));
+
+        // Stub the Gemini client so synthesis returns a known XML payload.
+        manager.world.worldSetter = {
+            geminiClient: {
+                resolveGemmaModel: async () => "gemma-4-26b",
+                generateText: async () => ({
+                    text: '<twist_analysis><cancellations><cancel id="old-1" /></cancellations>' +
+                        "<plot><title>Mystery Package</title>" +
+                        "<pre_plot>A parcel lands on the doorstep.</pre_plot>" +
+                        "<mid_plot>Everyone keeps eyeing the package.</mid_plot>" +
+                        "<post_plot>The sender is finally revealed.</post_plot>" +
+                        "</plot></twist_analysis>"
+                })
+            }
+        };
+
+        const res = await manager.injectDirectorPlot("A mystery package arrives");
+        expect(res.ok).toBe(true);
+        expect(res.cancelled).toBe(1);
+        expect(manager.activeDirectives).toHaveLength(1);
+        expect(manager.activeDirectives[0].title).toBe("Mystery Package");
+        expect(manager.activeDirectives[0].prePlot).toBe("A parcel lands on the doorstep.");
+        expect(manager.activeDirectives[0].status).toBe("mid");
+    });
+
+    it("falls back to a deterministic synthesis when the model call fails", async () => {
+        manager.world.worldSetter = {
+            geminiClient: {
+                resolveGemmaModel: async () => "gemma-4-26b",
+                generateText: async () => { throw new Error("quota exceeded"); }
+            }
+        };
+
+        const res = await manager.injectDirectorPlot("The power goes out");
+        expect(res.ok).toBe(true);
+        expect(manager.activeDirectives).toHaveLength(1);
+
+        const twist = manager.activeDirectives[0];
+        expect(twist.prePlot).toContain("The power goes out");
+        expect(twist.midPlot.length).toBeGreaterThan(0);
+        expect(twist.postPlot.length).toBeGreaterThan(0);
+        expect(twist.status).toBe("mid");
+    });
+
+    // ─── 6.3 Prompt Feeding Logic ───
+
+    it("feeds each twist's per-status plot under ## Active Director Beats", () => {
+        manager.activeDirectives.push(
+            /** @type {any} */ (makeTwist("t1", "pre")),
+            /** @type {any} */ (makeTwist("t2", "mid")),
+            /** @type {any} */ (makeTwist("t3", "ending"))
+        );
+
+        const joined = buildSystemParts(manager).join("\n\n");
+
+        expect(joined).toContain("## Active Director Beats");
+        expect(joined).toContain("- [Twist t1] PRE t1");
+        expect(joined).toContain("- [Twist t2] MID t2");
+        expect(joined).toContain("- [Twist t3] POST t3");
+        // Each status feeds EXACTLY one beat.
+        expect(joined).not.toContain("MID t1");
+        expect(joined).not.toContain("PRE t2");
+        expect(joined).not.toContain("MID t3");
+    });
+
+    it("omits the beats section entirely when no twists are active", () => {
+        const joined = buildSystemParts(manager).join("\n\n");
+        expect(joined).not.toContain("## Active Director Beats");
+    });
+
+    it("advances lifecycles after a completed turn: pre→mid, ending→pruned", async () => {
+        manager.activeDirectives.push(
+            /** @type {any} */ (makeTwist("end-1", "ending")),
+            /** @type {any} */ (makeTwist("pre-1", "pre")),
+            /** @type {any} */ (makeTwist("mid-1", "mid"))
+        );
+
+        await manager.requestTurn();
+
+        expect(manager.activeDirectives.map(t => t.id)).toEqual(["pre-1", "mid-1"]);
+        expect(manager.activeDirectives[0].status).toBe("mid");
+        expect(manager.activeDirectives[1].status).toBe("mid");
+    });
+
+    it("keeps statuses untouched when the turn fails (post_plot not yet spoken)", async () => {
+        manager.activeDirectives.push(/** @type {any} */ (makeTwist("end-1", "ending")));
+        manager.client.streamChat = async () => { throw new Error("groq down"); };
+
+        await manager.requestTurn();
+
+        expect(manager.activeDirectives).toHaveLength(1);
+        expect(manager.activeDirectives[0].status).toBe("ending");
+    });
+
+    // ─── 6.4 Ending flow ───
+
+    it("endTwists(): marks ending, locks for 1 turn, prunes + unlocks after the turn", async () => {
+        await manager.injectDirectorPlot("Twist A");
+        const id = manager.activeDirectives[0].id;
+
+        const res = manager.endTwists([id]);
+        expect(res.ok).toBe(true);
+        expect(res.count).toBe(1);
+        expect(manager.activeDirectives[0].status).toBe("ending");
+        expect(manager.isEndingLocked()).toBe(true);
+
+        // Locked: a second end attempt is rejected until the turn completes.
+        const blocked = manager.endTwists([id]);
+        expect(blocked.ok).toBe(false);
+        expect(blocked.reason).toBe("locked");
+
+        // The fire-and-forget resolution turn prunes the twist + unlocks.
+        await vi.advanceTimersByTimeAsync(50);
+        expect(manager.activeDirectives).toHaveLength(0);
+        expect(manager.isEndingLocked()).toBe(false);
+    });
+
+    it("endTwists() rejects unknown ids without arming the lock", () => {
+        manager.activeDirectives.push(/** @type {any} */ (makeTwist("known", "mid")));
+
+        const res = manager.endTwists(["ghost"]);
+        expect(res.ok).toBe(false);
+        expect(res.reason).toBe("not-found");
+        expect(manager.isEndingLocked()).toBe(false);
+        expect(manager.activeDirectives[0].status).toBe("mid");
+    });
+});
+
+// ─── Twist synthesis XML parser ───────────────────────────────────
+
+describe("parseTwistAnalysis", () => {
+    it("extracts title, three plots, and cancellation ids", () => {
+        const parsed = parseTwistAnalysis(
+            '<twist_analysis><cancellations><cancel id="a1" /><cancel id="b2" /></cancellations>' +
+            "<plot><title>Roof Leak</title>" +
+            "<pre_plot>Ceiling drips mid-dinner.</pre_plot>" +
+            "<mid_plot>Buckets everywhere.</mid_plot>" +
+            "<post_plot>Landlord fixes it.</post_plot>" +
+            "</plot></twist_analysis>"
+        );
+
+        expect(parsed).not.toBeNull();
+        expect(parsed.title).toBe("Roof Leak");
+        expect(parsed.prePlot).toBe("Ceiling drips mid-dinner.");
+        expect(parsed.midPlot).toBe("Buckets everywhere.");
+        expect(parsed.postPlot).toBe("Landlord fixes it.");
+        expect(parsed.cancellations).toEqual(["a1", "b2"]);
+    });
+
+    it("returns null when a required plot anchor is missing", () => {
+        expect(parseTwistAnalysis("<pre_plot>only pre</pre_plot>")).toBeNull();
+        expect(parseTwistAnalysis("no xml at all")).toBeNull();
+        expect(parseTwistAnalysis("")).toBeNull();
+    });
+
+    it("tolerates whitespace inside tags", () => {
+        const parsed = parseTwistAnalysis(
+            "<plot>\n  <pre_plot>  boom  </pre_plot>\n  <post_plot>\n calm \n</post_plot>\n</plot>"
+        );
+        expect(parsed.prePlot).toBe("boom");
+        expect(parsed.postPlot).toBe("calm");
+        expect(parsed.cancellations).toEqual([]);
     });
 });

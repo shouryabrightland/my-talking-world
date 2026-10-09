@@ -21,6 +21,7 @@ import { ChatMemberEvents } from "../classes/ChatMember";
 import { useChat } from "../contexts/ChatContext";
 import { useInputBox } from "../contexts/InputBoxContext";
 import { useOffline } from "../contexts/OfflineContext";
+import { ConversationEvents } from "../classes/ConversationManager";
 import Avatar from "./Avatar";
 import { ReplyBox } from "./message";
 import { sampleDirectorPresets } from "../util/directorPresets";
@@ -354,6 +355,10 @@ const UserInputBox = memo(function UserInputBox() {
 /**
  * 🎬 Fluid Director Console.
  * Allows injecting plot twists and stage directives into the dialogue flow.
+ * Phase 6.4: 30-second cooldown countdown on the inject button, plus the
+ * Active Twists Rail — a single twist gets a direct `[✕ End]` pill, multiple
+ * twists get selection checkboxes + "End Selected", and ending controls lock
+ * for 1 turn after an end operation.
  * **Disabled when offline** — requires AI to generate character responses.
  *
  * @returns {React.JSX.Element}
@@ -368,16 +373,123 @@ const DirectorInputBox = memo(function DirectorInputBox() {
     /** 10 random unique director cues sampled once per mount from the 200-cue library */
     const [quickPresets] = useState(() => sampleDirectorPresets(10));
 
+    /** UI mirror of ConversationManager.activeDirectives (twists rail). */
+    const [twists, setTwists] = useState(() => [...(conv.activeDirectives || [])]);
+
+    /** Twist ids checked in the multi-twist selection. */
+    const [selected, setSelected] = useState(() => new Set());
+
+    /** Epoch ms when the 30s injection cooldown expires. */
+    const [cooldownUntil, setCooldownUntil] = useState(() => conv.directorCooldownUntil || 0);
+
+    /** Rejection / hint notice rendered under the rail. */
+    const [notice, setNotice] = useState("");
+
+    /** Re-render tick driving the cooldown countdown. */
+    const [, setTick] = useState(0);
+
+    // Keep the rail in sync with every engine-side twist mutation
+    // (injection, Gemma cancellations, ending, post-turn pruning).
+    useEffect(() => {
+        const unsubscribe = conv.events.on(
+            ConversationEvents.DIRECTOR_TWIST_CHANGE,
+            (/** @type {import("../classes/ConversationManager").DirectorTwist[]|undefined} */ list) => {
+                const next = list || conv.activeDirectives || [];
+                setTwists([...next]);
+                setSelected(prev => {
+                    const alive = new Set(next.map(t => t.id));
+                    const kept = [...prev].filter(id => alive.has(id));
+                    return kept.length === prev.size ? prev : new Set(kept);
+                });
+            },
+            "DirectorInputBox: twist changes"
+        );
+        setTwists([...(conv.activeDirectives || [])]);
+        return () => { unsubscribe(); };
+    }, [conv]);
+
+    // Cooldown countdown: ticks at 250ms and stops itself once the window closes.
+    useEffect(() => {
+        if (cooldownUntil <= Date.now()) return undefined;
+
+        const intervalId = setInterval(() => {
+            if (Date.now() >= cooldownUntil) {
+                setTick(0);
+                clearInterval(intervalId);
+            } else {
+                setTick(Date.now());
+            }
+        }, 250);
+
+        return () => clearInterval(intervalId);
+    }, [cooldownUntil]);
+
+    const cooldownSeconds = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+    const onCooldown = cooldownSeconds > 0;
+    const endingLocked = typeof conv.isEndingLocked === "function" ? conv.isEndingLocked() : false;
+
     /**
      * Injects a director plot twist into the conversation flow.
+     * Runs the synchronous gate (cooldown / 5-twist limit / offline) BEFORE
+     * consuming the text so a rejected directive stays editable.
      * @param {string} directive The plot twist text.
      */
     const handleInject = useCallback((/** @type {string} */ directive) => {
         const clean = directive.trim();
         if (!clean) return;
-        conv.injectDirectorPlot(clean);
+
+        const gate = conv.directorGate();
+        if (!gate.ok) {
+            setCooldownUntil(conv.directorCooldownUntil || Date.now());
+            setNotice(
+                gate.reason === "cooldown"
+                    ? `⏳ Wait ${gate.waitSeconds ?? 30}s before the next twist.`
+                    : gate.reason === "limit"
+                        ? "Max 5 active twists — end one before adding another."
+                        : "Director mode is offline right now."
+            );
+            return;
+        }
+
+        setNotice("");
         setPlotText("");
+        // Fire the injection (engine arms its cooldown synchronously before
+        // the first await) and mirror it into the countdown state.
+        void conv.injectDirectorPlot(clean);
+        setCooldownUntil(conv.directorCooldownUntil || Date.now() + 30000);
     }, [conv]);
+
+    /**
+     * Marks the given twists as ending — their post_plot leads the next turn
+     * and the controls lock for 1 turn.
+     * @param {string[]} ids Twist ids to end.
+     */
+    const handleEnd = useCallback((/** @type {string[]} */ ids) => {
+        if (!ids.length || typeof conv.endTwists !== "function") return;
+
+        const result = conv.endTwists(ids);
+        if (!result.ok) {
+            setNotice(
+                result.reason === "locked"
+                    ? "⏳ Resolving the current incident — ending is locked for one turn."
+                    : "Nothing to end."
+            );
+            return;
+        }
+
+        setNotice("");
+        setSelected(new Set());
+    }, [conv]);
+
+    /** Toggles a twist's checkbox in the multi-twist rail. */
+    const toggleSelect = useCallback((/** @type {string} */ id) => {
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    }, []);
 
     /** Handle form submission */
     const handleSubmit = useCallback((/** @type {React.FormEvent} */ e) => {
@@ -403,6 +515,8 @@ const DirectorInputBox = memo(function DirectorInputBox() {
         );
     }
 
+    const singleTwist = twists.length === 1;
+
     return (
         <div className={styles.directorHub}>
             {/* Horizontal Presets Rail */}
@@ -420,6 +534,56 @@ const DirectorInputBox = memo(function DirectorInputBox() {
                 ))}
             </div>
 
+            {/* Active Twists Rail (Phase 6.4) */}
+            {twists.length > 0 && (
+                <div className={styles.twistRail}>
+                    <span className={styles.twistRailLabel}>ACTIVE:</span>
+                    {twists.map((twist) => (
+                        <label
+                            key={twist.id}
+                            className={`${styles.twistPill} ${twist.status === "ending" ? styles.twistPillEnding : ""}`}
+                            title={twist.directive}
+                        >
+                            {!singleTwist && (
+                                <input
+                                    type="checkbox"
+                                    className={styles.twistCheck}
+                                    checked={selected.has(twist.id)}
+                                    disabled={endingLocked || twist.status === "ending"}
+                                    onChange={() => toggleSelect(twist.id)}
+                                    aria-label={`Select twist: ${twist.title}`}
+                                />
+                            )}
+                            <span className={styles.twistTitle}>
+                                {twist.status === "ending" ? "⏳ " : "⚡ "}{twist.title}
+                            </span>
+                        </label>
+                    ))}
+                    {singleTwist ? (
+                        <button
+                            type="button"
+                            className={styles.twistEndBtn}
+                            disabled={endingLocked || twists[0].status === "ending"}
+                            onClick={() => handleEnd([twists[0].id])}
+                        >
+                            ✕ End
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            className={styles.twistEndBtn}
+                            disabled={endingLocked || selected.size === 0}
+                            onClick={() => handleEnd([...selected].map(String))}
+                        >
+                            End Selected{selected.size > 0 ? ` (${selected.size})` : ""}
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Rejection / hint notice */}
+            {notice && <div className={styles.directorNotice}>{notice}</div>}
+
             {/* Fluid Input & Inject Action */}
             <form onSubmit={handleSubmit} className={styles.directorForm}>
                 <input
@@ -431,11 +595,17 @@ const DirectorInputBox = memo(function DirectorInputBox() {
                 <button
                     type="submit"
                     className={styles.directorSendBtn}
-                    disabled={!plotText.trim()}
+                    disabled={!plotText.trim() || onCooldown}
                     title="Execute Stage Directive"
                 >
-                    <span className={styles.directorBtnTextFull}>⚡ Inject Twist</span>
-                    <span className={styles.directorBtnTextShort}>⚡ Inject</span>
+                    {onCooldown ? (
+                        <span className={styles.directorCooldownText}>⏳ {cooldownSeconds}s</span>
+                    ) : (
+                        <>
+                            <span className={styles.directorBtnTextFull}>⚡ Inject Twist</span>
+                            <span className={styles.directorBtnTextShort}>⚡ Inject</span>
+                        </>
+                    )}
                 </button>
             </form>
         </div>

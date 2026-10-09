@@ -479,3 +479,105 @@
         font-size: 11px;
     }
 }
+/* ─── Phase 6.4: Active Twists Rail, Cooldown & Notice ──────────────── */
+
+.twistRail {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 6px 9px;
+    border-radius: 10px;
+    border: 1px solid var(--director-border, rgba(245, 158, 11, 0.45));
+    background-color: var(--director-bg, rgba(251, 191, 36, 0.12));
+}
+
+.twistRailLabel {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    color: var(--director-gold, #f59e0b);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.twistPill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--director-border, rgba(245, 158, 11, 0.45));
+    background-color: var(--bg-surface, #1c1c22);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.twistPillEnding {
+    opacity: 0.55;
+    border-style: dashed;
+    cursor: default;
+}
+
+.twistCheck {
+    margin: 0;
+    accent-color: var(--director-gold, #f59e0b);
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.twistTitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.twistEndBtn {
+    flex-shrink: 0;
+    margin-left: auto;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--director-border, rgba(245, 158, 11, 0.45));
+    background-color: transparent;
+    color: var(--director-gold, #f59e0b);
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+.twistEndBtn:hover:not(:disabled) {
+    background-color: var(--director-bg, rgba(251, 191, 36, 0.12));
+    transform: translateY(-1px);
+}
+
+.twistEndBtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.directorNotice {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--director-gold, #f59e0b);
+    padding: 0 2px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.directorCooldownText {
+    font-size: 12.5px;
+    font-weight: 800;
+    white-space: nowrap;
+}
