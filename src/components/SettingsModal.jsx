@@ -14,7 +14,9 @@ import {
     verifyApiKey,
     verifyGeminiApiKey,
     GROQ_CONSOLE_KEYS_URL,
-    GEMINI_CONSOLE_KEYS_URL
+    GEMINI_CONSOLE_KEYS_URL,
+    STORAGE_API_KEY_NAME,
+    STORAGE_GEMINI_API_KEY_NAME
 } from "../util/Constants";
 import Avatar from "./Avatar";
 import UnifiedMemory from "../classes/lib/UnifiedMemory";
@@ -149,6 +151,7 @@ export default function SettingsModal({ isOpen, onClose }) {
 
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [isConfirmResetOpen, setIsConfirmResetOpen] = useState(false);
+    const [isConfirmAppResetOpen, setIsConfirmAppResetOpen] = useState(false);
 
     // =========================================================================
     // CAST PROFILE STATE (AI names are strictly read-only)
@@ -264,6 +267,54 @@ export default function SettingsModal({ isOpen, onClose }) {
             console.error("[Settings] Reset failed:", err);
         }
     }, [conv, onClose]);
+
+    /**
+     * FACTORY RESET: preserves only the two API keys, wipes every other
+     * localStorage entry and deletes ALL IndexedDB databases (chat history,
+     * memories, scheduler timelines, planner storage), then reloads.
+     */
+    const handleExecuteAppReset = useCallback(async () => {
+        setIsConfirmAppResetOpen(false);
+
+        // 1. Snapshot + clear everything else in localStorage.
+        /** @type {Record<string, string>} */
+        const preserved = {};
+        for (const key of [STORAGE_API_KEY_NAME, STORAGE_GEMINI_API_KEY_NAME]) {
+            try {
+                const value = localStorage.getItem(key);
+                if (value !== null) preserved[key] = value;
+            } catch { /* key simply wasn't set */ }
+        }
+
+        try {
+            localStorage.clear();
+        } catch (err) {
+            console.error("[Settings] localStorage clear failed:", err);
+        }
+
+        for (const [key, value] of Object.entries(preserved)) {
+            try { localStorage.setItem(key, value); } catch { /* non-fatal */ }
+        }
+
+        // 2. Delete every IndexedDB database.
+        try {
+            const databases = await indexedDB.databases?.();
+            if (Array.isArray(databases)) {
+                await Promise.all(databases.map(db => new Promise((resolve) => {
+                    if (!db.name) return resolve(undefined);
+                    const req = indexedDB.deleteDatabase(db.name);
+                    req.onsuccess = () => resolve(undefined);
+                    req.onerror = () => resolve(undefined);
+                    req.onblocked = () => resolve(undefined);
+                })));
+            }
+        } catch (err) {
+            console.error("[Settings] IndexedDB wipe failed:", err);
+        }
+
+        // 3. Boot a completely fresh app state.
+        window.location.reload();
+    }, []);
 
     // =========================================================================
     // UNIFIED MEMORY ACCESS (reference-based; no legacy member.memory)
@@ -748,6 +799,18 @@ export default function SettingsModal({ isOpen, onClose }) {
                                         🔄 Reset
                                     </button>
                                 </div>
+                                <div className={styles.row}>
+                                    <div className={styles.rowLabelGroup}>
+                                        <span className={styles.rowTitle}>Reset App</span>
+                                        <span className={styles.rowSubtitle}>Factory reset: clears ALL local data & IndexedDB — keeps API keys</span>
+                                    </div>
+                                    <button
+                                        onClick={() => setIsConfirmAppResetOpen(true)}
+                                        className={styles.resetBtn}
+                                    >
+                                        💣 Reset App
+                                    </button>
+                                </div>
                             </div>
                         </>
                     )}
@@ -1124,6 +1187,28 @@ export default function SettingsModal({ isOpen, onClose }) {
                                 </button>
                                 <button onClick={handleExecuteReset} className={styles.subModalConfirmBtn}>
                                     Yes, Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Factory Reset Confirmation Modal */}
+                {isConfirmAppResetOpen && (
+                    <div className={styles.subModalOverlay}>
+                        <div className={styles.subModalCard}>
+                            <h4 className={styles.subModalTitle}>💣 Reset App Completely?</h4>
+                            <p className={styles.subModalText}>
+                                This wipes EVERYTHING — chat history, memories, schedule templates,
+                                planner blocks, and all app settings — including the local database.
+                                Only your API keys are kept. The app will reload fresh.
+                            </p>
+                            <div className={styles.subModalButtonRow}>
+                                <button onClick={() => setIsConfirmAppResetOpen(false)} className={styles.subModalCancelBtn}>
+                                    Cancel
+                                </button>
+                                <button onClick={handleExecuteAppReset} className={styles.subModalConfirmBtn}>
+                                    Yes, Wipe Everything
                                 </button>
                             </div>
                         </div>

@@ -318,7 +318,9 @@ export default class UnifiedMemory {
             "Keep the total output under 10,000 characters.",
             "",
             "## Input Memory Stack",
+            "```",
             this.toTextStack(),
+            "```",
             "",
             "## Output Schema",
             "Output ONLY valid XML matching this structure:",
@@ -395,7 +397,7 @@ export default class UnifiedMemory {
     }
 
     /**
-     * Synchronizes real-world environmental grounding (weather, festivals, Google News)
+     * Synchronizes real-world environmental grounding (weather, festivals, GDELT news)
      * into the UnifiedMemory stack. Replaces outdated environment entries to avoid duplicates.
      *
      * @param {import("../types/World.types").EnvironmentSnapshot} env
@@ -404,10 +406,16 @@ export default class UnifiedMemory {
     async syncEnvironment(env) {
         if (!env || typeof env !== "object") return;
 
-        // 1. Purge previous environment and news entries so they don't accumulate
-        this.entries = this.entries.filter(
-            e => !e.tags.includes("environment") && !e.tags.includes("news")
-        );
+        // 1. Purge previous environment and RAW news entries so they don't
+        // accumulate. Scope the purge to our own rows ONLY: the %world%
+        // distilled digest written by SituationEngine.ingestNews() must
+        // survive every sync (it used to be wiped because it also carries
+        // the "news" tag — leaving unified memory with zero %world% rows).
+        this.entries = this.entries.filter(e => {
+            if (e.tags.includes("environment")) return false;
+            if (e.tags.includes("news") && !e.tags.includes("%world%")) return false;
+            return true;
+        });
 
         const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
 
@@ -435,9 +443,13 @@ export default class UnifiedMemory {
             });
         }
 
-        // 4. Top Google News headlines (24h TTL)
+        // 4. Top news headlines — raw GDELT batch (1h TTL, %world%-tagged so
+        // a unified-memory search for "%world%" surfaces them). The hourly
+        // environment refresh replaces this batch every cycle; the distilled
+        // digest from ingestNews() lives alongside under "news_digest".
         if (Array.isArray(env.newsHeadlines)) {
-            for (const headline of env.newsHeadlines.slice(0, 3)) {                const words = String(headline)
+            for (const headline of env.newsHeadlines.slice(0, 10)) {
+                const words = String(headline)
                     .toLowerCase()
                     .replace(/[^a-z0-9\s]/g, " ")
                     .split(/\s+/)
@@ -446,14 +458,14 @@ export default class UnifiedMemory {
 
                 // Dedupe: a headline mentioning "India" would otherwise repeat
                 // the literal "india" tag and break React key uniqueness.
-                const tags = [...new Set(["news", "india", ...words])];
+                const tags = [...new Set(["news", "news_raw", "%world%", "india", ...words])];
 
                 this.entries.push({
                     id: crypto.randomUUID(),
                     datetime: stamp,
                     tags,
                     data: UnifiedMemory.clampRecord(`Headlines: ${headline}`),
-                    expiry: "24h"
+                    expiry: "1h"
                 });
             }
         }

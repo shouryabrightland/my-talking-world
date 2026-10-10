@@ -29,7 +29,9 @@ const describeLive = process.env.TEST_LIVE_API === "true" ? describe : describe.
 
 // Production model constants
 const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
-const GROQ_FALLBACK_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"];
+// Current Groq chat-capable fallbacks (retired llama-3.x/mixtral entries
+// were removed from the live catalog — verified against /v1/models).
+const GROQ_FALLBACK_MODELS = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b", "allam-2-7b"];
 const GEMINI_PROBE_CANDIDATES = ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
 const MIN_GEMINI_MODELS_REQUIRED = 3;
 

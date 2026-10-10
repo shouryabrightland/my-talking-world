@@ -128,8 +128,10 @@ describeLive("Planner Live Horizon — planHorizon Streaming", () => {
             expect(typeof b.mainGoal).toBe("string");
             expect(Array.isArray(b.characterGoals)).toBe(true);
             expect(Array.isArray(b.facts)).toBe(true);
-            expect(typeof b.prePlot).toBe("string");
-            expect(typeof b.postPlot).toBe("string");
+            // Hybrid planner contract: scenes are carried by title/denseParagraph;
+            // the retired prePlot/postPlot fields must no longer be generated.
+            expect(b.prePlot).toBeUndefined();
+            expect(b.postPlot).toBeUndefined();
 
             // Soft-check cast coverage in characterGoals (log, don't hard-fail — LLM output varies)
             const goalIds = b.characterGoals.map(g => String(g.id || "").toLowerCase());
@@ -166,7 +168,7 @@ describeLive("Director Demand — Narrative Report & Staged Proposal", () => {
 
     it("applyUserDemand parses narrative report and stages a proposal without auto-commit", async () => {
         ws.schedule = [
-            { id: "seed-1", startHour: world.now.getHours(), endHour: world.now.getHours() + 1, timeRange: `${world.now.getHours()}:00 - ${world.now.getHours() + 1}:00`, topic: "Casual afternoon banter", mainGoal: "Relax and chat", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
+            { id: "seed-1", startHour: world.now.getHours(), endHour: world.now.getHours() + 1, timeRange: `${world.now.getHours()}:00 - ${world.now.getHours() + 1}:00`, topic: "Casual afternoon banter", mainGoal: "Relax and chat", characterGoals: [], facts: [], createdAt: Date.now(), updatedAt: Date.now() },
         ];
         const scheduleBefore = JSON.parse(JSON.stringify(ws.schedule));
 
@@ -201,8 +203,8 @@ describeLive("Director Demand — Narrative Report & Staged Proposal", () => {
         expect(ws.isDirty).toBe(false);
         expect(ws.schedule.length).toBeGreaterThan(0);
 
-        // Persisted via storage layer (IndexedDB-backed Storage)
-        const persisted = await ws.storage.getItem("world:schedule_v2");
+        // Persisted via storage layer under today's resolved-timeline key
+        const persisted = await ws.storage.getItem("world:schedule_today");
         expect(Array.isArray(persisted)).toBe(true);
         expect(/** @type {any[]} */ (persisted).length).toBe(ws.schedule.length);
         console.log(`\n✅ Proposal accepted — ${ws.schedule.length} blocks persisted.`);
@@ -233,16 +235,17 @@ describeLive("Timeline Stabilization — Reorder → Restabilize", () => {
         world = makeWorld();
         ws = new WorldSetter({ logger: makeFakeLogger(), world });
         ws.schedule = [
-            { id: "r1", startHour: 10, endHour: 11, timeRange: "10:00 - 11:00", topic: "Morning chai", mainGoal: "Wake up chat", characterGoals: [], facts: ["Chai ready"], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
-            { id: "r2", startHour: 11, endHour: 12, timeRange: "11:00 - 12:00", topic: "Terrace project", mainGoal: "Fix the scooter", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
-            { id: "r3", startHour: 12, endHour: 13, timeRange: "12:00 - 13:00", topic: "Lunch break", mainGoal: "Eat together", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() },
+            { id: "r1", startHour: 10, endHour: 11, timeRange: "10:00 - 11:00", topic: "Morning chai", mainGoal: "Wake up chat", characterGoals: [], facts: ["Chai ready"], createdAt: Date.now(), updatedAt: Date.now() },
+            { id: "r2", startHour: 11, endHour: 12, timeRange: "11:00 - 12:00", topic: "Terrace project", mainGoal: "Fix the scooter", characterGoals: [], facts: [], createdAt: Date.now(), updatedAt: Date.now() },
+            { id: "r3", startHour: 12, endHour: 13, timeRange: "12:00 - 13:00", topic: "Lunch break", mainGoal: "Eat together", characterGoals: [], facts: [], createdAt: Date.now(), updatedAt: Date.now() },
         ];
     });
 
-    it("reorderBlocks marks schedule dirty", () => {
+    it("reorderBlocks swaps blocks and persists directly (no dirty state)", () => {
         const firstTopicBefore = ws.schedule[0].topic;
         ws.reorderBlocks(0, "down");
-        expect(ws.isDirty).toBe(true);
+        // Free-reordering contract: persisted immediately, no stabilizer round-trip.
+        expect(ws.isDirty).toBe(false);
         expect(ws.schedule[0].topic).not.toBe(firstTopicBefore);
     });
 

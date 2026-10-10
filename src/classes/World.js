@@ -556,10 +556,9 @@ export default class World {
             `  </environment>`
         ].join("\n") : `  <environment city="${SIMULATION_LOCATION_FULL}" weather="Warm 32°C"></environment>`;
 
-        let scheduleXml = `  <active_schedule topic="Casual Banter"><goals><main>Hang out and chat</main></goals></active_schedule>`;
-
-        if (schedule) {
-            // 10% / 90% Temporal Phasing Calculation
+        let scheduleXml = `  <active_schedule topic="Casual Banter"><goals><main>Hang out and chat</main></goals></active_schedule>`;        if (schedule) {
+            // 10% / 90% Temporal Phasing Calculation (purely time-based —
+            // pre/post plot fields were retired with the hybrid planner).
             const currentDecimalHour = this.now.getHours() + (this.now.getMinutes() / 60);
             const duration = Math.max(0.5, schedule.endHour - schedule.startHour);
             const elapsed = currentDecimalHour - schedule.startHour;
@@ -567,29 +566,25 @@ export default class World {
 
             /** @type {"opening" | "core" | "transition"} */
             let phase = "core";
-            /** @type {string[]} */
-            const extraGuidance = [];
-
-            if (progressRatio <= 0.10 && schedule.prePlot) {
+            if (progressRatio <= 0.10) {
                 phase = "opening";
-                extraGuidance.push(`    <pre_plot_guidance>${enc(schedule.prePlot)}</pre_plot_guidance>`);
-            } else if (progressRatio >= 0.90 && schedule.postPlot) {
+            } else if (progressRatio >= 0.90) {
                 phase = "transition";
-                extraGuidance.push(`    <post_plot_transition>${enc(schedule.postPlot)}</post_plot_transition>`);
             }
 
             const characterGoalsXml = Array.isArray(schedule.characterGoals) && schedule.characterGoals.length > 0
                 ? schedule.characterGoals.map(cg => `      <goal id="${enc(cg.id)}" name="${enc(cg.name)}">${enc(cg.goal)}</goal>`).join("\n")
                 : "";
 
+
             scheduleXml = [
                 `  <active_schedule time_range="${enc(schedule.timeRange)}" start="${schedule.startHour}" end="${schedule.endHour}" phase="${phase}">`,
-                `    <topic>${enc(schedule.topic)}</topic>`,
+                `    <topic>${enc(schedule.title || schedule.topic)}</topic>`,
+                ...(schedule.denseParagraph ? [`    <scene>${enc(schedule.denseParagraph)}</scene>`] : []),
                 `    <goals>`,
                 `      <main>${enc(schedule.mainGoal || "Pursue active session objectives")}</main>`,
                 ...(characterGoalsXml ? [characterGoalsXml] : []),
                 `    </goals>`,
-                ...extraGuidance,
                 `    <facts>`,
                 ...schedule.facts.map(f => `      <fact>${enc(f)}</fact>`),
                 `    </facts>`,

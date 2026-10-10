@@ -141,17 +141,7 @@ export default function DevToolsStateTab({
                                         </div>
                                     )}
 
-                                    {validState.activeSchedule.prePlot && (
-                                        <div className={styles.prePlotCallout}>
-                                            ⏮️ <strong>Pre-Plot:</strong> {validState.activeSchedule.prePlot}
-                                        </div>
-                                    )}
 
-                                    {validState.activeSchedule.postPlot && (
-                                        <div className={styles.postPlotCallout}>
-                                            ⏭️ <strong>Post-Plot:</strong> {validState.activeSchedule.postPlot}
-                                        </div>
-                                    )}
 
                                     {Array.isArray(validState.activeSchedule.facts) && validState.activeSchedule.facts.length > 0 && (
                                         <div className={styles.tagRow}>

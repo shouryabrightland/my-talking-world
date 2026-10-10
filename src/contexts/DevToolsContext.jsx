@@ -40,11 +40,10 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
  * @property {string} id
  * @property {string} timeRange
  * @property {string} topic
+ * @property {string} denseParagraph Macro scene paragraph for the active block.
  * @property {string} mainGoal
  * @property {CharacterGoalRecord[]} characterGoals
  * @property {string[]} facts
- * @property {string} prePlot
- * @property {string} postPlot
  */
 
 /**
@@ -80,6 +79,18 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
  * @property {number} unreadCount Messages accumulated toward the distillation trigger.
  * @property {string} lastRunTime Formatted time of the last distillation pass.
  * @property {boolean} isProcessing Whether a pass is in flight.
+ * @property {number} volumeThreshold Unread messages that force an immediate pass.
+ * @property {number} timerIntervalMs Periodic ticker cadence while unread messages exist.
+ * @property {boolean} isTicking Whether the engine-owned 1-minute ticker is running.
+ */
+
+/**
+ * @typedef {Object} DevToolsNeedleRouteDetails
+ * @property {string} method Extraction path used for the last retrieval.
+ * @property {string} query Raw query text the keywords were extracted from.
+ * @property {string} member Member the route selected for tag-scoped search.
+ * @property {string[]} keywords Deterministic keywords extracted from the query.
+ * @property {number} matchCount UnifiedMemory lines matched by the search.
  */
 
 /**
@@ -87,6 +98,7 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
  * @property {boolean} isReady Synchronous extractor availability.
  * @property {string} lastRoute Last keyword/member route extracted from a human utterance.
  * @property {string} lastMemorySnippet Most recent UnifiedMemory lines injected into the prompt.
+ * @property {DevToolsNeedleRouteDetails|null} [details] Full transparency record of the last retrieval.
  */
 
 /**
@@ -163,12 +175,11 @@ function extractSystemState(conv) {
         activeSchedule: schedule ? {
             id: schedule.id || "",
             timeRange: schedule.timeRange || "",
-            topic: schedule.topic || "",
+            topic: schedule.title || schedule.topic || "",
+            denseParagraph: schedule.denseParagraph || "",
             mainGoal: schedule.mainGoal || "",
             characterGoals: schedule.characterGoals || [],
-            facts: schedule.facts || [],
-            prePlot: schedule.prePlot || "",
-            postPlot: schedule.postPlot || ""
+            facts: schedule.facts || []
         } : null,
         environment: env || null,
         characters: membersList.map((m) => {
@@ -218,12 +229,19 @@ function extractSystemState(conv) {
             lastRunTime: conv.situationEngine?.lastRunTime
                 ? new Date(conv.situationEngine.lastRunTime).toLocaleTimeString("en-GB", { hour12: false })
                 : "Never",
-            isProcessing: Boolean(conv.situationEngine?.isProcessing)
+            isProcessing: Boolean(conv.situationEngine?.isProcessing),
+            // Timer contract mirrored from SituationEngine constants so the
+            // card text can never drift from the actual engine behaviour.
+            volumeThreshold: 6,
+            timerIntervalMs: 60_000,
+            isTicking: Boolean(conv.situationEngine?.ticker)
         },
         needleRouter: {
             isReady: Boolean(conv.needleRouter?.isReady),
             lastRoute: conv.lastNeedleRoute || "None",
-            lastMemorySnippet: conv.lastRetrievedMemory || "None"
+            lastMemorySnippet: conv.lastRetrievedMemory || "None",
+            // Full Tier-3 retrieval transparency (method/query/keywords/matches).
+            details: conv.lastNeedleDetails || null
         }
     };
 }

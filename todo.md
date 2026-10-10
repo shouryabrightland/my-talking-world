@@ -261,3 +261,7 @@ Strict execution requirements:
 * Run `npx tsc --noEmit` $\rightarrow$ must be **0 errors**.
 * Run `npm test` $\rightarrow$ fix or update tests matching new contracts (ensure all tests pass).
 * Run `npm run build` $\rightarrow$ verify successful Vite build and clean bundle splitting.
+
+
+new list:
+app should be offline working.. but it should update itself from server also. some devices have old version of this app.. now that app is not updating itself untill they delete the app.

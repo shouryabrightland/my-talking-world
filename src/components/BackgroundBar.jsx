@@ -15,9 +15,10 @@
  *   ERROR  → updateNotification(status: "error") + clear stream ID
  */
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef } from "react";
 import styles from "./BackgroundBar.module.css";
 import { useBackgroundBar } from "../contexts/BackgroundBarContext";
+import { OfflineContext } from "../contexts/OfflineContext";
 import { useChat } from "../contexts/ChatContext";
 import { PlannerStreamEvents } from "../classes/WorldSetter";
 import { ConversationEvents } from "../classes/ConversationManager";
@@ -105,6 +106,11 @@ export default function BackgroundBar() {
     // Stable ref to avoid re-subscribing event listeners when ctx changes
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
+
+    // Defensive: test harnesses may mount BackgroundBar without OfflineProvider.
+    const offlineCtx = useContext(OfflineContext);
+    const offlineCtxRef = useRef(offlineCtx);
+    offlineCtxRef.current = offlineCtx;
 
     // ── Planner Stream Event Lifecycle ──────────────────────────────────
     useEffect(() => {
@@ -494,11 +500,14 @@ export default function BackgroundBar() {
         const handleOffline = () => {
             offlineNotifId = ctxRef.current.addNotification(
                 "disconnect",
-                "Network connection lost",
+                "You're offline — AI responses disabled",
                 {
                     details:
-                        "You are currently offline. Background AI processing is paused. Messages will be queued.",
+                        "You can view cached chats and send local messages. Queued messages will send once you're back online.",
                     dismissable: true,
+                    retryFn: offlineCtxRef.current
+                        ? async () => { offlineCtxRef.current?.flushRetries(); }
+                        : undefined,
                 }
             );
         };
@@ -550,7 +559,11 @@ export default function BackgroundBar() {
     );
 
     return (
-        <div className={latest.status === "completed" ? `${styles.bar} ${styles.barCompleted}` : styles.bar}>
+        <div
+            className={latest.status === "completed" ? `${styles.bar} ${styles.barCompleted}` : styles.bar}
+            role="alert"
+            aria-live="polite"
+        >
             <button
                 className={styles.barContent}
                 onClick={() => setSelectedNotification(latest)}
@@ -572,7 +585,7 @@ export default function BackgroundBar() {
             </button>
 
             <div className={styles.barActions}>
-                {(latest.status === "error" || latest.type === "error") && latest.retryFn && (
+                {((latest.status === "error" || latest.type === "error") || (latest.type === "disconnect" && latest.retryFn)) && latest.retryFn && (
                     <button
                         className={styles.btnRetry}
                         onClick={(e) => {

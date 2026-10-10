@@ -10,7 +10,6 @@ import StudioLobbyScreen from "./components/screens/StudioLobbyScreen";
 import ApiKeyOnboardingScreen from "./components/screens/ApiKeyOnboardingScreen";
 import StudioBackstageLoadingScreen from "./components/screens/StudioBackstageLoadingScreen";
 import { useOffline } from "./contexts/OfflineContext";
-import OfflineBanner from "./components/OfflineBanner";
 
 // Hackathon pitch view is heavy (3D canvas + scrollytelling) — keep it out of
 // the main studio bundle and split it into its own dynamic chunk.
@@ -174,19 +173,11 @@ function Studio() {
             return <StudioBackstageLoadingScreen />;
         }
         if (!isReady) {
-            return (
-                <>
-                    <OfflineBanner />
-                    <StudioBackstageLoadingScreen error={initError} onRetry={handleStartLogin} />
-                </>
-            );
+            return <StudioBackstageLoadingScreen error={initError} onRetry={handleStartLogin} />;
         }
-        return (
-            <>
-                <OfflineBanner />
-                <ChatUX />
-            </>
-        );
+        // Offline status surfaces via the BackgroundBar disconnect notification
+        // (the old full-screen orange OfflineBanner overlay was removed).
+        return <ChatUX />;
     }
 
     // 2. Dual-Key Onboarding screen if missing keys

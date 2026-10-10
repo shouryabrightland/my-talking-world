@@ -469,6 +469,43 @@ describe("SituationEngine — news distillation (ingestNews)", () => {
         await expect(bare.ingestNews(["Some headline"])).resolves.toBe(0);
     });
 
+    it("queues headlines when a memory pass holds the flight guard, then runs them after", async () => {
+        const { engine, geminiClient, unifiedMemory } = makeEngine();
+
+        // First call = memory pass (no-op analysis), second = the queued news pass.
+        geminiClient.streamGenerate
+            .mockResolvedValueOnce({
+                text: "<analysis><new_memories></new_memories><deletions></deletions></analysis>"
+            })
+            .mockResolvedValueOnce({
+                text: "<news_records><record>Queued batch record stored after the memory pass.</record></news_records>"
+            });
+
+        // Simulate a memory pass owning the shared Gemini client.
+        engine.isProcessing = true;
+
+        const queued = await engine.ingestNews(["Queued batch headline"]);
+        expect(queued).toBe(0);
+        expect(engine.pendingNewsHeadlines).toEqual(["Queued batch headline"]);
+        expect(geminiClient.streamGenerate).not.toHaveBeenCalled();
+
+        // The in-flight memory pass completes → its finally-block drains the
+        // queued news distillation automatically.
+        engine.isProcessing = false;
+        await engine.executeIfDue({
+            currentDateTime: new Date().toString(),
+            environmentSummary: "32°C",
+            activeSceneTopic: "Casual banter",
+            activeSceneGoal: "Hang out",
+            recentDialogue: "Tom: chai piyoge?"
+        }, true);
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        expect(geminiClient.streamGenerate).toHaveBeenCalledTimes(2);
+        expect(unifiedMemory.entries.some(e => e.tags.includes("%world%"))).toBe(true);
+        expect(engine.pendingNewsHeadlines).toBeNull();
+    });
+
     it("shares the single-flight guard with the memory pass", async () => {
         const { engine, geminiClient } = makeEngine();
         engine.isProcessing = true;

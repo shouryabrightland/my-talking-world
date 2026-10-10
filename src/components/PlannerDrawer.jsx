@@ -28,8 +28,6 @@ import { PlannerStreamEvents } from "../classes/WorldSetter";
  * @property {CharacterGoalRecord[]} characterGoals Individual character goals.
  * @property {string[]} facts Array of interactive fact tags.
  * @property {string} tagInput Current text inside the tag chip input.
- * @property {string} prePlot Context of what happened prior.
- * @property {string} postPlot Expected aftermath leading to next scene.
  */
 
 /**
@@ -132,9 +130,7 @@ export default function PlannerDrawer() {
         mainGoal: "",
         characterGoals: /** @type {CharacterGoalRecord[]} */ ([]),
         facts: /** @type {string[]} */ ([]),
-        tagInput: "",
-        prePlot: "",
-        postPlot: ""
+        tagInput: ""
     });
 
     // ─── Hybrid Planner: Filters, Templates & Creation ───
@@ -157,9 +153,7 @@ export default function PlannerDrawer() {
         mainGoal: "",
         characterGoals: /** @type {CharacterGoalRecord[]} */ ([]),
         facts: /** @type {string[]} */ ([]),
-        tagInput: "",
-        prePlot: "",
-        postPlot: ""
+        tagInput: ""
     });
 
     const activeScheduleId = world?.activeSchedule?.id ?? null;
@@ -364,9 +358,7 @@ export default function PlannerDrawer() {
             mainGoal: record.mainGoal || "",
             characterGoals: Array.isArray(record.characterGoals) ? record.characterGoals.map(cg => ({ ...cg })) : [],
             facts: [...record.facts],
-            tagInput: "",
-            prePlot: record.prePlot || "",
-            postPlot: record.postPlot || ""
+            tagInput: ""
         });
     }, []);
 
@@ -386,9 +378,7 @@ export default function PlannerDrawer() {
             type: editForm.typeDate.trim() ? editForm.typeDate.trim() : editForm.type,
             mainGoal: editForm.mainGoal.trim(),
             characterGoals: editForm.characterGoals,
-            facts: editForm.facts,
-            prePlot: editForm.prePlot.trim(),
-            postPlot: editForm.postPlot.trim()
+            facts: editForm.facts
         };
 
         // Template-only cards live in the library, not today's timeline.
@@ -560,9 +550,7 @@ export default function PlannerDrawer() {
             mainGoal: "",
             characterGoals: [],
             facts: [],
-            tagInput: "",
-            prePlot: "",
-            postPlot: ""
+            tagInput: ""
         });
         setIsCreating(false);
         refreshRecords();
@@ -1038,21 +1026,6 @@ export default function PlannerDrawer() {
                                                 </div>
                                             )}
 
-                                            {(record.prePlot || record.postPlot) && (
-                                                <div className={styles.plotContextRow}>
-                                                    {record.prePlot && (
-                                                        <span className={styles.prePlotBadge} title={`Buildup: ${record.prePlot}`}>
-                                                            ⏮️ <strong>Pre:</strong> {record.prePlot}
-                                                        </span>
-                                                    )}
-                                                    {record.postPlot && (
-                                                        <span className={styles.postPlotBadge} title={`Aftermath: ${record.postPlot}`}>
-                                                            ⏭️ <strong>Post:</strong> {record.postPlot}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-
                                             {record.facts.length > 0 && (
                                                 <div className={styles.metaRow}>
                                                     {record.facts.map((fact, fi) => (
@@ -1202,27 +1175,6 @@ export default function PlannerDrawer() {
                                                         className={styles.tagInput}
                                                     />
                                                     <button type="button" onClick={handleAddTag} disabled={!editForm.tagInput.trim()} className={styles.tagAddBtn}>+ Add</button>
-                                                </div>
-                                            </div>
-
-                                            <div className={styles.plotInputGrid}>
-                                                <div className={styles.plotInputCol}>
-                                                    <label className={styles.formLabel}>Pre-Plot (Buildup):</label>
-                                                    <input
-                                                        value={editForm.prePlot}
-                                                        onChange={(e) => setEditForm(prev => ({ ...prev, prePlot: e.target.value }))}
-                                                        placeholder="What led into this scene"
-                                                        className={styles.formInput}
-                                                    />
-                                                </div>
-                                                <div className={styles.plotInputCol}>
-                                                    <label className={styles.formLabel}>Post-Plot (Aftermath):</label>
-                                                    <input
-                                                        value={editForm.postPlot}
-                                                        onChange={(e) => setEditForm(prev => ({ ...prev, postPlot: e.target.value }))}
-                                                        placeholder="What this leads to next"
-                                                        className={styles.formInput}
-                                                    />
                                                 </div>
                                             </div>
 

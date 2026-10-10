@@ -25,7 +25,8 @@
  */
 
 /**
- * Represents a single dynamic scheduled block in the rolling Horizon with structured goals and pre/post context.
+ * Represents a single dynamic scheduled block in the rolling Horizon with
+ * structured goals and a dense scene paragraph.
  * @typedef {Object} ScheduleRecord
  * @property {string} id Unique UUID identifier.
  * @property {number} startHour Decimal start hour of this segment (e.g. 14.0 for 14:00, 14.5 for 14:30).
@@ -35,8 +36,8 @@
  * @property {string} mainGoal Main overarching session objective.
  * @property {CharacterGoalRecord[]} characterGoals Individual character motivations for this block.
  * @property {string[]} facts Specific context facts / tags active during this segment.
- * @property {string} prePlot Context of what happened just before this scene (momentum / backstory).
- * @property {string} postPlot Expected aftermath leading to the next scene or lead-up motivation hook.
+ * @property {string} [prePlot] DEPRECATED — retired with the hybrid planner; scenes are carried by `denseParagraph`. Kept optional only so legacy stored records still type-check.
+ * @property {string} [postPlot] DEPRECATED — retired with the hybrid planner; scenes are carried by `denseParagraph`. Kept optional only so legacy stored records still type-check.
  * @property {ScheduleType} [type] Recurrence type — defaults to "once".
  * @property {string} [title] Display title (kept in sync with `topic`).
  * @property {string} [denseParagraph] Macro atmospheric scene paragraph injected into the dialogue prompt.
@@ -54,7 +55,7 @@
  * @property {string} humidity Relative humidity percentage (e.g. '62%').
  * @property {string} todayCelebration Active festival or holiday from Calendar Bharat.
  * @property {string[]} upcomingFestivals List of upcoming Indian celebrations.
- * @property {string[]} newsHeadlines Real ongoing headlines from Google News RSS.
+ * @property {string[]} newsHeadlines Real ongoing headlines from the GDELT DOC 2.0 news API.
  * @property {number} updatedAt Timestamp of the last environmental refresh.
  */
 

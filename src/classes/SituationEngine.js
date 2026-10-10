@@ -105,6 +105,20 @@ export default class SituationEngine {
         this.lastContext = null;
 
         /**
+         * Handoff queue: the shared Gemini client aborts in-flight calls, so a
+         * news pass colliding with a memory pass must WAIT, not run (and not
+         * silently drop — that left unified memory with zero %world% rows).
+         * @type {string[]|null}
+         */
+        this.pendingNewsHeadlines = null;
+
+        /**
+         * Forced memory pass deferred while a news pass holds the flight guard.
+         * @type {SituationContext|null}
+         */
+        this.pendingForcedContext = null;
+
+        /**
          * 1-minute periodic ticker handle.
          * @type {ReturnType<typeof setInterval>|null}
          */
@@ -130,6 +144,8 @@ export default class SituationEngine {
      * @returns {Promise<void>}
      */
     async reset() {
+        this.pendingNewsHeadlines = null;
+        this.pendingForcedContext = null;
         this.situationText = getDefaultSituation().slice(0, SITUATION_MAX_CHARS);
         this.unreadMessagesCount = 0;
         this.lastRunTime = Date.now();
@@ -197,7 +213,12 @@ export default class SituationEngine {
         // never the in-flight guard. World READY and init() both fire the
         // forced boot pass; overlapping passes used to abort each other's
         // Gemini request via the shared AbortController.
-        if (this.isProcessing) return false;
+        if (this.isProcessing) {
+            // A news pass owns the client right now — remember the forced boot
+            // request and run it the moment the news pass finishes.
+            if (force) this.pendingForcedContext = ctx;
+            return false;
+        }
         if (!force && !this.shouldRun()) return false;
         if (!this.geminiClient || !this.unifiedMemory) return false;
 
@@ -226,14 +247,21 @@ export default class SituationEngine {
             `- Location & Weather: ${ctx.location || "Lucknow Studio"} (${ctx.environmentSummary})`,
             `- Active Scene: ${ctx.activeSceneTopic} (Goal: ${ctx.activeSceneGoal})`,
             `- Latest Human Message: ${ctx.latestHumanMessage || "(none right now — autonomous scene pass)"}`,
-            `- Cast Roster & Ongoing States:`,
-            `  ${ctx.castStates || "Cast members are hanging out."}`,
+            "",
+            "## Cast Roster & Ongoing States",
+            "```",
+            ctx.castStates || "Cast members are hanging out.",
+            "```",
             "",
             "## Recent Dialogue Batch",
+            "```",
             ctx.recentDialogue || "No messages yet. Scene is just beginning.",
+            "```",
             "",
             "## Current Memory Stack (numbered for deletion)",
+            "```",
             numberedStack || "(empty)",
+            "```",
             "",
             "## Instructions",
             "0. PRIORITY: the human's latest message outranks ambient chatter — first record what the human committed to, promised, revealed, or asked for, then the cast's own facts.",
@@ -316,6 +344,30 @@ export default class SituationEngine {
             return false;
         } finally {
             this.isProcessing = false;
+            this.#drainPendingWork();
+        }
+    }
+
+    /**
+     * Runs whatever work was deferred while the flight guard was held:
+     * a queued news distillation first (it is time-sensitive — headlines
+     * expire), then a deferred forced memory pass.
+     * Never throws.
+     * @returns {void}
+     */
+    #drainPendingWork() {
+        const queuedNews = this.pendingNewsHeadlines;
+        this.pendingNewsHeadlines = null;
+
+        if (queuedNews) {
+            void this.ingestNews(queuedNews);
+            return;
+        }
+
+        const deferredPass = this.pendingForcedContext;
+        this.pendingForcedContext = null;
+        if (deferredPass) {
+            void this.executeIfDue(deferredPass, true);
         }
     }
 
@@ -336,7 +388,12 @@ export default class SituationEngine {
 
         if (!headlines.length) return 0;
         if (!this.geminiClient || !this.unifiedMemory) return 0;
-        if (this.isProcessing) return 0;
+        if (this.isProcessing) {
+            // Memory pass owns the shared Gemini client — queue the headlines
+            // to run right after it instead of silently dropping the batch.
+            this.pendingNewsHeadlines = headlines;
+            return 0;
+        }
 
         this.isProcessing = true;
         this.logger.info(`Distilling ${headlines.length} news headline(s) via Gemma...`);
@@ -350,7 +407,9 @@ export default class SituationEngine {
             "Skip anything that is pure entertainment gossip with no local relevance.",
             "",
             "## Headlines",
+            "```",
             headlines.map((h, i) => `${i + 1}. ${h}`).join("\n"),
+            "```",
             "",
             "## Output Format",
             "Output ONLY valid XML matching this structure:",
@@ -412,6 +471,7 @@ export default class SituationEngine {
             return 0;
         } finally {
             this.isProcessing = false;
+            this.#drainPendingWork();
         }
     }
 }

@@ -88,6 +88,7 @@ export const PROMPT_AGE_MANDATE = [
 
 export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Generate up to 5 dialogue messages per response.",
+    "BREVITY: each message must be UNDER 100 characters. If a thought is longer, split it naturally into 2 shorter messages (each still under 100 chars).",
     "LANGUAGE POINTER: every language rule (Hinglish tone, writing script, Lucknow banter style) lives ONLY in the single authoritative <language_mandate> block — follow it, never restate or contradict it here.",
     "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj or Chowk. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",
@@ -121,8 +122,7 @@ export const PROMPT_DEMAND_RULES = Object.freeze([
     "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
     "Every block in the updated schedule MUST include individual <goal> entries for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
-    "In the block immediately preceding the requested activity, write a post_plot transition in the final 5 to 10 minutes that smoothly leads into and prepares the upcoming activity.",
-    "Connect the requested activity to the subsequent block through post_plot.",
+    "In the <main_goal> of the block immediately preceding the requested activity, reference the upcoming activity so the timeline reads as one continuous day.",
     "Use relevant saved memories to contextualize topic details without overriding the user's explicit request.",
     "Output strictly valid XML <demand_resolution> containing a 2-line summary, the updated schedule, and a structured <narrative_report>.",
     "The <narrative_report> must contain: <summary> (1-2 sentences of what changed), <continuity_impact> (how this affects the narrative flow), <character_shifts> (list each affected character with their new motivation), and <transition_hooks> (lead-in and lead-out hooks for the inserted scene).",
@@ -137,16 +137,15 @@ export const PROMPT_DEMAND_RULES = Object.freeze([
  * Context layers provided:
  * 1. <current_blocks>: The user's custom created or edited schedule blocks.
  * 2. <grounding_context>: Real-world location, live weather, and occasion.
- * 3. Synthesizes pre_plot (buildup) and post_plot (aftermath) for every block across the full timeline.
+ * Note: scenes are carried by <topic> + <dense_paragraph>; pre/post plot
+ * fields were retired with the hybrid planner and must not reappear here.
  */
 export const PROMPT_RESTABILIZER_TASK =
-    "Review and connect the schedule blocks so the storyline flows smoothly and logically from one scene to the next. " +
-    "Synthesize clear pre_plot and post_plot transitions for every block while preserving the core topic and objective of each scene.";
+    "Review and connect the schedule blocks so the storyline flows smoothly and logically from one scene to the next, " +
+    "preserving the core topic and objective of each scene.";
 
 export const PROMPT_RESTABILIZER_RULES = Object.freeze([
     "Preserve existing topics, main goals, times, and facts unless an adjustment is necessary for continuity.",
-    "Write a believable <pre_plot></pre_plot> for the context leading into each scene.",
-    "Write a believable <post_plot></post_plot> for the aftermath leading out of each scene.",
     "Assign individual character <goal id=\"...\" name=\"...\"></goal> tags aligning with the main objective.",
     "Every block MUST include individual goals for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
     "Ensure timeline blocks maintain chronological sequence without overlaps.",

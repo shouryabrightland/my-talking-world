@@ -30,6 +30,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 /** @type {React.Context<OfflineContextValue|null>} */
 const OfflineContext = createContext(/** @type {OfflineContextValue|null} */ (null));
+export { OfflineContext };
 
 /** URL used for connectivity probes (tiny, fast, always available) */
 const PROBE_URL = "https://www.google.com/generate_204";

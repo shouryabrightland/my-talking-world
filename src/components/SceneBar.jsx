@@ -13,7 +13,7 @@ import { AmbientAudio } from "../util/sound";
 
 /**
  * Responsive Atmospheric Scene Ribbon with Marquee Ticker.
- * Displays live Lucknow Weather, Google News headlines, and the active Schedule Goal.
+ * Displays live Lucknow Weather, GDELT news headlines, and the active Schedule Goal.
  *
  * @returns {React.JSX.Element}
  */
@@ -184,10 +184,10 @@ export default function SceneBar() {
                             </div>
                         )}
 
-                        {/* Ongoing Google News */}
+                        {/* Ongoing news headlines */}
                         {environment?.newsHeadlines && environment.newsHeadlines.length > 0 && (
                             <div className={styles.section}>
-                                <h5 className={styles.sectionHeading}>📰 Live Google News Headlines</h5>
+                                <h5 className={styles.sectionHeading}>📰 Live News Headlines</h5>
                                 <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                                     {environment.newsHeadlines.slice(0, 3).map((headline, idx) => (
                                         <span key={idx} className={styles.sectionText}>

@@ -198,6 +198,13 @@ export default class ConversationManager {
         this.lastNeedleRoute = null;
         /** Last Tier-3 memory lines injected into the prompt (DevTools). @type {string} */
         this.lastRetrievedMemory = "";
+        /**
+         * Full transparency record of the last Tier-3 retrieval for the
+         * DevTools inspect tab: extraction method, raw query, routed member,
+         * keywords, and how many memory lines matched.
+         * @type {{method: string, query: string, member: string, keywords: string[], matchCount: number}|null}
+         */
+        this.lastNeedleDetails = null;
 
         /** @type {ReturnType<typeof setTimeout>|null} */ this.#scheduleNextRequest_TimeOut = null;
         /** @readonly @type {UserInterruptHandler} */ this.#interruptHandler = new UserInterruptHandler({ logger: this.logger });
@@ -241,8 +248,11 @@ export default class ConversationManager {
         AmbientAudio.stop();
         this.chat.pause();
 
+        // NOTE: member schedulers are intentionally NOT cleared here. Timelines
+        // are persisted, and ChatMemberScheduler's reload catch-up flushes
+        // past-due events on the next login — wiping them on logout made every
+        // queued post-logout message vanish forever.
         for (const member of this.chat.getMembers()) {
-            member.scheduler.clear();
             member.setTransientState("isTyping", false, 0);
             member.setTransientState("isReading", false, 0);
             member.setTransientState("isThinking", false, 0);
@@ -450,13 +460,19 @@ export default class ConversationManager {
 
         const userContent = [
             "## Current Scene",
+            "```",
             scene,
+            "```",
             "",
             "## Active Incidents",
+            "```",
             existing,
+            "```",
             "",
             "## New Director Directive",
-            directive
+            "```",
+            directive,
+            "```"
         ].join("\n");
 
         try {
@@ -680,9 +696,11 @@ export default class ConversationManager {
         await this.unifiedMemory.init();
         await this.world.init();
 
-        if (this.world.environment) {
-            await this.unifiedMemory.syncEnvironment(this.world.environment);
-        }
+        // NOTE: the boot-time environment sync + news distillation are owned
+        // by the WorldEvents.ENVIRONMENT_CHANGE listener bound in the
+        // constructor (World.init() emits it once WorldSetter has loaded the
+        // snapshot) — the old explicit syncEnvironment() call here raced that
+        // async path and double-wrote raw headline rows.
 
         if (this.situationEngine) {
             await this.situationEngine.init();
@@ -823,6 +841,17 @@ export default class ConversationManager {
             this.lastNeedleRoute = `${member}: ${keywords.join(", ") || "none"}`;
 
             const matches = this.unifiedMemory.searchDeterministic(keywords, [member]);
+
+            // DevTools inspect tab: record exactly HOW the snippet was found —
+            // the synchronous deterministic regex extractor (not an LLM call).
+            this.lastNeedleDetails = {
+                method: this.needleRouter.isReady ? "Deterministic regex (synchronous, ≤1ms)" : "Router destroyed",
+                query: queryText.slice(0, 200),
+                member,
+                keywords: [...keywords],
+                matchCount: matches.length
+            };
+
             if (matches.length > 0) {
                 // Keep the top 1-2 memory lines intact without word truncation
                 this.#pendingMemorySnippet = matches.slice(0, 2).join("\n").slice(0, 300);
@@ -833,6 +862,13 @@ export default class ConversationManager {
         } catch (/** @type {unknown} */ err) {
             this.logger.warn("Needle memory routing failed:", err);
             this.#pendingMemorySnippet = "";
+            this.lastNeedleDetails = {
+                method: "Deterministic regex (synchronous, ≤1ms)",
+                query: queryText.slice(0, 200),
+                member: "unrouted",
+                keywords: [],
+                matchCount: 0
+            };
         }
     }
 
@@ -1275,6 +1311,7 @@ export default class ConversationManager {
         this.#pendingNextTime = null;
         this.lastNeedleRoute = null;
         this.lastRetrievedMemory = "";
+        this.lastNeedleDetails = null;
         this.activeDirectives = [];
         this.directorCooldownUntil = 0;
         this.endLockUntilTurn = 0;
@@ -1343,7 +1380,9 @@ export default class ConversationManager {
                 ? [
                     "",
                     `## Current Scene: ${activeRecord.title || activeRecord.topic} (${activeRecord.timeRange})`,
-                    activeRecord.denseParagraph || activeRecord.mainGoal || activeRecord.topic
+                    "```",
+                    activeRecord.denseParagraph || activeRecord.mainGoal || activeRecord.topic,
+                    "```"
                 ]
                 : [];
 
@@ -1357,7 +1396,7 @@ export default class ConversationManager {
                 return `- [${twist.title}] ${beat}`;
             });
             const directorSection = beats.length > 0
-                ? ["", "## Active Director Beats", "Stage incidents in progress — weave these into the dialogue.", ...beats]
+                ? ["", "## Active Director Beats", "Stage incidents in progress — weave these into the dialogue.", "```", ...beats, "```"]
                 : [];
 
             return builder.part([
@@ -1368,8 +1407,10 @@ export default class ConversationManager {
                 "- Speak each cast member at their listed age.",
                 "",
                 "## Ambient Setting",
+                "```",
                 `- Time: ${this.world.dateTime}`,
                 `- Atmosphere: ${situation}`,
+                "```",
                 memorySection,
                 ...sceneLines,
                 ...directorSection,
@@ -1383,6 +1424,7 @@ export default class ConversationManager {
                 `- Characters: only the AI cast; never answer for the human ("me").`,
                 "- Output 1-3 messages:",
                 '<msg sender="id" reaction="ReactionName">message text</msg>',
+                "- HARD LIMIT: each message must be UNDER 100 characters. If a thought is longer, split it naturally into 2 shorter messages (each still under 100 chars).",
                 `- Valid reactions (exact): {${Reaction.EMOTION.map(e => e.name).join(", ")}}. Use Default if unsure.`,
                 "- After all messages, output exactly one pacing tag:",
                 '  * Banter: <delay ms="3000"/> to <delay ms="5000"/>',
@@ -1410,7 +1452,9 @@ export default class ConversationManager {
         builder.useUser(() => this.#activeHumanUtterance
             ? builder.part([
                 "## The Human Just Said — respond to THIS first",
-                this.#activeHumanUtterance
+                "```",
+                this.#activeHumanUtterance,
+                "```"
             ].join("\n"))
             : null);
     }

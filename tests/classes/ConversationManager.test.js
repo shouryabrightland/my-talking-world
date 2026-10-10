@@ -422,6 +422,18 @@ describe("ConversationManager — Protocol Buffer Lifecycle", () => {
             expect(manager.chat.members.size).toBe(1);
             expect(manager.chat.messages).toHaveLength(1);
         });
+
+        it("does NOT clear member timeline schedulers on logout (catch-up must survive re-login)", () => {
+            const member = makeMockMember("tom", "Tom", true);
+            member.scheduler.clear = vi.fn();
+            manager.chat.getMembers = () => [member];
+
+            manager.logout();
+
+            // Persisted timelines flush past-due messages on the next boot —
+            // wiping them here made every queued message vanish forever.
+            expect(member.scheduler.clear).not.toHaveBeenCalled();
+        });
     });
 
     // ─────────────────────────────────────────────
