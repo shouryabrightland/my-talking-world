@@ -699,7 +699,7 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         // Single source of truth: Reaction.EMOTION. Every valid reaction name
         // must be offered to the model so it never invents reaction values
         // that the avatar layer would silently discard. (Emojis are omitted
-        // from the prompt on purpose — the 650-token Groq gate is tight.)
+        // from the prompt on purpose — the 700-token Groq gate is tight.)
         for (const { name } of Reaction.EMOTION) {
             expect(joined).toContain(name);
         }
@@ -989,7 +989,7 @@ describe("ConversationManager — per-turn prompt token budget", () => {
     /** Standard ~4 chars/token estimate used across the prompt-budget gates. */
     const estimateTokens = (/** @type {string} */ s) => Math.ceil(s.length / 4);
 
-    it("stays under 650 tokens for a worst-case dialogue turn", async () => {
+    it("stays under 700 tokens for a worst-case dialogue turn", async () => {
         vi.useFakeTimers();
         try {
             const { manager } = createManager();
@@ -1042,10 +1042,14 @@ describe("ConversationManager — per-turn prompt token budget", () => {
             const totalTokens = estimateTokens("x".repeat(totalChars));
             console.log(`[prompt-budget] dialogue turn ≈ ${totalTokens} tokens (${totalChars} chars)`);
 
-            // Gate 3: Groq prompt tokens stay under 650 per dialogue turn.
+            // Gate 3: Groq prompt tokens stay under 700 per dialogue turn.
             // The Step-3 prompt documents the raw <msg>/<delay>/<next> XML
-            // contract, which costs ~150 tokens over the old 500-token ceiling.
-            expect(totalTokens).toBeLessThan(650);
+            // contract, which costs ~150 tokens over the old 500-token ceiling,
+            // and Phase 8 added triple-backtick data fences plus the 100-char
+            // BREVITY rule (~30 tokens). Measured worst case: ~680 tokens.
+            // There is no separate live gate in the app — this test is the
+            // budget contract, so keep a real ceiling for future growth.
+            expect(totalTokens).toBeLessThan(700);
         } finally {
             vi.useRealTimers();
             vi.restoreAllMocks();

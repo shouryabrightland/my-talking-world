@@ -34,6 +34,19 @@ function isSystemState(state) {
 }
 
 /**
+ * Formats a millisecond cadence as a compact human interval
+ * (60000 → "1 min", 30000 → "30 sec").
+ *
+ * @param {number} ms
+ * @returns {string}
+ */
+function formatInterval(ms) {
+    if (ms >= 60_000 && ms % 60_000 === 0) return `${ms / 60_000} min`;
+    if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)} min`;
+    return `${Math.round(ms / 1000)} sec`;
+}
+
+/**
  * Modular DevTools Tab for Inspecting Live System State via Visual Flash Cards.
  *
  * @param {Object} props
@@ -257,7 +270,9 @@ export default function DevToolsStateTab({
                         />
 
                         {/* Card 7: Ambient Situation Engine (Tier 2) */}
-                        {validState.situationEngine && (
+                        {validState.situationEngine &&
+                        validState.situationEngine.situationText &&
+                        validState.situationEngine.situationText !== "Not loaded" && (
                         <div className={styles.stateCard}>
                             <div className={styles.stateCardHeader}>
                                 <h4 className={styles.stateCardTitle}>🌫️ Ambient Situation Engine</h4>
@@ -273,21 +288,28 @@ export default function DevToolsStateTab({
                                 </div>
 
                                 <div className={styles.metaField}>
-                                    <span className={styles.fieldLabel}>Distillation Progress:</span>
+                                    <span className={styles.fieldLabel}>Volume Trigger:</span>
                                     <span className={styles.fieldValue}>
-                                        {validState.situationEngine.unreadCount}/10 unread messages
+                                        {validState.situationEngine.unreadCount} unread → immediate pass at {validState.situationEngine.volumeThreshold}
                                     </span>
                                 </div>
 
-                                {/* Unread counter progress bar (10 msgs OR 10 min triggers a pass) */}
+                                {/* Unread counter progress bar toward the volume threshold */}
                                 <div style={{ width: "100%", height: "6px", background: "rgba(255,255,255,0.12)", borderRadius: "3px", overflow: "hidden" }}>
                                     <div
                                         style={{
-                                            width: `${Math.min(100, (validState.situationEngine.unreadCount / 10) * 100)}%`,
+                                            width: `${Math.min(100, (validState.situationEngine.unreadCount / Math.max(1, validState.situationEngine.volumeThreshold)) * 100)}%`,
                                             height: "100%",
                                             background: "#3b82f6"
                                         }}
                                     />
+                                </div>
+
+                                <div className={styles.metaField}>
+                                    <span className={styles.fieldLabel}>Timer:</span>
+                                    <span className={styles.fieldValue}>
+                                        Every {formatInterval(validState.situationEngine.timerIntervalMs)} while unread messages exist — {validState.situationEngine.isTicking ? "▶️ ticking" : "⏸ paused"}
+                                    </span>
                                 </div>
 
                                 <div className={styles.metaField}>
@@ -299,12 +321,12 @@ export default function DevToolsStateTab({
                         )}
 
                         {/* Card 8: Needle Query Router (Tier 3) */}
-                        {validState.needleRouter && (
+                        {validState.needleRouter && validState.needleRouter.isReady && (
                         <div className={styles.stateCard}>
                             <div className={styles.stateCardHeader}>
                                 <h4 className={styles.stateCardTitle}>🎯 Needle Query Router</h4>
                                 <span className={validState.needleRouter.isReady ? styles.badgeSuccess : styles.badgeWarning}>
-                                    {validState.needleRouter.isReady ? "Sync Ready" : "Idle"}
+                                    {validState.needleRouter.isReady ? "Regex Sync" : "Idle"}
                                 </span>
                             </div>
 
@@ -312,11 +334,32 @@ export default function DevToolsStateTab({
                                 <div className={styles.metaField}>
                                     <span className={styles.fieldLabel}>Worker Status:</span>
                                     <span className={styles.fieldValue}>
-                                        {validState.needleRouter.isReady
-                                            ? "Deterministic extractor online (≤1ms route budget)"
-                                            : "Router destroyed (engine teardown)"}
+                                        {validState.needleRouter.details?.method
+                                            ? `${validState.needleRouter.details.method} — no LLM call`
+                                            : validState.needleRouter.isReady
+                                                ? "Deterministic extractor online (≤1ms route budget)"
+                                                : "Router destroyed (engine teardown)"}
                                     </span>
                                 </div>
+
+                                {validState.needleRouter.details && (
+                                <>
+                                    <div className={styles.metaField}>
+                                        <span className={styles.fieldLabel}>Last Query:</span>
+                                        <span className={styles.fieldValue}>{validState.needleRouter.details.query}</span>
+                                    </div>
+
+                                    <div className={styles.metaField}>
+                                        <span className={styles.fieldLabel}>Extracted Keywords:</span>
+                                        <span className={styles.fieldValue}>{validState.needleRouter.details.keywords.join(", ")}</span>
+                                    </div>
+
+                                    <div className={styles.metaField}>
+                                        <span className={styles.fieldLabel}>Memory Hits:</span>
+                                        <span className={styles.fieldValue}>{validState.needleRouter.details.matchCount} line(s) matched</span>
+                                    </div>
+                                </>
+                                )}
 
                                 <div className={styles.metaField}>
                                     <span className={styles.fieldLabel}>Last Route:</span>

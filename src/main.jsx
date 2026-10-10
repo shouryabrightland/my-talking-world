@@ -25,9 +25,14 @@ import { DevToolsProvider } from "./contexts/DevToolsContext";
 import { OfflineProvider } from "./contexts/OfflineContext";
 import { BackgroundBarProvider } from "./contexts/BackgroundBarContext";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
+import { registerServiceWorker } from "./util/serviceWorker";
 
 /** Root logger for top-level diagnostics */
 const logger = new Logger("Root");
+
+// Production only: register the build-versioned service worker and wire the
+// "new version available" → reload handshake (no-ops during dev/tests).
+registerServiceWorker();
 
 /**
  * Human user participant instance.

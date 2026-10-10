@@ -88,7 +88,7 @@ export const PROMPT_AGE_MANDATE = [
 
 export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Generate up to 5 dialogue messages per response.",
-    "BREVITY: each message must be UNDER 100 characters. If a thought is longer, split it naturally into 2 shorter messages (each still under 100 chars).",
+    "BREVITY: each message must be UNDER 100 characters. If a message runs longer, split it naturally into 2 shorter messages (each still under 100 chars).",
     "LANGUAGE POINTER: every language rule (Hinglish tone, writing script, Lucknow banter style) lives ONLY in the single authoritative <language_mandate> block — follow it, never restate or contradict it here.",
     "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj or Chowk. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",

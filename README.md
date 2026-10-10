@@ -226,7 +226,7 @@ Secure, hybrid API setup:
 | **Styling** | CSS Modules + CSS Custom Properties |
 | **Testing** | Vitest + MSW (unit/integration), Playwright (E2E across 5 browsers) |
 | **Type Safety** | TypeScript strict mode (checkJs + allowJs) |
-| **PWA** | Service Worker for offline caching |
+| **PWA** | Build-versioned service worker: offline caching + automatic self-update |
 
 ---
 
@@ -407,11 +407,10 @@ src/
 │   ├── Header.jsx                   # Top bar with title & settings
 │   ├── footer.jsx                   # Dual-mode input hub (User/Director)
 │   ├── Avatar.jsx                   # Character avatar with emotion states
-│   ├── BackgroundBar.jsx            # Scene progress & block visualization
+│   ├── BackgroundBar.jsx            # Scene progress + offline/error notifications
 │   ├── DevToolsBar.jsx              # Developer tools toggle ribbon
 │   ├── DevToolsDrawer.jsx           # Bottom inspection panel
 │   ├── message.jsx                  # Chat message bubble renderer
-│   ├── OfflineBanner.jsx            # Network disconnect notification
 │   ├── PlannerDrawer.jsx            # 24-hour schedule editor
 │   ├── SceneBar.jsx                 # Live environment marquee ticker
 │   ├── SettingsModal.jsx            # Studio config (keys, audio, memories)

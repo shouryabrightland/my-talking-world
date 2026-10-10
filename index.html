@@ -12,14 +12,7 @@
     <meta name="apple-mobile-web-app-title" content="Tom & Friends" />
     <meta name="description" content="Interactive Living Sitcom & Story Sandbox with AI Characters" />
     <title>Tom & Friends</title>
-    <script>
-      // Register service worker for PWA offline support
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/sw.js").catch(() => {});
-        });
-      }
-    </script>
+    <!-- Service worker registration + update handshake: src/util/serviceWorker.js -->
   </head>
   <body>
     <div id="root"></div>

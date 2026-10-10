@@ -5,7 +5,7 @@
  * E2E tests for offline mode and reconnection.
  *
  * Coverage:
- * - Offline banner display when network disconnects
+ * - Offline notification when network disconnects (BackgroundBar alert)
  * - Local message sending while offline
  * - Auto-reconnect on network recovery
  * - Background bar notifications during reconnection
@@ -48,7 +48,8 @@ test.describe("Offline Mode", () => {
             window.dispatchEvent(new Event("offline"));
         });
 
-        // Check for disconnect notification — the OfflineBanner renders with role="alert"
+        // Check for the disconnect notification — BackgroundBar renders with
+        // role="alert" aria-live="polite" (the old OfflineBanner overlay is gone).
         const offlineBanner = page.locator('[role="alert"]');
         await expect(offlineBanner).toBeVisible({ timeout: 5_000 });
     });
@@ -59,17 +60,20 @@ test.describe("Offline Mode", () => {
             window.dispatchEvent(new Event("offline"));
         });
 
-        // Banner should appear
-        const offlineBanner = page.locator('[role="alert"]');
-        await expect(offlineBanner).toBeVisible({ timeout: 5_000 });
+        // Scope to the offline notice: a bare [role="alert"] also matches
+        // unrelated BackgroundBar notifications (planner streams, model
+        // errors) that legitimately appear during the reconnect flow.
+        const offlineNotice = page.locator('[role="alert"]', { hasText: "You're offline" });
+        await expect(offlineNotice).toBeVisible({ timeout: 5_000 });
 
         // Go online
         await page.evaluate(() => {
             window.dispatchEvent(new Event("online"));
         });
 
-        // Banner should disappear within 5 seconds
-        await expect(offlineBanner).not.toBeVisible({ timeout: 5_000 });
+        // The offline notice transitions to "Connection restored" (completed)
+        // and auto-dismisses — the offline text must be gone within 5 seconds.
+        await expect(offlineNotice).not.toBeVisible({ timeout: 5_000 });
     });
 
     test("reconnection message appears after coming back online", async ({ page }) => {
