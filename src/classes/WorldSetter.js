@@ -737,12 +737,6 @@ export default class WorldSetter {
         const castLine = members.length > 0
             ? members.map(m => `- **${m.name}** (ID: \`${m.id}\`, Age: ${m.age}y): ${m.about}`).join("\n")
             : "- tom, angela, ben, ginger, hank, becca (cast profiles unavailable)";
-        const goalSchema = (members.length > 0
-            ? members
-            : [{ id: "tom", name: "Tom" }, { id: "angela", name: "Angela" }, { id: "ben", name: "Ben" },
-                { id: "ginger", name: "Ginger" }, { id: "hank", name: "Hank" }, { id: "becca", name: "Becca" }]
-        ).map(m => `      <goal id="${XmlEncoder.encode(String(m.id))}" name="${XmlEncoder.encode(String(m.name))}">Goal</goal>`).join("\n");
-
         const gapLines = gaps.map((g, i) => (
             `  <gap index="${i + 1}" start="${g.start}" end="${g.end}">Fill ${fmt(g.start)} - ${fmt(g.end)} (${Math.round((g.end - g.start) * 60)} minutes) with contiguous block(s) that cover it end-to-end.</gap>`
         )).join("\n");
@@ -762,7 +756,9 @@ export default class WorldSetter {
             "## Rules",
             "1. Blocks stay strictly inside their own gap: contiguous, non-overlapping.",
             "2. Rotate varied Lucknow settings (Gomti Nagar riverfront, Aliganj markets, university campus, balconies, study rooms, terraces, society parks).",
-            "3. The <dense_paragraph> must be a vivid, self-contained 2-4 sentence scene setting describing who is where, atmosphere, and what individual members are actively doing or aiming for, completely independent of chronological order or neighboring blocks.",
+            "3. TIME-AWARENESS: Activities MUST match the time of day. For late night gaps (23:00 to 07:00), schedule sleep, resting, or quiet solo activities. Do NOT schedule loud hangouts, study sessions, or park visits at 2 AM.",
+            "4. DIVERSE ACTIVITIES: Avoid the cliché of constantly drinking chai or coffee. Include diverse daily life actions: sleeping, doing chores, hobbies, watching movies, reading, or quiet downtime.",
+            "5. The <dense_paragraph> must be a vivid, self-contained 2-4 sentence scene setting describing who is where, atmosphere, and what individual members are actively doing or aiming for, completely independent of chronological order or neighboring blocks.",
             "",
             "## Age Factor",
             PROMPT_AGE_MANDATE,
@@ -845,30 +841,45 @@ export default class WorldSetter {
         }
         if (cursor < gap.end - 0.01) holes.push({ start: cursor, end: gap.end });
 
-        const fillerTopics = [
-            { topic: "Casual catch-up & chai", mainGoal: "Share the day's updates", facts: ["Chai and biscuits on the table"] },
-            { topic: "Focused work & study session", mainGoal: "Make progress on personal goals", facts: ["Books and laptops out"] },
-            { topic: "Evening stroll & street food", mainGoal: "Wind down together", facts: ["Snacks from the corner stall"] },
-            { topic: "Late-night banter", mainGoal: "Relax and joke around", facts: ["Low light, sleepy vibes"] }
-        ];
-
         /** @type {ScheduleRecord[]} */
         const blocks = [];
-        let i = 0;
         for (const hole of holes) {
             let s = hole.start;
             while (s < hole.end - 0.01) {
                 const e = Math.min(hole.end, s + 1);
-                const t = fillerTopics[i++ % fillerTopics.length];
+                
+                let topic = "", mainGoal = "", facts = [];
+                // Time-aware deterministic fallback
+                if (s >= 23 || s < 7) {
+                    topic = "Deep sleep & rest";
+                    mainGoal = "Get a good night's sleep";
+                    facts = ["Everyone is sleeping peacefully in their rooms"];
+                } else if (s >= 7 && s < 9) {
+                    topic = "Morning routine & breakfast";
+                    mainGoal = "Freshen up and start the day";
+                    facts = ["Getting ready for the day"];
+                } else {
+                    const daytimeTopics = [
+                        { topic: "Casual hangout in the living room", mainGoal: "Relax and chat", facts: ["Sitting comfortably"] },
+                        { topic: "Focused solo hobbies", mainGoal: "Make progress on personal projects", facts: ["Quiet concentration"] },
+                        { topic: "Watching a movie together", mainGoal: "Enjoy some entertainment", facts: ["TV is on"] },
+                        { topic: "Doing household chores", mainGoal: "Keep the apartment clean", facts: ["Cleaning supplies out"] }
+                    ];
+                    const t = daytimeTopics[Math.floor(s) % daytimeTopics.length];
+                    topic = t.topic;
+                    mainGoal = t.mainGoal;
+                    facts = t.facts;
+                }
+
                 blocks.push(this.#withDerivedFields({
                     id: crypto.randomUUID(),
                     startHour: s,
                     endHour: e,
                     timeRange: this.#formatDecimalRange(s, e),
-                    topic: t.topic,
-                    mainGoal: t.mainGoal,
+                    topic,
+                    mainGoal,
                     characterGoals: [],
-                    facts: t.facts,
+                    facts,
                     prePlot: "Friends hanging out in the space",
                     postPlot: "Transitioning to the next activity",
                     type: "once",
@@ -1902,13 +1913,6 @@ export default class WorldSetter {
      * @returns {ScheduleRecord[]}
      */
     #buildFallbackSchedule(startHour) {
-        const topics = [
-            { topic: "Creative project discussion", mainGoal: "Brainstorm new concepts", facts: ["Fresh notebook and markers on the table"] },
-            { topic: "Evening break & discussion", mainGoal: "Relax and discuss local city events", facts: ["Sharing local street snacks"] },
-            { topic: "Weekend sports challenge", mainGoal: "Organize teams for outdoor games", facts: ["Checking equipment availability"] },
-            { topic: "Evening entertainment session", mainGoal: "Pick a movie or comedy show", facts: ["Setting up screen and snacks"] }
-        ];
-
         /** @type {ScheduleRecord[]} */
         const records = [];
 
@@ -1916,22 +1920,41 @@ export default class WorldSetter {
             const s = this.#clampHour(startHour + i);
             if (s >= 24) break; // Task 2: never wrap fallback blocks past midnight
             const e = Math.min(24, s + 1);
-            const t = topics[i % topics.length];
+            
+            let topic = "", mainGoal = "", facts = [];
+            
+            // Time-aware fallback
+            if (s >= 23 || s < 7) {
+                topic = "Deep sleep & rest";
+                mainGoal = "Get a good night's sleep";
+                facts = ["Everyone is sleeping peacefully"];
+            } else {
+                const topics = [
+                    { topic: "Creative project discussion", mainGoal: "Brainstorm new concepts", facts: ["Fresh notebook and markers on the table"] },
+                    { topic: "Evening break & discussion", mainGoal: "Relax and discuss local city events", facts: ["Sharing local street snacks"] },
+                    { topic: "Weekend sports challenge", mainGoal: "Organize teams for outdoor games", facts: ["Checking equipment availability"] },
+                    { topic: "Evening entertainment session", mainGoal: "Pick a movie or comedy show", facts: ["Setting up screen and snacks"] }
+                ];
+                const t = topics[i % topics.length];
+                topic = t.topic; 
+                mainGoal = t.mainGoal; 
+                facts = t.facts;
+            }
 
-            records.push({
+            records.push(this.#withDerivedFields({
                 id: crypto.randomUUID(),
                 startHour: s,
                 endHour: e,
                 timeRange: this.#formatDecimalRange(s, e),
-                topic: t.topic,
-                mainGoal: t.mainGoal,
+                topic,
+                mainGoal,
                 characterGoals: [],
                 prePlot: "Friends chatting casually",
                 postPlot: "Transitioning to upcoming activity",
-                facts: t.facts,
+                facts,
                 createdAt: Date.now(),
                 updatedAt: Date.now()
-            });
+            }));
         }
 
         return records;

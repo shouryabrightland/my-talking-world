@@ -22,10 +22,6 @@ const MEMBER_PATTERNS = MEMBERS.map(
     (id) => /** @type {[string, RegExp]} */ ([id, new RegExp(`\\b${id}\\b`)])
 );
 
-/**
- * English + Hindi/Hinglish glue words that carry no retrieval value.
- * Filtered out before keywords are collected.
- */
 const STOPWORDS = new Set([
     // English function words
     "about", "above", "after", "again", "against", "because", "been", "before",
@@ -37,16 +33,16 @@ const STOPWORDS = new Set([
     "this", "those", "through", "under", "until", "very", "were", "what",
     "when", "where", "which", "while", "with", "would", "your", "yours",
     "yourself", "yourselves",
+    // Common conversational filler
+    "remember", "thinking", "thought", "know", "tell", "said", "saying", "please","think",
     // Hindi / Hinglish glue words
     "aapka", "aapse", "abhi", "accha", "achha", "arre", "baare", "bahut",
     "batao", "bata", "chalo", "hain", "hoon", "hoga", "hogi", "inka",
-    "inki", "karke", "karta", "karti", "kaise", "kaisa", "kaisi", "kaun",
-    "kehte", "kahan", "kya", "kyaa", "kyunki", "kyun", "lekin", "liye", "matlab",
+    "inki", "karke", "karta", "karti", "kaise", "kaisa", "kaisi", "kaun", "kahan",
+    "kehte", "kya", "kyaa", "kyunki", "kyun", "lekin", "liye", "matlab",
     "mein", "mera", "mere", "meri", "mujhe", "phir", "raha", "rahe",
     "rahi", "saath", "sunao", "theek", "thik", "tumhe", "tumhara", "unka",
-    "unki", "waise", "wala", "wali", "wahan", "yahan", "yaar",
-    // Conversational filler that carries no retrieval value
-    "know", "remember", "said", "tell", "think", "thinking", "thought"
+    "unki", "waise", "wala", "wali", "wahan", "yahan", "yaar"
 ]);
 
 /** Maximum keywords returned per route (Task 5: raised 3 → 5). */
@@ -71,7 +67,7 @@ export default class NeedleRouter {
      * @param {string} userText
      * @returns {NeedleRouteResult}
      */
-    static extract(userText) {
+   static extract(userText) {
         const lower = String(userText || "").toLowerCase();
 
         let member = "any";
@@ -82,12 +78,11 @@ export default class NeedleRouter {
             }
         }
 
-        // Task 5: keep 3-letter keywords ("kal", "aaj", "tea", "car", "app",
-        // "bus", "key", ...) — only 1-2 letter tokens are dropped.
+        // Allow 3+ letter words (kal, aaj, tea) AND numeric digits (5, 6, 100)
         const words = lower
             .replace(/[^a-z0-9\s]/g, " ")
             .split(/\s+/)
-            .filter(w => w.length > 2 && !STOPWORDS.has(w));
+            .filter(w => (w.length > 2 || /^\d+$/.test(w)) && !STOPWORDS.has(w));
 
         /** @type {string[]} */
         const keywords = [];

@@ -162,7 +162,9 @@ export const ConversationEvents = {
     NEWS_INGEST_START: "conversation:news:ingest:start",
     NEWS_INGEST_DONE: "conversation:news:ingest:done",
     NEWS_INGEST_ERROR: "conversation:news:ingest:error",
-    LOGOUT: "conversation:logout"
+    LOGOUT: "conversation:logout",
+    NEXT_SLEEP: "conversation:next:sleep",
+    NEXT_WAKE: "conversation:next:wake",
 };
 
 export default class ConversationManager {
@@ -180,6 +182,9 @@ export default class ConversationManager {
      * @readonly
      */
     static SPLIT_GAP_MS = 1200;
+
+    /** @type {string} */ #pendingPastDialogueSnippet = "";
+
 
     /**
      * @param {Object} options
@@ -251,6 +256,11 @@ export default class ConversationManager {
          * @type {{method: string, query: string, member: string, keywords: string[], matchCount: number}|null}
          */
         this.lastNeedleDetails = null;
+
+        // In ConversationManager.js constructor:
+        /** @type {Array<{ id: string, sender: string, text: string, keywords: string[], isUser: boolean, timestamp: number }>} */
+        this.recentDialogueBuffer = [];
+        this.#pendingPastDialogueSnippet = "";
 
         /** @type {ReturnType<typeof setTimeout>|null} */ this.#scheduleNextRequest_TimeOut = null;
         /** @readonly @type {UserInterruptHandler} */ this.#interruptHandler = new UserInterruptHandler({ logger: this.logger });
@@ -359,14 +369,17 @@ export default class ConversationManager {
 
         this.chat.events.on(
             ChatEvents.MESSAGE_ADD,
-            /** @param {Message} message */(message) => {
+    /** @param {Message} message */(message) => {
+                if (message && message.text) {
+                    this.#indexDialogueMessage(message);
+                }
                 if (message && message.sender && !message.sender.isAI) {
                     this.#lastUserMessageText = message.text || "";
                     this.#userTurnPending = true;
                     this.#handleHumanInterruption();
                 }
             },
-            "ConversationManager: human message interrupter"
+            "ConversationManager: human message interrupter & dialogue indexer"
         );
 
         this.world.events.on(
@@ -416,6 +429,32 @@ export default class ConversationManager {
             },
             "ConversationManager: sync environment to unified memory"
         );
+    }
+
+    /**
+ * Indexes a message into the rolling 100-message buffer with its keywords.
+ * @param {Message} message
+ */
+    #indexDialogueMessage(message) {
+        if (!message || !message.text) return;
+
+        const keywords = NeedleRouter.extract(message.text).keywords;
+        const isUser = Boolean(message.sender && !message.sender.isAI);
+        const senderName = message.sender?.name || (isUser ? "Me" : "Director");
+
+        this.recentDialogueBuffer.push({
+            id: message.id,
+            sender: senderName,
+            text: message.text,
+            keywords,
+            isUser,
+            timestamp: Date.now()
+        });
+
+        // Enforce 100-message rolling window
+        if (this.recentDialogueBuffer.length > 100) {
+            this.recentDialogueBuffer.shift();
+        }
     }
 
     /**
@@ -742,7 +781,13 @@ export default class ConversationManager {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
             this.#scheduleNextRequest_TimeOut = null;
         }
+
+        // Remove the away notification from BackgroundBar
+        this.events.emit(ConversationEvents.NEXT_WAKE);
+        localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
         // PHASE 3.3: Human input cancels any persisted sleep window so a
+
+
         // reload right after this moment boots live instead of dormant.
         localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
         this.#pendingDelayMs = null;
@@ -837,7 +882,82 @@ export default class ConversationManager {
             this.scheduleNextRequest();
         }
 
+        const existingMessages = this.chat.getMessages().slice(-100);
+        this.recentDialogueBuffer = existingMessages.map(m => ({
+            id: m.id,
+            sender: m.sender?.name || (m.sender?.isAI ? "Cast" : "Me"),
+            text: m.text,
+            keywords: NeedleRouter.extract(m.text).keywords,
+            isUser: Boolean(m.sender && !m.sender.isAI),
+            timestamp: m.sentAt ? new Date(m.sentAt).getTime() : Date.now()
+        }));
+
         this.logger.info("ConversationManager initialized and READY.");
+    }
+
+    /**
+ * Searches the rolling 100-message buffer for dialogue relevant to the current query.
+ * Excludes the last 7 messages (already visible in ## Recent Chat).
+ *
+ * @param {string[]} keywords Extracted query keywords.
+ * @param {string} userQuery The raw user message text.
+ * @returns {string} Compact markdown snippet (<= 350 chars).
+ */
+    #searchRelevantDialogue(keywords, userQuery) {
+        if (!this.recentDialogueBuffer || this.recentDialogueBuffer.length === 0) return "";
+
+        // Exclude the last 7 messages because they are already visible in ## Recent Chat
+        const searchPool = this.recentDialogueBuffer.slice(
+            0,
+            Math.max(0, this.recentDialogueBuffer.length - 7)
+        );
+        if (searchPool.length === 0) return "";
+
+        const cleanQuery = String(userQuery || "").toLowerCase();
+        const isRecallQuery = /(?:what|kya|remember|calculate|calculating|batao|said|pucha|asked|told|earlier|pehle|math)\b/i.test(cleanQuery);
+        const normKw = keywords.map(k => k.toLowerCase().trim()).filter(Boolean);
+
+        /** @type {Array<{ msg: { sender: string, text: string }, score: number }>} */
+        const scored = [];
+
+        for (const item of searchPool) {
+            let score = 0;
+            const textLower = item.text.toLowerCase();
+            const itemKw = item.keywords || [];
+
+            // Score keyword matches
+            for (const kw of normKw) {
+                if (itemKw.includes(kw)) score += 5;
+                else if (textLower.includes(kw)) score += 3;
+            }
+
+            // Recency boost for user's own past statements on recall queries (e.g. "What was I calculating?")
+            if (item.isUser && isRecallQuery) {
+                score += 4;
+                // Extra boost if the message contained numbers or math
+                if (/\d+/.test(item.text)) score += 4;
+            }
+
+            if (score > 0) {
+                scored.push({ msg: item, score });
+            }
+        }
+
+        if (scored.length === 0) return "";
+
+        // Sort by highest relevance score
+        scored.sort((a, b) => b.score - a.score);
+
+        // Pick top matches and format compactly: "- [Sender]: [Text]"
+        let output = "";
+        for (const { msg } of scored.slice(0, 3)) {
+            const truncatedText = msg.text.length > 80 ? msg.text.slice(0, 77) + "..." : msg.text;
+            const line = `- ${msg.sender}: ${truncatedText}\n`;
+            if (output.length + line.length > 350) break;
+            output += line;
+        }
+
+        return output.trim();
     }
 
     /**
@@ -975,65 +1095,59 @@ export default class ConversationManager {
      */
     async #resolveMemorySnippet(isUserInitiated, userMessageText) {
         const humanTurn = isUserInitiated || this.#userTurnPending;
-
-        // Consume the flag even when the lookup fails so autonomous turns
-        // never keep re-querying with a stale utterance.
         this.#userTurnPending = false;
 
-        // Task 5 — query isolation: the user's LATEST MESSAGE IS the query.
-        // Chat history only enters the route when the message carries ZERO
-        // topical nouns/keywords (e.g. "hello", "acha hai"); autonomous
-        // turns still route the recent chat on its own.
+        // Isolate human query for sharp keyword extraction
         const humanText = humanTurn
             ? String(userMessageText || this.#lastUserMessageText || "").trim()
             : "";
         const chatText = this.#getRecentChatHistory();
-
-        /** @type {string} */
-        let queryText;
-        if (humanTurn && humanText) {
-            const probe = await this.needleRouter.route(humanText);
-            queryText = probe.keywords.length > 0
-                ? humanText
-                : [humanText, chatText].filter(Boolean).join("\n").trim();
-        } else {
-            queryText = chatText.trim();
-        }
-        if (!queryText) return;
+        let querySource = humanText || chatText;
+        if (!querySource) return;
 
         try {
-            const { keywords, member } = await this.needleRouter.route(queryText);
+            let { keywords, member } = await this.needleRouter.route(querySource);
+
+            // Fall back to chat history only when the human message carries zero topical nouns
+            if (humanText && keywords.length === 0 && chatText) {
+                querySource = [humanText, chatText].join("\n");
+                const fallbackRoute = await this.needleRouter.route(querySource);
+                keywords = fallbackRoute.keywords;
+                if (member === "any") member = fallbackRoute.member;
+            }
+
             this.lastNeedleRoute = `${member}: ${keywords.join(", ") || "none"}`;
 
-            const matches = this.unifiedMemory.searchDeterministic(keywords, [member]);
+            // 1. Search Long-Term UnifiedMemory (Facts, Promises, World)
+            const memoryMatches = this.unifiedMemory.searchDeterministic(keywords, [member]);
 
-            // DevTools inspect tab: record exactly HOW the snippet was found —
-            // the synchronous deterministic regex extractor (not an LLM call).
+            // Safety fallback: if recall query or 0 matches, pull the 3 most recent entries
+            if (memoryMatches.length === 0 && /(?:remember|earlier|before|what did|kya tha)\b/i.test(humanText)) {
+                const recentEntries = this.unifiedMemory.entries
+                    .filter(e => !e.tags.includes("%world%"))
+                    .slice(-3);
+                for (const re of recentEntries) {
+                    memoryMatches.push(`[${re.datetime}] ${re.data}`);
+                }
+            }
+
+            this.#pendingMemorySnippet = memoryMatches.slice(0, 2).join("\n").slice(0, 300);
+            this.lastRetrievedMemory = this.#pendingMemorySnippet;
+
+            // 2. Search Short-Term 100-Message Dialogue Buffer (Calculations, Jokes, Chat)
+            this.#pendingPastDialogueSnippet = this.#searchRelevantDialogue(keywords, humanText);
+
             this.lastNeedleDetails = {
-                method: this.needleRouter.isReady ? "Deterministic regex (synchronous, ≤1ms)" : "Router destroyed",
-                query: queryText.slice(0, 200),
+                method: "Deterministic Regex & Dialogue Buffer Search (<1ms)",
+                query: querySource.slice(0, 200),
                 member,
                 keywords: [...keywords],
-                matchCount: matches.length
+                matchCount: memoryMatches.length + (this.#pendingPastDialogueSnippet ? 1 : 0)
             };
-
-            if (matches.length > 0) {
-                // Keep the top 1-2 memory lines intact without word truncation
-                this.#pendingMemorySnippet = matches.slice(0, 2).join("\n").slice(0, 300);
-                this.lastRetrievedMemory = this.#pendingMemorySnippet;
-            } else {
-                this.#pendingMemorySnippet = "";
-            }
-        } catch (/** @type {unknown} */ err) {
-            this.logger.warn("Needle memory routing failed:", err);
+        } catch (err) {
+            this.logger.warn("Memory snippet resolution failed:", err);
             this.#pendingMemorySnippet = "";
-            this.lastNeedleDetails = {
-                method: "Deterministic regex (synchronous, ≤1ms)",
-                query: queryText.slice(0, 200),
-                member: "unrouted",
-                keywords: [],
-                matchCount: 0
-            };
+            this.#pendingPastDialogueSnippet = "";
         }
     }
 
@@ -1231,9 +1345,29 @@ export default class ConversationManager {
             this.protocolBuffer = this.protocolBuffer.replace(delayMatch[0], "");
         }
 
-        const nextMatch = this.protocolBuffer.match(/<\s*next\s+time=["'](\d{1,2}:\d{2})["']\s*\/?>/i);
+        // Helper to convert any 12h/24h string into standard 24h "HH:MM"
+        /**
+         * @param {string} timeStr 
+        */
+        function normalizeTo24Hour(timeStr) {
+            const clean = timeStr.trim();
+            const match = clean.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?$/);
+            if (!match) return clean;
+
+            let hours = parseInt(match[1], 10);
+            const minutes = match[2];
+            const meridiem = match[3]?.toUpperCase();
+
+            if (meridiem === "PM" && hours < 12) hours += 12;
+            if (meridiem === "AM" && hours === 12) hours = 0;
+
+            return `${String(hours).padStart(2, "0")}:${minutes}`;
+        }
+
+        // In onStreamToken():
+        const nextMatch = this.protocolBuffer.match(/<\s*next\s+time\s*=\s*["']([^"']+)["']\s*\/?>/i);
         if (nextMatch) {
-            this.#pendingNextTime = nextMatch[1];
+            this.#pendingNextTime = normalizeTo24Hour(nextMatch[1]);
             this.protocolBuffer = this.protocolBuffer.replace(nextMatch[0], "");
         }
 
@@ -1466,7 +1600,10 @@ export default class ConversationManager {
 
         if (nextTimeStr) {
             const [targetH, targetM] = nextTimeStr.split(":").map(Number);
-            const targetDate = new Date(this.world.now);
+            const now = Date.now();
+
+            // Anchor targetDate to REAL wall-clock time
+            const targetDate = new Date();
             targetDate.setHours(targetH || 0, targetM || 0, 0, 0);
 
             if (targetDate.getTime() <= now) {
@@ -1474,17 +1611,19 @@ export default class ConversationManager {
             }
             targetTimeMs = targetDate.getTime();
 
-            // PHASE 3.1: Persist the wake instant so a reload mid-pause
-            // restores the exact same sleep window (see #boot).
+            // Persist wake time so reloads preserve the sleep window
             localStorage.setItem(NEXT_WAKE_STORAGE_KEY, String(targetTimeMs));
 
+            // Put the cast to sleep immediately and show away notification
             for (const member of this.chat.getMembers()) {
                 if (member.isAI) {
                     member.setTransientState("isActive", false, 0);
                     member.events.emit(ChatMemberEvents.ACTIVE, false);
                 }
             }
-            this.logger.info(`Turn completed. Cast paused until ${nextTimeStr} (${Math.round((targetTimeMs - now) / 60000)}m wait).`);
+            this.events.emit(ConversationEvents.NEXT_SLEEP, { wakeTime: nextTimeStr });
+
+            this.logger.info(`Cast scheduled to sleep until ${nextTimeStr}.`);
         } else if (explicitDelay !== null) {
             // Cap daytime banter delays to 15 seconds max to prevent chat freeze
             const safeDelay = Math.min(15_000, explicitDelay);
@@ -1552,6 +1691,9 @@ export default class ConversationManager {
         localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
         this.#interruptHandler.destroy();
         this.#clearTypingSettle();
+
+        this.#pendingPastDialogueSnippet = "";
+        this.recentDialogueBuffer = [];
 
         this.client.abort();
 
@@ -1627,9 +1769,25 @@ export default class ConversationManager {
                 ? this.situationEngine.situationText
                 : "The group is gathered together in Lucknow, catching up and chatting naturally.";
 
+            const physicalAction = this.situationEngine?.temporaryScene || "";
+            const physicalActionSection = physicalAction
+                ? [
+                    "",
+                    "## Physical Scene & What the Cast is Doing Right Now:",
+                    "```",
+                    physicalAction,
+                    "```",
+                    "- Characters MUST weave these physical actions, props, and room positions naturally into their dialogue (e.g., reacting to what they are holding, looking at, or doing)."
+                ]
+                : [];
+
             // Isolated markdown block for retrieved memories
             const memorySection = this.#pendingMemorySnippet
                 ? `\n## Active Memories\n\`\`\`\n${this.#pendingMemorySnippet}\n\`\`\`\n`
+                : "";
+
+            const pastDialogueSection = this.#pendingPastDialogueSnippet
+                ? `\n## Relevant Past Dialogue\n\`\`\`\n${this.#pendingPastDialogueSnippet}\n\`\`\`\n`
                 : "";
 
             // Hybrid planner: inject the ACTIVE block's title + dense scene
@@ -1649,7 +1807,7 @@ export default class ConversationManager {
                     "```"
                 ]
                 : [];
-            
+
             // Live environmental context: weather, occasion, and real headlines.
             // (Scene title and narrative are already declared in ## Current Scene above)
             const env = this.world.environment;
@@ -1688,19 +1846,22 @@ export default class ConversationManager {
                 ...castLines,
                 "- Speak each character at their exact age. The science-enthusiast member explains concepts using funny cartoon analogies.",
                 "",
-                "## Ambient Setting",
+                "## Ambient Setting (Truth)",
                 "```",
                 `- Time: ${this.world.dateTime}`,
                 `- Atmosphere: ${situation}`,
                 "```",
+                ...physicalActionSection,
                 memorySection,
+                pastDialogueSection,
                 ...sceneLines,
                 ...sceneBarLines,
                 ...directorSection,
                 "## Turn Priority",
                 "1) The human's LATEST message — answer it first.",
-                "2) The recent chat flow.",
-                "3) Ambient setting is background only.",
+                "2) Relevant facts from ## Active Memories and ## Relevant Past Dialogue.",
+                "3) The recent chat flow.",
+                "4) Ambient settings",
                 "",
                 "## Dialogue Instructions",
                 "- Language: Natural Lucknow Hinglish (Roman/Latin script only).",
@@ -1713,7 +1874,7 @@ export default class ConversationManager {
                 "- After the LAST message, output exactly one end-of-turn pacing tag:",
                 '  * Normal banter (default): <delay sec="2"/> to <delay sec="4"/>',
                 '  * Thinking / quiet pause: <delay sec="5"/> to <delay sec="10"/>',
-                '  * ONLY when the group explicitly says goodbye, goes to sleep, or parts ways until a later hour: <next time="HH:MM"/> (e.g. <next time="22:30"/>). During active conversation, always use <delay> instead.'
+                '  * ONLY when the group explicitly says goodbye, goes to sleep, or parts ways until a later hour: <next time="HH:MM"/> (e.g. <next time="22:30"/>).'
             ].filter(Boolean).join("\n"));
         });
 

@@ -949,6 +949,10 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
             expiry: "forever"
         });
 
+        manager.unifiedMemory.entries = []; // Ensure stack is totally empty
+        manager.recentDialogueBuffer = []; // Ensure buffer is empty
+
+
         const captured = captureBuildOn(manager);
 
         await manager.requestTurn();
@@ -1052,7 +1056,7 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
         // System: explicit priority ladder with the human first.
         expect(captured.system).toContain("## Turn Priority");
         expect(captured.system).toContain("1) The human's LATEST message — answer it first.");
-        expect(captured.system).toContain("3) Ambient setting is background only.");
+        expect(captured.system).toContain("4) Ambient setting is background only.");
 
         // User: fresh utterance appended LAST (strongest recency position).
         expect(captured.user).toContain("## The Human Just Said");

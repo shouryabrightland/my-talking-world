@@ -671,6 +671,47 @@ export default function BackgroundBar() {
         [notifications]
     );
 
+    useEffect(() => {
+        if (!conversationEvents || typeof conversationEvents.on !== "function") return;
+
+        /** @type {string|null} */
+        let sleepNotifId = null;
+
+        const offSleep = conversationEvents.on(
+            ConversationEvents.NEXT_SLEEP,
+            (/** @type {{ wakeTime: string }} */ data) => {
+                if (sleepNotifId) ctxRef.current.removeNotification(sleepNotifId);
+                sleepNotifId = ctxRef.current.addNotification(
+                    "info",
+                    `Cast is away until ${data.wakeTime} • Send a message anytime to call them back`,
+                    {
+                        id: "cast-away-sleep-notification",
+                        dismissable: true,
+                        details: "The characters have signed off for their routine or rest. You can wake them up anytime simply by sending a message."
+                    }
+                );
+            },
+            "BackgroundBar: next sleep"
+        );
+
+        const offWake = conversationEvents.on(
+            ConversationEvents.NEXT_WAKE,
+            () => {
+                if (sleepNotifId) {
+                    ctxRef.current.removeNotification(sleepNotifId);
+                    sleepNotifId = null;
+                }
+            },
+            "BackgroundBar: next wake"
+        );
+
+        return () => {
+            offSleep();
+            offWake();
+            if (sleepNotifId) ctxRef.current.removeNotification(sleepNotifId);
+        };
+    }, [conversationEvents]);
+
     // Bar renders a collapsed grid row when idle so .chatShell's explicit
     // grid rows never desynchronise (see Chat.module.css).
     const hasAny = activeNotifications.length > 0;
@@ -682,6 +723,8 @@ export default function BackgroundBar() {
     const hasCompleted = notifications.some(
         (n) => n.status === "completed"
     );
+
+
 
     return (
         <div
@@ -799,13 +842,12 @@ function DetailModal() {
                             {n.type.toUpperCase()}
                         </span>
                         <span
-                            className={`${styles.modalStatus} ${
-                                n.status === "active"
-                                    ? styles.statusActive
-                                    : n.status === "error"
+                            className={`${styles.modalStatus} ${n.status === "active"
+                                ? styles.statusActive
+                                : n.status === "error"
                                     ? styles.statusError
                                     : styles.statusComplete
-                            }`}
+                                }`}
                         >
                             {n.status}
                         </span>

@@ -87,6 +87,10 @@ export default class SituationEngine {
         this.events = events;
         this.storage = new Storage("Memories", this.logger);
 
+        // In SituationEngine.js constructor:
+        /** @type {string} Dynamic micro-scene predicting what the cast is physically doing right now. */
+        this.temporaryScene = "The group is gathered in the living room, casually chatting and settling in.";
+
         /** @type {string} Ambient <=500-char baseline (never model-written). */
         this.situationText = getDefaultSituation();
 
@@ -134,6 +138,9 @@ export default class SituationEngine {
      */
     async init() {
         this.situationText = getDefaultSituation().slice(0, SITUATION_MAX_CHARS);
+
+        this.temporaryScene = "The group is gathered in the living room, casually chatting and settling in.";
+
         try {
             await this.storage.removeItem(SITUATION_STORAGE_KEY);
         } catch (/** @type {unknown} */ err) {
@@ -153,6 +160,9 @@ export default class SituationEngine {
         this.lastRunTime = Date.now();
         this.isProcessing = false;
         this.lastContext = null;
+
+        this.temporaryScene = "The group is gathered in the living room, casually chatting and settling in.";
+
         try {
             await this.storage.removeItem(SITUATION_STORAGE_KEY);
         } catch (/** @type {unknown} */ err) {
@@ -237,14 +247,16 @@ export default class SituationEngine {
             .map((e, i) => `[id="${e.id}" index="${i}"]: [${e.datetime} | tags: ${e.tags.join(", ")}] ${e.data}`)
             .join("\n");
 
+        // In SituationEngine.js inside executeIfDue():
+
         const prompt = [
-            "# Dialogue Memory Pass",
-            'You are the Memory Keeper for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
+            "# Dialogue Memory & Scene Action Pass",
+            'You are the Scene & Memory Director for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
             "",
             "## Inputs",
             `- Clock: ${ctx.currentDateTime}`,
             `- Location & Weather: ${ctx.location || "Lucknow Studio"} (${ctx.environmentSummary})`,
-            `- Active Scene: ${ctx.activeSceneTopic} (Goal: ${ctx.activeSceneGoal})`,
+            `- Active Macro Goal: ${ctx.activeSceneTopic} (Goal: ${ctx.activeSceneGoal})`,
             `- Latest Human Message: ${ctx.latestHumanMessage || "(none right now — autonomous scene pass)"}`,
             "",
             "## Cast Roster & Ongoing States",
@@ -257,36 +269,32 @@ export default class SituationEngine {
             ctx.recentDialogue || "No messages yet. Scene is just beginning.",
             "```",
             "",
-            "## Current Memory Stack (identified for deletion)",
+            "## Current Memory Stack (numbered for deletion)",
             "```",
             formattedStack || "(empty)",
             "```",
             "",
             "## Instructions",
-            "0. PRIORITY: the human's latest message outranks ambient chatter — first record what the human committed to, promised, revealed, or asked for, then the cast's own facts.",
-            `1. Extract important commitments, secrets, facts, or relationship milestones into <new_memories> as <memory tags="..." expiry="..."> records. Expiries: '15m', '1h', '24h', 'forever'.`,
-            `2. HARD LIMIT: every memory text MUST be ${MAX_RECORD_CHARS} characters or fewer — one dense, self-contained factual sentence. No lists, no explanations, no pronouns without a named subject.`,
-            "3. Review the memory stack above. Storage must not only grow: DELETE every entry that is stale, contradicted by newer events, expired in spirit, or no longer relevant by listing its stable id inside <deletions> (e.g. <delete id=\"...\"/>). Prefer deleting stale facts over adding new ones.",
-            "4. Do not record trivial chit-chat or temporary physical movements, and never re-add a memory that already exists in the stack verbatim.",
-            "5. Apply the <age_factor> block below: only extract memories that fit each character's life stage (a teen's crush confession is a memory; a teen discussing loan EMIs is a continuity error to avoid).",
-            "",
-            "## Age Factor",
-            PROMPT_AGE_MANDATE,
-            "",
-            "## Child Safety",
-            PROMPT_CHILD_SAFETY_MANDATE,
+            "1. TEMPORARY SCENE: Predict what the characters are PHYSICALLY DOING right now and in the immediate next 2-3 minutes. Write exactly ONE vivid, cinematic paragraph (2-3 sentences max) describing their physical actions, room positions, props in hand, and body language (e.g., who is sitting on the rug, who is holding a tool, who is pouring chai). Output this inside <temporary_scene>...</temporary_scene>.",
+            "2. MEMORIES: Extract important commitments, secrets, facts, or relationship milestones into <new_memories> as <memory tags=\"...\" expiry=\"...\"> records (80 characters or fewer). PRIORITY: the human's latest message outranks background banter for memory extraction.",
+            "3. DELETIONS: Delete stale or contradicted memories by listing their index in <deletions> (e.g. <delete index=\"3\"/>).",
             "",
             "## Output Format",
             "Output strictly valid XML matching this structure:",
             "<analysis>",
+            "  <temporary_scene>",
+            "    Tom is sitting on the floor leaning against the sofa trying to balance a drone propeller on his knee, while Angela paces near the window checking her phone. Ben is seated at the dining table with tools spread out, cautiously watching Tom's clumsy tinkering.",
+            "  </temporary_scene>",
             "  <new_memories>",
             '    <memory tags="ben, gadget" expiry="forever">Ben completed his solar charging circuit.</memory>',
             "  </new_memories>",
             "  <deletions>",
-            '    <delete id="..."/>',
+            '    <delete index="3"/>',
             "  </deletions>",
             "</analysis>"
         ].join("\n");
+
+
 
         try {
             const targetModel = typeof this.geminiClient.resolveGemmaModel === "function"
@@ -339,6 +347,17 @@ export default class SituationEngine {
             }
             if (deletedCount > 0) {
                 this.logger.info(`Pruned ${deletedCount} stale memor${deletedCount === 1 ? "y" : "ies"} from the unified stack.`);
+            }
+
+            // Parse the temporary physical scene paragraph
+            const sceneMatch = output.match(/<\s*temporary_scene\b[^>]*>([\s\S]*?)<\/\s*temporary_scene\s*>/i);
+            if (sceneMatch) {
+                const parsedScene = sceneMatch[1].trim();
+                if (parsedScene) {
+                    // Keep it punchy and bounded (max 300 chars) to safeguard the prompt token budget
+                    this.temporaryScene = parsedScene.slice(0, 300).trim();
+                    this.logger.info(`Updated temporary physical scene: "${this.temporaryScene.slice(0, 80)}..."`);
+                }
             }
 
             await this.unifiedMemory.compressIfExceeded(this.geminiClient);
