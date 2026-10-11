@@ -101,6 +101,8 @@ export default function Header({ title = "Tom & Friends" } = {}) {
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+    /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
+
     /** @type {React.RefObject<HTMLDivElement|null>} */
     const menuRef = useRef(null);
 
@@ -323,6 +325,7 @@ export default function Header({ title = "Tom & Friends" } = {}) {
                 isOpen={isSettingsOpen}
                 onClose={() => setIsSettingsOpen(false)}
             />
+
         </>
     );
 }

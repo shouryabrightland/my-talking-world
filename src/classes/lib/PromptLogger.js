@@ -33,6 +33,7 @@
  * @property {Record<string, any>|null} groundingMetadata Google Search grounding metadata (queries, chunks, citations).
  * @property {number|null} tokensIn Prompt tokens consumed (usage.prompt_tokens).
  * @property {number|null} tokensOut Completion tokens generated (usage.completion_tokens).
+ * @property {number|null} tokensThinking Reasoning tokens consumed inside the 512-token thinking budget (usage.completion_tokens_details.reasoning_tokens).
  * @property {string|null} finishReason Final finish reason (e.g. "stop", "length").
  */
 
@@ -81,6 +82,7 @@ export default class PromptLogger {
      * @param {string|null} [options.error=null]
      * @param {number|null} [options.tokensIn=null] Prompt token count.
      * @param {number|null} [options.tokensOut=null] Completion token count.
+     * @param {number|null} [options.tokensThinking=null] Reasoning token count (thinking budget).
      * @param {string|null} [options.finishReason=null] Final finish reason from the model.
      * @returns {PromptLogEntry}
      */
@@ -96,6 +98,7 @@ export default class PromptLogger {
         error = null,
         tokensIn = null,
         tokensOut = null,
+        tokensThinking = null,
         finishReason = null
     }) {
         const now = new Date();
@@ -117,6 +120,7 @@ export default class PromptLogger {
             error,
             tokensIn,
             tokensOut,
+            tokensThinking,
             finishReason
         };
 

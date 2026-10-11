@@ -23,7 +23,6 @@ import { useInputBox } from "../contexts/InputBoxContext";
 import { useOffline } from "../contexts/OfflineContext";
 import { ConversationEvents } from "../classes/ConversationManager";
 import Avatar from "./Avatar";
-import { ReplyBox } from "./message";
 import { sampleDirectorPresets } from "../util/directorPresets";
 
 /**
@@ -150,7 +149,7 @@ function Character({ member }) {
 
     // Determine vertical translation based on activity state
     /** @type {string} */
-    let translateY = "0%";
+    let translateY = "100%";
     if (state.active && (state.typing || state.reading || state.thinking)) {
         translateY = "0%";
     } else if (state.active) {
@@ -185,7 +184,6 @@ function Character({ member }) {
 const UserInputBox = memo(function UserInputBox() {
     const conv = useChat();
     const user = conv.User;
-    const { Reply, setReply } = useInputBox();
 
     /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
     const [text, setText] = useState("");
@@ -230,19 +228,17 @@ const UserInputBox = memo(function UserInputBox() {
      */
     const handleSendWithEmotion = useCallback((/** @type {string} */ emotionName) => {
         const trimmed = text.trim();
-        const messageText = trimmed || (Reply ? `Reacted to quote` : `*${emotionName} expression*`);
+        const messageText = trimmed || `*${emotionName} expression*`;
 
         const message = new Message({
             sender: user,
             text: messageText,
-            protocolReplyId: Reply?.protocol?.id ?? null,
             protocolId: crypto.randomUUID(),
             emotion: { name: emotionName }
         });
 
         user.send(message);
 
-        setReply(null);
         setText("");
         setIsDrawerOpen(false);
 
@@ -257,7 +253,7 @@ const UserInputBox = memo(function UserInputBox() {
             user.events.emit(ChatMemberEvents.TYPING, false);
             typingTimeout.current = null;
         }, TYPING_IDLE_MS);
-    }, [text, user, Reply, setReply]);
+    }, [text, user]);
 
     /** Handle form submission (Enter key or Send button) */
     const handleFormSubmit = useCallback((/** @type {React.FormEvent} */ event) => {
@@ -279,22 +275,6 @@ const UserInputBox = memo(function UserInputBox() {
 
     return (
         <div className={styles.inputHub}>
-            {/* Quote Reply Banner */}
-            {Reply && (
-                <div className={styles.replyBanner}>
-                    <div className={styles.replyBannerQuote}>
-                        <ReplyBox message={Reply} />
-                    </div>
-                    <button
-                        onClick={() => setReply(null)}
-                        className={styles.replyCloseBtn}
-                        aria-label="Cancel reply"
-                    >
-                        ✕
-                    </button>
-                </div>
-            )}
-
             {/* Slide-Up Emotion Drawer */}
             <div className={`${styles.drawer} ${isDrawerOpen ? styles.drawerOpen : ""}`}>
                 <div className={styles.drawerHeader}>
@@ -328,7 +308,7 @@ const UserInputBox = memo(function UserInputBox() {
             {/* Message Input Row */}
             <form onSubmit={handleFormSubmit} className={styles.inputForm}>
                 <input
-                    placeholder={Reply ? "Type your reply..." : "Talk with Tom and the cast..."}
+                    placeholder="Talk with Tom and the cast..."
                     value={text}
                     onChange={handleChange}
                     className={styles.inputField}

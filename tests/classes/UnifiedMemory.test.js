@@ -122,13 +122,44 @@ describe("UnifiedMemory — deterministic relevance search", () => {
         ];
     });
 
-    it("ranks tag matches above keyword matches and caps at 2 lines", () => {
+    it("ranks keyword-first: content match (+5) + member tie-break (+2) tops tag-only matches, capped at 2 lines", () => {
         const lines = memory.searchDeterministic(["drone"], ["tom"]);
 
         expect(lines).toHaveLength(2);
         expect(lines[0]).toContain("Tom repaired the drone");
         expect(lines[1]).toContain("Angela's drone broke again");
         expect(lines.join()).not.toContain("soldered");
+    });
+
+    it("scores content keyword matches +5, tag keyword matches +4, member tags +2 (tie-breaker)", () => {
+        memory.entries = [
+            entry("a", "Chai run at the corner stall", ["lucknow"], "forever", "2026-10-07 09:00"),
+            entry("b", "Evening plans discussion", ["chai"], "forever", "2026-10-07 10:00"),
+            entry("c", "Tom repaired the drone", ["tom"], "forever", "2026-10-07 11:00")
+        ];
+
+        const lines = memory.searchDeterministic(["chai", "drone"], ["tom"]);
+
+        // c = drone-in-data(5) + member tom(2) = 7 > a = chai-in-data(5) > b = chai-in-tag(4).
+        expect(lines[0]).toContain("Tom repaired the drone");
+        expect(lines[1]).toContain("Chai run");
+    });
+
+    it("requires at least one keyword match for eligibility — member tags alone never qualify", () => {
+        memory.entries = [
+            entry("a", "Tom likes chai on the rooftop", ["tom"], "forever", "2026-10-07 09:00")
+        ];
+
+        expect(memory.searchDeterministic(["football"], ["tom"])).toEqual([]);
+    });
+
+    it("normalizes suffixes so \"drones\" matches \"drone\" and \"repaired\" matches \"repair\"", () => {
+        memory.entries = [
+            entry("a", "Tom repaired the drone", ["tom"], "forever", "2026-10-07 09:00")
+        ];
+
+        expect(memory.searchDeterministic(["drones"], [])).toHaveLength(1);
+        expect(memory.searchDeterministic(["repairing"], [])[0]).toContain("repaired the drone");
     });
 
     it("returns an empty list when there is nothing to search", () => {
@@ -361,5 +392,70 @@ describe("UnifiedMemory — planner scene sync (future events for the cast)", ()
         await memory.syncPlannerScenes(/** @type {any} */ ([]));
         await memory.syncPlannerScenes(/** @type {any} */ (null));
         expect(memory.entries).toHaveLength(0);
+    });
+});
+
+// ─── Phase 4.2: next-10 calendar events seeded into %world% ───────────
+
+describe("UnifiedMemory — calendar event seeding (Phase 4.2)", () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    /** Epoch ms for the current local midnight. */
+    function todayStart() {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    }
+
+    /** @type {Array<{ name: string, dateStr: string, ts: number }>} */
+    const upcomingEvents = [
+        { name: "Diwali Festival of Lights", dateStr: "20 Oct", ts: todayStart() + 10 * dayMs },
+        { name: "Dussehra", dateStr: "30 Oct", ts: todayStart() + 20 * dayMs },
+    ];
+
+    it("seeds upcoming events as ≤80-char %world% records with a 24h TTL", async () => {
+        await memory.syncEnvironment(/** @type {any} */ ({
+            city: "Lucknow",
+            weather: "Sunny",
+            temperature: "32°C",
+            humidity: "50%",
+            todayCelebration: "⏳ 10 days left until Diwali Festival of Lights",
+            upcomingEvents,
+            newsHeadlines: []
+        }));
+
+        const calendar = memory.entries.filter(e => e.tags.includes("calendar"));
+        expect(calendar).toHaveLength(2);
+
+        for (const record of calendar) {
+            expect(record.data.length).toBeLessThanOrEqual(80);
+            expect(record.tags).toContain("%world%");
+            expect(record.tags).toContain("event");
+            expect(record.expiry).toBe("24h");
+        }
+
+        expect(calendar[0].data).toBe("In 10d: Diwali Festival of Lights (20 Oct)");
+        expect(calendar[1].data).toBe("In 20d: Dussehra (30 Oct)");
+    });
+
+    it("replaces previously seeded calendar rows on the next sync", async () => {
+        await memory.syncEnvironment(/** @type {any} */ ({ todayCelebration: "⏳ x", upcomingEvents, newsHeadlines: [] }));
+        await memory.syncEnvironment(/** @type {any} */ ({ todayCelebration: "⏳ x", upcomingEvents: [], newsHeadlines: [] }));
+
+        expect(memory.entries.filter(e => e.tags.includes("calendar"))).toHaveLength(0);
+    });
+
+    it("surfaces a calendar record when the query names the event", async () => {
+        await memory.syncEnvironment(/** @type {any} */ ({ todayCelebration: "⏳ x", upcomingEvents, newsHeadlines: [] }));
+
+        const hits = memory.searchDeterministic(["diwali"], []);
+        expect(hits.length).toBeGreaterThan(0);
+        expect(hits[0]).toContain("Diwali Festival of Lights");
+    });
+
+    it("never surfaces an unrelated calendar record (relevance gate)", async () => {
+        await memory.syncEnvironment(/** @type {any} */ ({ todayCelebration: "⏳ x", upcomingEvents, newsHeadlines: [] }));
+
+        const hits = memory.searchDeterministic(["drone"], ["tom"]);
+        expect(hits.every(line => !line.includes("Dussehra"))).toBe(true);
     });
 });

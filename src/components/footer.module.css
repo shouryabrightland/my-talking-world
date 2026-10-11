@@ -132,44 +132,6 @@
     box-sizing: border-box;
 }
 
-.replyBanner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 14px;
-    background-color: var(--reply-bg);
-    border-left: 4px solid var(--reply-border);
-    gap: 8px;
-    min-width: 0;
-    max-width: 100%;
-    box-sizing: border-box;
-}
-
-/*
- * Flex items default to `min-width: auto`, so a quoted message with
- * `white-space: nowrap` could never shrink and pushed the whole footer out of
- * bounds. Forcing min-width: 0 + overflow: hidden lets the quote truncate
- * cleanly with the inner text-overflow: ellipsis.
- */
-.replyBannerQuote {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-}
-
-.replyCloseBtn {
-    background: none;
-    border: none;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    font-size: 14px;
-    padding: 2px 6px;
-}
-
-.replyCloseBtn:hover {
-    color: var(--text-primary);
-}
-
 /* User Mode Input Form with Safe Area Inset */
 .inputForm {
     display: flex;
@@ -473,10 +435,6 @@
     .charactersTrack {
         gap: 2px;
         padding-top: 8px;
-    }
-    .replyBanner {
-        padding: 4px 8px;
-        font-size: 11px;
     }
 }
 /* ─── Phase 6.4: Active Twists Rail, Cooldown & Notice ──────────────── */

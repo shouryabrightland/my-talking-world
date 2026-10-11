@@ -23,17 +23,21 @@ describe("PromptLogger — token metrics & finish reasons", () => {
             status: "success",
             tokensIn: 1200,
             tokensOut: 340,
+            tokensThinking: 96,
             finishReason: "stop"
         });
 
         expect(entry.tokensIn).toBe(1200);
         expect(entry.tokensOut).toBe(340);
+        // Phase 5.2: the thinking-budget badge reads this field.
+        expect(entry.tokensThinking).toBe(96);
         expect(entry.finishReason).toBe("stop");
 
         const stored = PromptLogger.getLogsForType("dialogue");
         expect(stored).toHaveLength(1);
         expect(stored[0].tokensIn).toBe(1200);
         expect(stored[0].tokensOut).toBe(340);
+        expect(stored[0].tokensThinking).toBe(96);
         expect(stored[0].finishReason).toBe("stop");
     });
 

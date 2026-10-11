@@ -15,14 +15,35 @@ afterEach(() => {
 });
 
 describe("NeedleRouter — deterministic extraction", () => {
-    it("extracts up to 3 keywords and the target cast id", async () => {
+    it("extracts up to 5 keywords and the target cast id", async () => {
         const router = new NeedleRouter();
         const result = await router.route("Tom, drone repair ke baare mein kya socha?");
 
         expect(result.member).toBe("tom");
         expect(result.keywords.length).toBeGreaterThan(0);
-        expect(result.keywords.length).toBeLessThanOrEqual(3);
+        expect(result.keywords.length).toBeLessThanOrEqual(5);
         expect(result.keywords).not.toContain("drone repair ke baare mein kya socha?");
+    });
+
+    it("keeps short 3-letter topical words (kal, aaj, tea, car, app, bus, key)", async () => {
+        const router = new NeedleRouter();
+        const result = await router.route("kal tea pe car ki chain ki key baat karenge aaj");
+
+        expect(result.keywords).toContain("kal");
+        expect(result.keywords).toContain("tea");
+        expect(result.keywords).toContain("car");
+        expect(result.keywords).toContain("key");
+    });
+
+    it("filters expanded conversational filler (remember, thinking, thought, know, tell, said, think, kahan, kaise)", async () => {
+        const router = new NeedleRouter();
+        const result = await router.route("remember what tom said about the drone — kahan gaya, kaise repair hua, think about it");
+
+        for (const filler of ["remember", "said", "kahan", "kaise", "think"]) {
+            expect(result.keywords).not.toContain(filler);
+        }
+        expect(result.keywords).toContain("drone");
+        expect(result.keywords).toContain("repair");
     });
 
     it("resolves member 'any' when no cast member is named", async () => {
@@ -53,7 +74,7 @@ describe("NeedleRouter — deterministic extraction", () => {
         expect(result.keywords).not.toContain("kya");
         expect(result.keywords).not.toContain("about");
         expect(result.keywords).not.toContain("mein");
-        expect(result.keywords.length).toBeLessThanOrEqual(3);
+        expect(result.keywords.length).toBeLessThanOrEqual(5);
         expect(result.keywords).toContain("project");
     });
 

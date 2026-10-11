@@ -54,6 +54,14 @@ const conv = new ConversationManager({
     User: me
 });
 
+// PHASE 6: Dev/harness exposure — Playwright (tests/e2e/real-env.spec.js)
+// drives live engine internals (needleRouter, unifiedMemory, storage, world)
+// directly on the window during browser execution.
+if (import.meta.env.DEV || typeof window !== "undefined") {
+    // @ts-ignore
+    window.conv = conv;
+}
+
 const rootEl = document.getElementById("root");
 if (!rootEl) {
     throw new Error("Initialization aborted: Root entry DOM element '#root' is absent.");

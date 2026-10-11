@@ -5,7 +5,6 @@
  * @typedef {Object} MessageProtocolRecord
  * @property {"message"} recordType
  * @property {number} id Unique turn integer ID.
- * @property {string|null} replyToID Target message ID (integer string or UUID), or null.
  * @property {string} reaction Expressed emotion identifier.
  * @property {string} sender Character ID of the author.
  * @property {string} text Spoken dialogue payload.

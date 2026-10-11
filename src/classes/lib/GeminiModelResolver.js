@@ -29,8 +29,11 @@ const STORAGE_KEY = "gemini_model_pool";
 const COOLDOWN_STATUSES = Object.freeze([429, 503]);
 export const PERMANENT_EJECT_STATUSES = Object.freeze([400, 404]);
 const NON_TEXT_MARKERS = Object.freeze([
-    "embedding",
+    "pro",
+    "image",
     "imagen",
+    "embed",
+    "embedding",
     "veo",
     "tts",
     "audio",
@@ -51,7 +54,8 @@ export function tierOf(id) {
     const n = String(id || "").toLowerCase();
     if (n.includes("flash-lite") || n.includes("flashlite")) return 1;
     if (n.includes("flash")) return 2;
-    if (n.includes("pro")) return 3;
+    // "pro" models are filtered by NON_TEXT_MARKERS before ranking — tier 3
+    // is reserved for any other discovered text checkpoint.
     if (n.includes("gemma")) return 4;
     return 5;
 }

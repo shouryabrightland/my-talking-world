@@ -33,7 +33,7 @@
  */
 
 import Storage from "./lib/Storage";
-import { PROMPT_AGE_MANDATE } from "../util/prompts";
+import { PROMPT_AGE_MANDATE, PROMPT_CHILD_SAFETY_MANDATE } from "../util/prompts";
 
 const SITUATION_STORAGE_KEY = "situation_summary_paragraph";
 const SITUATION_MAX_CHARS = 500;
@@ -274,6 +274,9 @@ export default class SituationEngine {
             "## Age Factor",
             PROMPT_AGE_MANDATE,
             "",
+            "## Child Safety",
+            PROMPT_CHILD_SAFETY_MANDATE,
+            "",
             "## Output Format",
             "Output strictly valid XML matching this structure:",
             "<analysis>",
@@ -405,6 +408,8 @@ export default class SituationEngine {
             `Each record MUST be ${MAX_RECORD_CHARS} characters or fewer: one self-contained fact with concrete entities (place, person, event, number).`,
             "No opinions, no predictions, no advice, no duplicated facts, no meta commentary.",
             "Skip anything that is pure entertainment gossip with no local relevance.",
+            "",
+            PROMPT_CHILD_SAFETY_MANDATE,
             "",
             "## Headlines",
             "```",

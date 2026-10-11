@@ -147,7 +147,7 @@ export default function SceneBar() {
                             <h5 className={styles.sectionHeading}>📍 Real-World Weather & Setting</h5>
                             <p className={styles.sectionText}><strong>Location:</strong> Lucknow, Uttar Pradesh</p>
                             <p className={styles.sectionText}><strong>Weather:</strong> {environment?.weather || "Warm"} ({environment?.temperature || "32°C"}, Humidity: {environment?.humidity || "55%"})</p>
-                            <p className={styles.sectionText}><strong>Occasion:</strong> {environment?.todayCelebration || "Regular day"}</p>
+                            <p className={styles.sectionText}><strong>Occasion:</strong> {environment?.todayCelebration || "No festival today"}</p>
                         </div>
 
                         {/* Active Schedule Main Goal */}

@@ -313,6 +313,8 @@ export default class GroqClient {
                         thinkingChain: thinking, status: "success",
                         tokensIn: streamResult.usage?.prompt_tokens ?? null,
                         tokensOut: streamResult.usage?.completion_tokens ?? null,
+                        // Phase 5.1: reasoning tokens (the 512 thinking budget).
+                        tokensThinking: streamResult.usage?.completion_tokens_details?.reasoning_tokens ?? null,
                         finishReason: streamResult.finishReason
                     });
 
@@ -453,7 +455,12 @@ export default class GroqClient {
                     PromptLogger.record({
                         type: promptType, model: targetModel, startTime,
                         requestMessages: messages, rawResponse: rawText,
-                        thinkingChain: thinking, status: "success"
+                        thinkingChain: thinking, status: "success",
+                        tokensIn: data?.usage?.prompt_tokens ?? null,
+                        tokensOut: data?.usage?.completion_tokens ?? null,
+                        // Phase 5.1: reasoning tokens (the 512 thinking budget).
+                        tokensThinking: data?.usage?.completion_tokens_details?.reasoning_tokens ?? null,
+                        finishReason: data?.choices?.[0]?.finish_reason ?? null
                     });
 
                     return { text: cleanText, model: targetModel, thinking, usage: data?.usage };
@@ -494,7 +501,7 @@ export default class GroqClient {
      * @param {number} temperature
      * @param {number} maxTokens
      * @param {string} key
-     * @returns {Promise<{ text: string, usage: { prompt_tokens?: number, completion_tokens?: number }|null, finishReason: string|null }>}
+     * @returns {Promise<{ text: string, usage: { prompt_tokens?: number, completion_tokens?: number, completion_tokens_details?: { reasoning_tokens?: number } }|null, finishReason: string|null }>}
      */
     async #executeStream(model, messages, temperature, maxTokens, key) {
         const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
@@ -541,7 +548,7 @@ export default class GroqClient {
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
         let fullText = "";
-        /** @type {{ prompt_tokens?: number, completion_tokens?: number }|null} */
+        /** @type {{ prompt_tokens?: number, completion_tokens?: number, completion_tokens_details?: { reasoning_tokens?: number } }|null} */
         let usage = null;
         /** @type {string|null} */
         let finishReason = null;

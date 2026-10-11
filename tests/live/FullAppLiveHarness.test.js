@@ -76,7 +76,7 @@ describe("Web Audio Synthesis — SoundEngine & AmbientSoundEngine", () => {
         expect(() => soundModule.AmbientAudio.setVolume(0.5)).not.toThrow();
         expect(() => soundModule.AmbientAudio.setMix({ melody: 0.4, noise: 0.2, drone: 0.3 })).not.toThrow();
         expect(() => soundModule.AmbientAudio.setBpm(90)).not.toThrow();
-        expect(() => soundModule.AmbientAudio.applyPreset("coffee")).not.toThrow();
+        expect(() => soundModule.AmbientAudio.applyPreset("lounge")).not.toThrow();
         expect(() => soundModule.AmbientAudio.stop()).not.toThrow();
 
         // Mix settings round-trip after preset + volume adjustments

@@ -82,3 +82,29 @@ describe("DevToolsPromptsTab — situation category", () => {
         expect(screen.getByText(/No prompt executions recorded for 'dialogue' yet\./)).toBeTruthy();
     });
 });
+
+// ─── Phase 5.2: reasoning-token badge ──────────────────────────
+
+describe("DevToolsPromptsTab — thinking token badge (Phase 5.2)", () => {
+    it("renders the 🧠 Think badge when reasoning tokens were consumed", () => {
+        const logs = makeLogs();
+        logs.situation = [makeEntry({ tokensThinking: 112 })];
+
+        render(<DevToolsPromptsTab promptLogs={logs} clearPromptLogs={() => {}} />);
+        fireEvent.click(screen.getByRole("button", { name: /🧠 Situation \(1\)/ }));
+
+        expect(screen.getByText(/Think: 112 tok \(Budget: 512\)/)).toBeTruthy();
+    });
+
+    it("hides the badge when no thinking tokens were reported", () => {
+        const logs = makeLogs();
+        logs.situation = [makeEntry({ tokensThinking: null })];
+
+        render(<DevToolsPromptsTab promptLogs={logs} clearPromptLogs={() => {}} />);
+        fireEvent.click(screen.getByRole("button", { name: /🧠 Situation \(1\)/ }));
+
+        expect(screen.queryByText(/Think:/)).toBeNull();
+        // The regular In/Out badge still renders.
+        expect(screen.getByText(/In 220 \/ Out 96/)).toBeTruthy();
+    });
+});

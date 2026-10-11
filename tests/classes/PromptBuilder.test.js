@@ -25,7 +25,8 @@ import {
     PROMPT_DIALOGUE_TASK,
     PROMPT_DIALOGUE_RULES,
     PROMPT_LANGUAGE_MANDATE,
-    PROMPT_LOCATION_MANDATE
+    PROMPT_LOCATION_MANDATE,
+    PROMPT_CHILD_SAFETY_MANDATE
 } from "../../src/util/prompts.js";
 
 // ─── Devanagari Unicode range: \u0900–\u097F ───
@@ -129,6 +130,36 @@ describe("Prompt Templates — Hinglish Language Mandate", () => {
             expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("<thought>"))).toBe(false);
             expect(PROMPT_DIALOGUE_RULES.some(r => r.includes("thought"))).toBe(false);
         });
+
+        it("contains Ben's cartoon-science role (Phase 11.1)", () => {
+            const benRule = PROMPT_DIALOGUE_RULES.find(r => r.includes("BEN'S SCIENCE ROLE"));
+            expect(benRule).toBeDefined();
+            expect(benRule).toContain("cartoon analogies");
+            expect(benRule).toContain("Lucknow Hinglish");
+        });
+    });
+});
+
+// ─── Phase 1.1: child safety mandate ───────────────────────────
+
+describe("PROMPT_CHILD_SAFETY_MANDATE (Phase 1.1)", () => {
+    it("carries the CBSE G-rated contract with in-character bullying shield", () => {
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("<child_safety_mandate>");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("Strictly G-Rated / Family-Friendly");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("NO bullying");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("NO physical danger");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("NO scary or horror tropes");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("in_character_safety_intervention");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("NEVER give a robotic AI disclaimer");
+        expect(PROMPT_CHILD_SAFETY_MANDATE).toContain("conflict_resolution");
+    });
+
+    it("delegates location rules — no chai adda / tea stall defaults", () => {
+        expect(PROMPT_LOCATION_MANDATE).toContain("living room");
+        expect(PROMPT_LOCATION_MANDATE).toContain("school canteen");
+        expect(PROMPT_LOCATION_MANDATE).toContain("Do not default every break to drinking tea or coffee");
+        expect(PROMPT_LOCATION_MANDATE.toLowerCase()).not.toContain("chai adda");
+        expect(PROMPT_LOCATION_MANDATE.toLowerCase()).not.toContain("tea stall");
     });
 });
 

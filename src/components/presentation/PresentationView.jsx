@@ -552,7 +552,7 @@ export default function PresentationView({ onFinish }) {
                                                         <span className={styles.geminiBadge}>Gemini Flash 65K</span>
                                                     </div>
                                                     <div className={styles.demandBox}>
-                                                        <span>"A stray puppy appears at the tea stall at 5 PM"</span>
+                                                        <span>"A stray puppy appears at the park at 5 PM"</span>
                                                         <span className={styles.stagedBadge}>⚡ Staged</span>
                                                     </div>
                                                     <div className={styles.diffCardProposed}>

@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npx playwright test",
+    "test:e2e:headed": "playwright test tests/e2e/real-env.spec.js --headed",
     "test:live:keys": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/DualKeyLiveProbe.test.js",
     "test:live:dialogue": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/DialogueLiveStream.test.js",
     "test:live:planner": "cross-env TEST_LIVE_API=true vitest run --config vitest.live.config.js tests/live/PlannerLiveHorizon.test.js",

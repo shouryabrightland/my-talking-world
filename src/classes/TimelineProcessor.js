@@ -10,8 +10,9 @@ import Logger from "./lib/Logger";
 /** @typedef {import("./types/message.types").MessageEvent} MessageEvent */
 
 /**
- * Calculates human-like typing and reading pacing delays dynamically,
- * resolves parent-child reply hierarchies, and calculates deterministic request pacing.
+ * Calculates human-like typing and reading pacing delays dynamically and
+ * calculates deterministic request pacing. Messages are purely chronological —
+ * no topological reply-graph sorting is performed.
  */
 export default class TimelineProcessor {
 
@@ -59,17 +60,17 @@ export default class TimelineProcessor {
      * Orchestrates pacing delays on newly added messages.
      *
      * @param {Message[]} messages Array of target Messages.
+     * @param {number} [interMessageDelay=0] Gap (ms) before each message's
+     *   typing starts — the inter-message pacing offset (Phase 6.3).
      * @returns {Promise<void>}
      */
-    async process(messages) {
+    async process(messages, interMessageDelay = 0) {
         if (!messages.length) return;
 
         await this.ready();
 
-        const orderedMessages = this.#repairSequence(messages);
-
-        for (const message of orderedMessages) {
-            this.#processMessage(message);
+        for (const message of messages) {
+            this.#processMessage(message, interMessageDelay);
         }
     }
 
@@ -77,95 +78,29 @@ export default class TimelineProcessor {
      * Queues a single message.
      *
      * @param {Message} message Target Message instance.
+     * @param {number} [interMessageDelay=0] Gap (ms) before typing begins.
      * @returns {Promise<void>}
      */
-    async add(message) {
-        await this.process([message]);
-    }
-
-    /**
-     * Re-sorts reply lists topologically so replies appear strictly after parent messages.
-     *
-     * @param {Message[]} messages Target Messages to sort.
-     * @returns {Message[]}
-     */
-    #repairSequence(messages) {
-        const remaining = [...messages];
-        /** @type {Message[]} */
-        const result = [];
-        /** @type {Set<string>} */
-        const placed = new Set();
-
-        const watchdogMax = messages.length * 10;
-        let watchdog = 0;
-
-        while (remaining.length > 0) {
-            watchdog++;
-            if (watchdog > watchdogMax) {
-                this.logger.warn("Circular parent-reply dependency chain detected during topological sort. Bypassing sequence repair.");
-                return messages;
-            }
-
-            let index = -1;
-
-            for (let i = 0; i < remaining.length; i++) {
-                const message = remaining[i];
-                if (!message) continue;
-
-                const reply = this.#getReply(message);
-                if (reply && !placed.has(reply.id)) {
-                    continue;
-                }
-
-                index = i;
-                break;
-            }
-
-            if (index === -1) {
-                result.push(...remaining);
-                break;
-            }
-
-            const message = remaining.splice(index, 1)[0];
-            if (!message) continue;
-
-            result.push(message);
-            placed.add(message.id);
-        }
-
-        return result;
-    }
-
-    /**
-     * Resolves the reply target for a message.
-     *
-     * @param {Message} message
-     * @returns {Message|null}
-     */
-    #getReply(message) {
-        if (message.reply) {
-            return message.reply;
-        }
-
-        const replyId = message.protocol?.replyId;
-        if (!replyId) return null;
-
-        return this.chat.getMessageByProtocolId(replyId) ?? null;
+    async add(message, interMessageDelay = 0) {
+        await this.process([message], interMessageDelay);
     }
 
     /**
      * Schedules typing, reading, and delivery actions across participants.
      *
      * @param {Message} message Target Message.
+     * @param {number} [interMessageDelay=0] Offset (ms) applied to the sender's
+     *   start time BEFORE typingDelay begins, so consecutive bubbles pop in
+     *   with a realistic pause between them (Phase 6.3).
      */
-    #processMessage(message) {
+    #processMessage(message, interMessageDelay = 0) {
         const sender = message.sender;
         if (!sender) return;
 
         const senderScheduler = this.schedulers.get(sender.id);
         if (!senderScheduler) return;
 
-        const senderTime = senderScheduler.getLastTime();
+        const senderTime = senderScheduler.getLastTime() + Math.max(0, interMessageDelay);
         const typingEnd = senderTime + sender.typingDelay(message);
 
         /** @type {MessageEvent[]} */

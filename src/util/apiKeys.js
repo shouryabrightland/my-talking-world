@@ -24,11 +24,19 @@ import {
 
 /**
  * Substrings marking non-text or incompatible Gemini models.
+ *
+ * Pro and multimodal image models are filtered out so they NEVER enter the
+ * routine candidate pool — strict free-tier rate limits (429 lockouts) make
+ * them unusable for high-volume planner/dialogue traffic. Fast text models
+ * (Flash, Flash-Lite, instruction-tuned Gemma) are retained.
  * @readonly @type {readonly string[]}
  */
 export const NON_TEXT_MODEL_MARKERS = Object.freeze([
-    "embedding",
+    "pro",
+    "image",
     "imagen",
+    "embed",
+    "embedding",
     "veo",
     "tts",
     "audio",

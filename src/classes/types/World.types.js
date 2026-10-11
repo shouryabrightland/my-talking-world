@@ -42,6 +42,7 @@
  * @property {string} [title] Display title (kept in sync with `topic`).
  * @property {string} [denseParagraph] Macro atmospheric scene paragraph injected into the dialogue prompt.
  * @property {ScheduleSource} [source] Origin of the block (deltas are regenerated).
+ * @property {"past"|"active"|"upcoming"} [status] Derived lifecycle status vs. the current clock — the full 24-hour day is preserved; past blocks are tagged, never purged.
  * @property {number} createdAt Millisecond epoch when this record was created.
  * @property {number} updatedAt Millisecond epoch when this record was last modified.
  */
@@ -55,6 +56,7 @@
  * @property {string} humidity Relative humidity percentage (e.g. '62%').
  * @property {string} todayCelebration Active festival or holiday from Calendar Bharat.
  * @property {string[]} upcomingFestivals List of upcoming Indian celebrations.
+ * @property {Array<{ name: string, dateStr: string, ts: number }>} upcomingEvents Next 10 dated calendar events (nearest first) for memory seeding.
  * @property {string[]} newsHeadlines Real ongoing headlines from the GDELT DOC 2.0 news API.
  * @property {number} updatedAt Timestamp of the last environmental refresh.
  */

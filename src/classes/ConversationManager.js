@@ -26,14 +26,30 @@ import SituationEngine from "./SituationEngine";
 import World, { WorldEvents } from "./World";
 import UserInterruptHandler from "./lib/UserInterruptHandler";
 import { Members } from "../util/member";
+import { PROMPT_DIALOGUE_SAFETY_COMPACT } from "../util/prompts";
 import { AmbientAudio } from "../util/sound";
 import Logger from "./lib/Logger";
 
 /** Cooldown between director twist injections (30s, Phase 6.2). @type {number} */
 export const DIRECTOR_COOLDOWN_MS = 30_000;
 
+/**
+ * Shared numeric-attribute pattern for `<delay>` tags (Task 7 — seconds-based
+ * delay contract): accepts `ms="2000"` (legacy), `sec="2"` and `s="3"`.
+ * @type {string}
+ */
+export const DELAY_ATTR_PATTERN = String.raw`(?:ms|sec|s)=["'](\d+(?:\.\d+)?)["']`;
+
 /** Maximum concurrent active twists (Phase 6.2). @type {number} */
 export const MAX_ACTIVE_DIRECTIVES = 5;
+
+/**
+ * localStorage key holding the epoch ms wake time of a scheduled `<next>`
+ * pause (Phase 3). Survives page reloads so the cast stays asleep until the
+ * exact same instant, and is cleared the moment a human interrupts.
+ * @type {string}
+ */
+export const NEXT_WAKE_STORAGE_KEY = "tgf:next_wake_time";
 
 /**
  * A single active director incident managed by the Twist Engine.
@@ -135,6 +151,20 @@ export const ConversationEvents = {
 };
 
 export default class ConversationManager {
+    /**
+     * Hard character ceiling for a single chat bubble (Task 6 — expanded
+     * from 70 to 140 for natural sitcom banter, humor and punchlines;
+     * `splitMessageText()` never returns a chunk longer than this).
+     * @readonly
+     */
+    static MAX_BUBBLE_CHARACTERS = 140;
+
+    /**
+     * Pacing gap (ms) inserted between consecutive auto-split bubbles of the
+     * same message (Phase 6.2) — inside the spec's 1000–1500ms band.
+     * @readonly
+     */
+    static SPLIT_GAP_MS = 1200;
 
     /**
      * @param {Object} options
@@ -229,6 +259,12 @@ export default class ConversationManager {
     /** @type {string} Fresh human utterance for the ACTIVE turn (empty on autonomous turns). */ #activeHumanUtterance = "";
     /** @type {number|null} */ #pendingDelayMs = null;
     /** @type {string|null} */ #pendingNextTime = null;
+    /**
+     * Inter-message pacing gap (ms) applied to the NEXT queued bubble —
+     * armed by a `<delay>` that immediately follows a `<msg>` (Phase 6.3).
+     * @type {number}
+     */
+    #interMessageDelayMs = 0;
     /** @type {number} Monotonic completed-turn counter driving the ending lock. */ #turnSequence = 0;
 
     logout() {
@@ -242,6 +278,7 @@ export default class ConversationManager {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
             this.#scheduleNextRequest_TimeOut = null;
         }
+        localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
         this.#interruptHandler.destroy();
         this.#clearTypingSettle();
 
@@ -277,6 +314,7 @@ export default class ConversationManager {
         this.#activeHumanUtterance = "";
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
+        this.#interMessageDelayMs = 0;
         this.pendingDirectorPlot = null;
         this.#directorResponseStarted = false;
         this.activeDirectives = [];
@@ -333,6 +371,14 @@ export default class ConversationManager {
                 this.#runInitialSituationPass();
             },
             "ConversationManager: initial situation on world ready"
+        );
+
+        this.world.events.on(
+            WorldEvents.DEMAND_APPLIED,
+            (/** @type {import("./types/World.types").ScheduleRecord} */ block) => {
+                this.onDemandApplied(block);
+            },
+            "ConversationManager: instant demand chat bridge"
         );
 
         this.world.events.on(
@@ -644,13 +690,47 @@ export default class ConversationManager {
         return { ok: true, twistId: twist.id, cancelled: cancelled.length };
     }
 
+    /**
+     * Task 4 — Instant Chat Bridge: when an accepted Director Demand covers
+     * the CURRENT hour, `world.activeSchedule` has already been refreshed by
+     * World.tick(); this triggers an in-character cast reaction to the
+     * schedule shift on the very next turn.
+     *
+     * @param {import("./types/World.types").ScheduleRecord} block Newly committed block covering the current hour.
+     * @returns {void}
+     */
+    onDemandApplied(block) {
+        if (!block || !this.initialized) return;
+
+        this.logger.info(`Demand bridge: current hour is now "${block.topic}" [${block.timeRange}] — triggering an in-character reaction.`);
+
+        // Surface the schedule shift as a lightweight stage directive so the
+        // next prompt's user turn carries the change.
+        this.pendingDirectorPlot =
+            `The human user just reshaped today's schedule. RIGHT NOW the cast is doing "${block.title || block.topic}" ` +
+            `(${block.timeRange}) — ${block.denseParagraph || block.mainGoal || ""} ` +
+            "The cast reacts in-character to this sudden change.";
+        this.#directorResponseStarted = false;
+
+        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+        this.#haltScheduledDialogue();
+        void this.requestTurn().finally(() => {
+            this.pendingDirectorPlot = null;
+        });
+    }
+
     #handleHumanInterruption() {
         if (this.#scheduleNextRequest_TimeOut !== null) {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
             this.#scheduleNextRequest_TimeOut = null;
         }
+        // PHASE 3.3: Human input cancels any persisted sleep window so a
+        // reload right after this moment boots live instead of dormant.
+        localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
+        this.#interMessageDelayMs = 0;
 
         for (const member of this.chat.getMembers()) {
             if (member.isAI) {
@@ -713,8 +793,62 @@ export default class ConversationManager {
         this.initialized = true;
         this.events.emit(ConversationEvents.READY);
 
-        this.scheduleNextRequest();
+        // PHASE 3.2: Restore a persisted `<next>` sleep window. If the page
+        // reloaded mid-pause, keep the cast ducked/inactive and re-arm the
+        // wake timer for the remaining duration instead of booting a fresh
+        // turn immediately.
+        const savedWakeTime = localStorage.getItem(NEXT_WAKE_STORAGE_KEY);
+        const wakeMs = savedWakeTime === null ? NaN : Number(savedWakeTime);
+
+        if (Number.isFinite(wakeMs) && Date.now() < wakeMs) {
+            const remainingMs = wakeMs - Date.now();
+
+            for (const member of this.chat.getMembers()) {
+                if (member.isAI) {
+                    member.setTransientState("isActive", false, 0);
+                    member.events.emit(ChatMemberEvents.ACTIVE, false);
+                }
+            }
+
+            this.#armWakeTimer(remainingMs);
+            this.logger.info(`Cast asleep until scheduled wake time. Resuming in ${Math.round(remainingMs / 1000)}s.`);
+        } else {
+            if (savedWakeTime !== null) {
+                // Wake time expired while the tab was closed/reloading.
+                localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
+            }
+            this.scheduleNextRequest();
+        }
+
         this.logger.info("ConversationManager initialized and READY.");
+    }
+
+    /**
+     * PHASE 3: Arms the single wake timer shared by freshly parsed `<next>`
+     * schedules and sleep windows restored after a reload. On fire, clears the
+     * persisted wake time, wakes the cast, and requests a fresh turn.
+     *
+     * @param {number} waitDurationMs Milliseconds to sleep before the next turn.
+     * @returns {void}
+     */
+    #armWakeTimer(waitDurationMs) {
+        if (this.#scheduleNextRequest_TimeOut !== null) {
+            clearTimeout(this.#scheduleNextRequest_TimeOut);
+            this.#scheduleNextRequest_TimeOut = null;
+        }
+
+        this.#scheduleNextRequest_TimeOut = setTimeout(() => {
+            this.#scheduleNextRequest_TimeOut = null;
+            localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
+
+            for (const member of this.chat.getMembers()) {
+                if (member.isAI) {
+                    member.setTransientState("isActive", true, 4000);
+                    member.events.emit(ChatMemberEvents.ACTIVE, true);
+                }
+            }
+            void this.requestTurn();
+        }, waitDurationMs);
     }
 
     /**
@@ -741,6 +875,7 @@ export default class ConversationManager {
         this.#directorResponseStarted = false;
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
+        this.#interMessageDelayMs = 0;
         this.#pendingMemorySnippet = "";
         // Fresh human utterance for THIS turn — captured before the Tier-3
         // lookup consumes #userTurnPending. Drives the prompt's "Human Just
@@ -826,14 +961,25 @@ export default class ConversationManager {
         // never keep re-querying with a stale utterance.
         this.#userTurnPending = false;
 
-        // Human turn → their latest words LEAD the query (the deterministic
-        // extractors pick keywords in order of appearance, so the user's
-        // topic wins); autonomous turn → the recent chat alone drives it.
+        // Task 5 — query isolation: the user's LATEST MESSAGE IS the query.
+        // Chat history only enters the route when the message carries ZERO
+        // topical nouns/keywords (e.g. "hello", "acha hai"); autonomous
+        // turns still route the recent chat on its own.
         const humanText = humanTurn
             ? String(userMessageText || this.#lastUserMessageText || "").trim()
             : "";
         const chatText = this.#getRecentChatHistory();
-        const queryText = [humanText, chatText].filter(Boolean).join("\n").trim();
+
+        /** @type {string} */
+        let queryText;
+        if (humanTurn && humanText) {
+            const probe = await this.needleRouter.route(humanText);
+            queryText = probe.keywords.length > 0
+                ? humanText
+                : [humanText, chatText].filter(Boolean).join("\n").trim();
+        } else {
+            queryText = chatText.trim();
+        }
         if (!queryText) return;
 
         try {
@@ -1013,18 +1159,29 @@ export default class ConversationManager {
         const msgTagRegex = /<\s*msg\s+([^>]*?)>([\s\S]*?)<\/\s*msg\s*>/gi;
         let msgMatch;
         let msgLastIndex = 0;
-        /** @type {string[]} */
-        const completedMsgBlocks = [];
+        /** @type {Array<{ block: string, gap: number }>} */
+        const completedMsgs = [];
 
         while ((msgMatch = msgTagRegex.exec(this.protocolBuffer)) !== null) {
-            completedMsgBlocks.push(msgMatch[0]);
+            // Phase 6.3: a <delay> sitting directly before THIS message paces it;
+            // otherwise the gap armed by an earlier trailing <delay> applies.
+            const before = this.protocolBuffer.slice(0, msgMatch.index);
+            const inlineDelay = new RegExp(String.raw`<\s*delay\s+` + DELAY_ATTR_PATTERN + String.raw`\s*\/?>\s*$`, "i").exec(before);
+            const gap = inlineDelay
+                ? ProtocolCodec.parseDelayToMs(inlineDelay[1])
+                : this.#interMessageDelayMs;
+            this.#interMessageDelayMs = 0;
+
+            completedMsgs.push({ block: msgMatch[0], gap });
             msgLastIndex = msgMatch.index + msgMatch[0].length;
         }
 
         if (msgLastIndex > 0) {
+            // Everything up to msgLastIndex — the processed msgs AND the inline
+            // delays that paced them — leaves the buffer together.
             this.protocolBuffer = this.protocolBuffer.slice(msgLastIndex);
 
-            for (const msgBlock of completedMsgBlocks) {
+            for (const { block: msgBlock, gap } of completedMsgs) {
                 const attrs = msgBlock.match(/<\s*msg\s+([^>]*?)>/i)?.[1] || "";
                 const sender = attrs.match(/sender\s*=\s*["']([^"']+)["']/i)?.[1] || "";
                 const reaction = attrs.match(/reaction\s*=\s*["']([^"']+)["']/i)?.[1] || "Default";
@@ -1032,13 +1189,26 @@ export default class ConversationManager {
                     .replace(/<\s*msg\s+[^>]*?>/i, "")
                     .replace(/<\/\s*msg\s*>/gi, "")
                     .trim();
-                this.handleBanterMessage(sender, reaction, text);
+                this.handleBanterMessage(sender, reaction, text, gap);
             }
         }
 
-        const delayMatch = this.protocolBuffer.match(/<\s*delay\s+ms=["'](\d+)["']\s*\/?>/i);
+        const delayMatch = this.protocolBuffer.match(
+            new RegExp(String.raw`<\s*delay\s+` + DELAY_ATTR_PATTERN + String.raw`\s*\/?>`, "i")
+        );
         if (delayMatch) {
-            this.#pendingDelayMs = Math.max(0, Number(delayMatch[1]) || 0);
+            const delayMs = ProtocolCodec.parseDelayToMs(delayMatch[1]);
+            const beforeDelay = this.protocolBuffer.slice(0, delayMatch.index ?? 0);
+            // A trailing/standalone <delay> arms the next-turn schedule; one that
+            // follows a </msg> ALSO arms the gap for the message still to come.
+            // (A delay at index 0 right after this call consumed a <msg> block
+            //  also directly follows that </msg> — the tag was sliced away.)
+            const followsMsg = /<\/\s*msg\s*>\s*$/i.test(beforeDelay) ||
+                ((delayMatch.index ?? 0) === 0 && msgLastIndex > 0);
+            if (followsMsg) {
+                this.#interMessageDelayMs = delayMs;
+            }
+            this.#pendingDelayMs = delayMs;
             this.protocolBuffer = this.protocolBuffer.replace(delayMatch[0], "");
         }
 
@@ -1100,7 +1270,6 @@ export default class ConversationManager {
 
         const message = new Message({
             protocolId: protocol.id == null ? null : String(protocol.id),
-            protocolReplyId: protocol.replyToID == null ? null : String(protocol.replyToID),
             sender,
             text: protocol.text,
             emotion: { name: protocol.reaction }
@@ -1110,12 +1279,61 @@ export default class ConversationManager {
     }
 
     /**
+     * Splits an over-long banter line into bubble-sized chunks (Phase 6.2).
+     *
+     * - Short single-sentence lines pass through untouched.
+     * - Longer lines split first on sentence boundaries (`.`, `!`, `?`),
+     *   then on punctuation pauses, then on word boundaries.
+     * - No returned sub-chunk ever exceeds {@link MAX_BUBBLE_CHARACTERS}.
+     *
+     * @param {string} text Raw model output for one `<msg>`.
+     * @returns {string[]} Bubble-sized chunks (at least one).
+     */
+    splitMessageText(text) {
+        const clean = String(text || "").trim();
+        if (!clean) return [];
+
+        const sentenceCount = (clean.match(/[.!?]+/g) || []).length;
+        if (clean.length <= ConversationManager.MAX_BUBBLE_CHARACTERS && sentenceCount <= 1) {
+            return [clean];
+        }
+
+        /** @type {string[]} */
+        const chunks = [];
+        const max = ConversationManager.MAX_BUBBLE_CHARACTERS;
+
+        for (const sentence of clean.split(/(?<=[.!?])\s+/).filter(Boolean)) {
+            if (sentence.length <= max) {
+                chunks.push(sentence);
+                continue;
+            }
+            for (const part of sentence.split(/(?<=[,;:])\s+/).filter(Boolean)) {
+                if (part.length <= max) {
+                    chunks.push(part);
+                    continue;
+                }
+                let remaining = part;
+                while (remaining.length > max) {
+                    let cut = remaining.lastIndexOf(" ", max);
+                    if (cut <= 0) cut = max;
+                    chunks.push(remaining.slice(0, cut).trim());
+                    remaining = remaining.slice(cut).trim();
+                }
+                if (remaining) chunks.push(remaining);
+            }
+        }
+
+        return chunks.length ? chunks : [clean];
+    }
+
+    /**
      * @param {string} sender
      * @param {string} reaction
      * @param {string} text
+     * @param {number} [interMessageDelay=0] Pacing gap before this bubble (ms).
      * @returns {void}
      */
-    handleBanterMessage(sender, reaction, text) {
+    handleBanterMessage(sender, reaction, text, interMessageDelay = 0) {
         if (!text) return;
 
         const cleanSender = String(sender || "").toLowerCase().trim();
@@ -1132,11 +1350,19 @@ export default class ConversationManager {
             return;
         }
 
-        this.timelineProcessor.add(new Message({
-            sender: member,
-            text,
-            emotion: { name: reaction }
-        }));
+        // Phase 6.2: auto-split over-long lines into consecutive bubbles that
+        // share the same author and emotion, with a pacing gap between them.
+        const chunks = this.splitMessageText(text);
+        chunks.forEach((chunk, index) => {
+            const gap = index === 0
+                ? Math.max(0, interMessageDelay)
+                : ConversationManager.SPLIT_GAP_MS;
+            this.timelineProcessor.add(new Message({
+                sender: member,
+                text: chunk,
+                emotion: { name: reaction }
+            }), gap);
+        });
     }
 
     /**
@@ -1213,6 +1439,7 @@ export default class ConversationManager {
         const nextTimeStr = this.#pendingNextTime;
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
+        this.#interMessageDelayMs = 0;
 
         const lastMessageDeliveredAt = this.timelineProcessor.getLastTime();
         const now = Date.now();
@@ -1228,6 +1455,10 @@ export default class ConversationManager {
             }
             targetTimeMs = targetDate.getTime();
 
+            // PHASE 3.1: Persist the wake instant so a reload mid-pause
+            // restores the exact same sleep window (see #boot).
+            localStorage.setItem(NEXT_WAKE_STORAGE_KEY, String(targetTimeMs));
+
             for (const member of this.chat.getMembers()) {
                 if (member.isAI) {
                     member.setTransientState("isActive", false, 0);
@@ -1237,23 +1468,26 @@ export default class ConversationManager {
             this.logger.info(`Turn completed. Cast paused until ${nextTimeStr} (${Math.round((targetTimeMs - now) / 60000)}m wait).`);
         } else if (explicitDelay !== null) {
             targetTimeMs = Math.max(now, lastMessageDeliveredAt) + explicitDelay;
+            // PHASE 3.1: An explicit `<delay ms="…"/>` is also a future wake
+            // instant — persist it so reloads resume the remaining wait.
+            localStorage.setItem(NEXT_WAKE_STORAGE_KEY, String(targetTimeMs));
+
+            // Turn completed — duck the cast below the footer while they wait.
+            for (const member of this.chat.getMembers()) {
+                if (member.isAI) {
+                    member.setTransientState("isActive", false, 0);
+                    member.events.emit(ChatMemberEvents.ACTIVE, false);
+                }
+            }
             this.logger.info(`Turn completed. Next request scheduled ${explicitDelay / 1000}s AFTER last message delivery.`);
         } else {
+            // Default fast follow-up — nothing meaningful to restore on reload.
+            localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
             targetTimeMs = Math.max(now, lastMessageDeliveredAt) + 4000;
         }
 
         const waitDurationMs = Math.max(100, targetTimeMs - now);
-
-        this.#scheduleNextRequest_TimeOut = setTimeout(() => {
-            this.#scheduleNextRequest_TimeOut = null;
-            for (const member of this.chat.getMembers()) {
-                if (member.isAI) {
-                    member.setTransientState("isActive", true, 4000);
-                    member.events.emit(ChatMemberEvents.ACTIVE, true);
-                }
-            }
-            void this.requestTurn();
-        }, waitDurationMs);
+        this.#armWakeTimer(waitDurationMs);
     }
 
     /**
@@ -1294,6 +1528,7 @@ export default class ConversationManager {
             clearTimeout(this.#scheduleNextRequest_TimeOut);
             this.#scheduleNextRequest_TimeOut = null;
         }
+        localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
         this.#interruptHandler.destroy();
         this.#clearTypingSettle();
 
@@ -1309,6 +1544,7 @@ export default class ConversationManager {
         this.#activeHumanUtterance = "";
         this.#pendingDelayMs = null;
         this.#pendingNextTime = null;
+        this.#interMessageDelayMs = 0;
         this.lastNeedleRoute = null;
         this.lastRetrievedMemory = "";
         this.lastNeedleDetails = null;
@@ -1355,9 +1591,16 @@ export default class ConversationManager {
         builder.useSystem(() => {
             // Strictly AI characters only (never "me")
             const aiMembers = [...this.world.members.values()].filter(m => m.isAI);
-            const castIds = aiMembers
-                .map(m => (Number.isFinite(m.age) && m.age > 0 ? `${m.id} (${m.age})` : m.id))
-                .join(", ") || "tom (28), angela (24), ben (19), ginger (17), hank (26), becca (22)";
+            // Task 6 — dynamic runtime personas: character blocks are built
+            // from the LIVE ChatMember objects (member.age, member.about).
+            // Zero hardcoded names or ages anywhere in the prompt path.
+            const castLines = aiMembers.length > 0
+                ? aiMembers.map(m => {
+                    const age = Number.isFinite(m.age) && m.age > 0 ? `(${m.age})` : "";
+                    const about = String(m.about || "").trim();
+                    return `- ${m.name || m.id} ${age} [id: ${m.id}] — ${about || "No bio available"}`;
+                })
+                : ["- (cast profiles unavailable)"];
 
             const situation = this.situationEngine
                 ? this.situationEngine.situationText
@@ -1386,6 +1629,23 @@ export default class ConversationManager {
                 ]
                 : [];
 
+            // Task 6 — SceneBar & Prompt Alignment: the dialogue prompt sees
+            // EXACTLY what the SceneBar displays — weather, temperature,
+            // occasion, the active scene topic, its denseParagraph, and the
+            // live news headlines.
+            const env = this.world.environment;
+            const sceneBarLines = [
+                "",
+                "## Live SceneBar Context",
+                "```",
+                `- Weather: ${env?.temperature || "32°C"}, ${env?.weather || "Warm"} (Humidity: ${env?.humidity || "55%"})`,
+                `- Occasion: ${env?.todayCelebration || "No festival today"}`,
+                `- Scene: ${activeRecord ? (activeRecord.title || activeRecord.topic) : "Casual Banter"}${activeRecord ? ` (${activeRecord.timeRange})` : ""}`,
+                `- Scene Paragraph: ${activeRecord ? (activeRecord.denseParagraph || activeRecord.mainGoal || activeRecord.topic) : "The cast hangs out together in Lucknow, chatting naturally."}`,
+                `- Headlines: ${(env?.newsHeadlines || []).slice(0, 3).join(" | ") || "None"}`,
+                "```"
+            ];
+
             // Phase 6.3: feed each active director twist's per-status beat
             // under a dedicated heading. Lifecycle advancement (pre → mid →
             // pruned) happens after the turn completes in requestTurn().
@@ -1402,9 +1662,14 @@ export default class ConversationManager {
             return builder.part([
                 "# Live Group Chat: Tom & Friends (Lucknow, India)",
                 "",
+                // PHASE 5: compact markdown safety block replaces the verbose
+                // XML mandate on this token-tight Groq turn (~180-220 tokens
+                // saved). Gemini prompts keep the full XML version.
+                PROMPT_DIALOGUE_SAFETY_COMPACT,
+                "",
                 "## Cast:",
-                castIds,
-                "- Speak each cast member at their listed age.",
+                ...castLines,
+                "- Speak each character at their exact age. The science-enthusiast member explains concepts using funny cartoon analogies.",
                 "",
                 "## Ambient Setting",
                 "```",
@@ -1413,6 +1678,7 @@ export default class ConversationManager {
                 "```",
                 memorySection,
                 ...sceneLines,
+                ...sceneBarLines,
                 ...directorSection,
                 "## Turn Priority",
                 "1) The human's LATEST message — answer it first.",
@@ -1424,11 +1690,12 @@ export default class ConversationManager {
                 `- Characters: only the AI cast; never answer for the human ("me").`,
                 "- Output 1-3 messages:",
                 '<msg sender="id" reaction="ReactionName">message text</msg>',
-                "- HARD LIMIT: each message must be UNDER 100 characters. If a thought is longer, split it naturally into 2 shorter messages (each still under 100 chars).",
+                "- BUBBLE LENGTH: every message must be 1-2 short sentences UNDER 140 characters (natural WhatsApp/tweet-style sitcom banter — humor and punchlines welcome). If a character has more to say, split it across 2-3 separate <msg> tags.",
+                '- TIMING: put <delay sec="1"/> to <delay sec="2"/> directly after EACH <msg> tag for natural cartoon pacing (SECONDS, not milliseconds).',
                 `- Valid reactions (exact): {${Reaction.EMOTION.map(e => e.name).join(", ")}}. Use Default if unsure.`,
-                "- After all messages, output exactly one pacing tag:",
-                '  * Banter: <delay ms="3000"/> to <delay ms="5000"/>',
-                '  * Thinking / waiting on the human: <delay ms="20000"/> to <delay ms="60000"/>',
+                "- After the LAST message, output exactly one end-of-turn pacing tag:",
+                '  * Banter: <delay sec="3"/> to <delay sec="5"/>',
+                '  * Thinking / waiting on the human: <delay sec="20"/> to <delay sec="60"/>',
                 '  * Wrapping up, signing off, or meeting later: <next time="HH:MM"/> (e.g. <next time="18:30"/>). Use <next> (not <delay>) for time jumps.'
             ].filter(Boolean).join("\n"));
         });

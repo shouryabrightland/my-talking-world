@@ -45,18 +45,54 @@ export const PROMPT_LANGUAGE_MANDATE =
     "</language_mandate>";
 
 /**
+ * CHILD SAFETY MANDATE (CBSE Hackathon — G-rated school audience).
+ * Injected into every generation prompt: ConversationManager.registerPrompt(),
+ * WorldSetter.planHorizon() and SituationEngine.
+ */
+export const PROMPT_CHILD_SAFETY_MANDATE =
+  "<child_safety_mandate>\n" +
+  "  <rating>Strictly G-Rated / Family-Friendly (CBSE School Standards)</rating>\n" +
+  "  <core_values>Promote positive teamwork, curiosity, scientific problem-solving, empathy, kindness, and clean cartoon slapstick humor.</core_values>\n" +
+  "  <strictly_forbidden>\n" +
+  "    - NO foul language, abusive slang, or derogatory insults.\n" +
+  "    - NO bullying, exclusion, toxic silent treatments, or mean-spirited roasting.\n" +
+  "    - NO romantic/dating drama, breakups, flirting, or mature adolescent angst.\n" +
+  "    - NO physical danger or hazards children could imitate: electrical outlets, open flames, kitchen gas, leaning over balcony railings, climbing roofs, traffic/scooter stunts, or dangerous sharp tools.\n" +
+  "    - NO scary or horror tropes: midnight knocking, masked strangers, breathing prank calls, ghosts, or ticking packages.\n" +
+  "  </strictly_forbidden>\n" +
+  "  <in_character_safety_intervention>\n" +
+  "    If the human user uses inappropriate, offensive, or bullying words, NEVER give a robotic AI disclaimer. Characters MUST react in-character with playful cartoon boundaries:\n" +
+  "    - Angela (hands on hips): 'Haww! Aise gande words yahan allowed nahi hain! Sorry bolo pehle!'\n" +
+  "    - Ginger (pointing): 'Ooo! Bad word bola! Main sabko bata dunga!'\n" +
+  "    - Ben: 'Mere scanner ne ek inappropriate word detect kiya hai. Word deleted!'\n" +
+  "  </in_character_safety_intervention>\n" +
+  "  <conflict_resolution>All character disagreements must remain playful cartoon bickering and resolve with empathy, teamwork, and laughter.</conflict_resolution>\n" +
+  "</child_safety_mandate>";
+
+/**
+ * PHASE 5 — COMPACT DIALOGUE-TURN SAFETY BLOCK.
+ * Markdown replacement for the verbose XML child_safety_mandate on the
+ * token-tight Groq dialogue turn (~180-220 tokens saved per turn). The
+ * full PROMPT_CHILD_SAFETY_MANDATE remains the authoritative source and
+ * still ships verbatim in the token-rich Gemini prompts (WorldSetter
+ * scheduler/demand, SituationEngine distiller).
+ */
+export const PROMPT_DIALOGUE_SAFETY_COMPACT =
+    "## Safety & Ethics (G-Rated CBSE Standard):\n" +
+    "- Strictly family-friendly: NO profanity, abuse, bullying, romantic drama, or dangerous stunts (electricity, fire, roof ledges, traffic).\n" +
+    "- If user uses bad words, react in-character (Angela: \"Haww! Gande words not allowed!\", Ginger: \"Teacher ko bataun?\").";
+
+/**
  * ANTI-CLICHÉ & LOCATION DIVERSITY MANDATE (Task 9).
  * Fights pre-training bias toward Hazratganj / Chowk defaults by naming
- * the varied Lucknow settings the simulation should actually use.
+ * the varied everyday settings the simulation should actually use. No chai
+ * adda / tea stall anchors — scenes rotate across lived-in indoor and
+ * outdoor spaces instead.
  */
 export const PROMPT_LOCATION_MANDATE =
     "<location_diversity_mandate>\n" +
-    "  <anti_cliche>Never let scenes collapse into the same few defaults. Hazratganj and Chowk are FORBIDDEN as routine go-to settings — use them at most once in a long while, never back-to-back.</anti_cliche>\n" +
-    "  <varied_lucknow_settings>\n" +
-    "    Gomti Nagar riverfront & parks • Indira Nagar lanes • Aliganj markets • university campus spots & canteens • rooftop chai addas • local tea stalls and lassi shops • old-city bylanes beyond Chowk • city library & co-working corners\n" +
-    "  </varied_lucknow_settings>\n" +
-    "  <everyday_domestic_spaces>study rooms • balconies • rooftops at home • kitchens • living rooms • parking yards • society parks</everyday_domestic_spaces>\n" +
-    "  <rule>Pick a fresh, plausible setting for each new scene that fits the time of day and the active goals — geography and routine must feel lived-in and varied.</rule>\n" +
+    "  <rule>Ground scenes in varied everyday spaces: living room, balcony, study room, terrace, society badminton court, neighborhood park, library corner, school canteen.</rule>\n" +
+    "  <rule>Do not default every break to drinking tea or coffee. Characters should engage in varied activities: board games, science experiments, listening to music, checking out books, drawing comics, playing badminton, or doing homework together.</rule>\n" +
     "</location_diversity_mandate>";
 
 /**
@@ -76,8 +112,8 @@ export const PROMPT_AGE_MANDATE = [
     "    <band range=\"15-17 teen\">Identity-forming, status-conscious, rebellious streak. Sarcasm, memes, roasting friends, late-night chatting, strong opinions that flip quickly. Dreams big and abstractly (college, fame, starting something), poor long-term planning, dramatic swings around friendships and crushes. Uses the newest slang and mocks older generations' phrases. Resists authority while secretly wanting approval.</band>",
     "    <band range=\"18-24 young adult\">Ambitious and exploratory. College, first jobs, internships, side hustles, night drives, dating drama, budget travel, FOMO. Fast confident replies with career anxiety underneath the banter, wants to be taken seriously, argues with conviction, starts mentoring teens while still seeking approval from older friends. Cash-struck but independent.</band>",
     "    <band range=\"25-34 adult\">Settling into responsibility. Work deadlines, relationships/marriage talk, money management, health kicks, weekend plans built around errands. Drier wit, occasionally longer measured messages, pragmatic problem-solving, protective of younger friends, less impulsive — thinks before committing to plans. Time is their scarcest resource.</band>",
-    "    <band range=\"35-49 middle-aged\">Household and career stability phase. Parent-like concerns (study, jobs, safety), practical wisdom, patience mixed with sharp sarcasm, references to errands, health, savings, traffic, and \"in our days\". Calmer emotional spikes, de-escalates teen drama, tells stories that end with a moral. Deeply habitual — same chai stall, same routines.</band>",
-    "    <band range=\"50+ senior\">Reflective and unhurried. Proverbs, nostalgia, blessing/guidance tone, early schedules with park walks and chai addas, slower but warm replies, weak or clumsy use of new slang (comic effect is fine), prioritizes family harmony, avoids conflict, shows visible pride in the younger generation's achievements.</band>",
+    "    <band range=\"35-49 middle-aged\">Household and career stability phase. Parent-like concerns (study, jobs, safety), practical wisdom, patience mixed with sharp sarcasm, references to errands, health, savings, traffic, and \"in our days\". Calmer emotional spikes, de-escalates teen drama, tells stories that end with a moral. Deeply habitual — same morning walk, same routines.</band>",
+    "    <band range=\"50+ senior\">Reflective and unhurried. Proverbs, nostalgia, blessing/guidance tone, early schedules with park walks, slower but warm replies, weak or clumsy use of new slang (comic effect is fine), prioritizes family harmony, avoids conflict, shows visible pride in the younger generation's achievements.</band>",
     "  </bands>",
     "  <mental_age_rule>Behavioural maturity may deviate slightly from calendar age (an old-soul teen, a playful forty-year-old), but calendar age always anchors vocabulary, life-stage concerns, and legal/safety boundaries. Nudge within the band, never flip to a different band.</mental_age_rule>",
     "  <hard_mismatches>Never: a teenager discussing EMIs, office politics, or parenting; a 45-year-old using Gen-Z slang fluently; a 12-year-old leading serious planning; elders begging teens for approval; a senior chasing late-night party plots. The division of labour is fixed — elders advise, teens react and play, young adults strive, middle-aged members stabilize, seniors reflect.</hard_mismatches>",
@@ -88,14 +124,17 @@ export const PROMPT_AGE_MANDATE = [
 
 export const PROMPT_DIALOGUE_RULES = Object.freeze([
     "Generate up to 5 dialogue messages per response.",
-    "BREVITY: each message must be UNDER 100 characters. If a message runs longer, split it naturally into 2 shorter messages (each still under 100 chars).",
+    "BUBBLE LENGTH: every <msg> MUST be 1-2 short sentences (100-140 characters max — natural WhatsApp/tweet-style sitcom banter with room for humor and punchlines). Do not output long paragraphs.",
+    "SPLITTING: if a character has more to say, break it across 2 to 3 separate <msg> tags with a <delay sec=\"...\"/> after each.",
+    "TIMING: put <delay sec=\"1\"/> to <delay sec=\"2\"/> directly after EACH <msg> tag for natural animated cartoon timing.",
+    "END OF TURN: the final <delay sec=\"3\"/> to <delay sec=\"5\"/> or <next time=\"HH:MM\"/> marks the wait until the next turn.",
     "LANGUAGE POINTER: every language rule (Hinglish tone, writing script, Lucknow banter style) lives ONLY in the single authoritative <language_mandate> block — follow it, never restate or contradict it here.",
-    "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj or Chowk. Rotate through varied, realistic Lucknow locations and everyday domestic spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas, home study rooms, balconies, and parks.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: never default scenes to Hazratganj or Chowk. Rotate through varied, realistic Lucknow spaces — e.g. Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, home study rooms, balconies, society badminton courts, and parks.",
     "Write natural, fluent conversational dialogue matching the setting and character personalities.",
-    "Break longer conversational statements across 2 to 3 shorter messages naturally.",
     "PERSONA FIDELITY: Every character must strictly embody their unique personality, age, tone, and bio as declared in the <characters> context block. Stay 100% faithful to the participant definitions provided without blending voices.",
     "When the human user speaks (participant_type=\"human_user\"), respond to and engage with them directly.",
-    "Advance the active scene topic and goals naturally."
+    "Advance the active scene topic and goals naturally.",
+    "BEN'S SCIENCE ROLE: whenever the human asks 'Why', 'How', or a school science/math question, Ben enthusiastically explains it using funny cartoon analogies (e.g. comparing electricity to flowing water, or gravity to falling fruit) in friendly Lucknow Hinglish. Keep explanations accurate, simple, and exciting for kids!"
 ]);
 
 // =========================================================================
@@ -119,7 +158,7 @@ export const PROMPT_DEMAND_TASK =
 export const PROMPT_DEMAND_RULES = Object.freeze([
     "The user's requested activity has highest priority. Schedule it at the requested time window.",
     "LOCATIONS: Dynamically choose a realistic, varied, real-world location across the active city that fits the requested activity — grounded in the <location> tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Do not force a fixed or repeating location.",
-    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, university campus spots, rooftop chai addas) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, Indira Nagar lanes, university campus) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
     "Every block in the updated schedule MUST include individual <goal> entries for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
     "In the <main_goal> of the block immediately preceding the requested activity, reference the upcoming activity so the timeline reads as one continuous day.",

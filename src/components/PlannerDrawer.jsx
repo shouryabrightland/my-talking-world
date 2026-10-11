@@ -32,13 +32,17 @@ import { PlannerStreamEvents } from "../classes/WorldSetter";
 
 /**
  * Formats a decimal hour into standard 24-hour clock string (e.g. 14.5 -> "14:30").
+ * Minute-overflow safe: 14.999 renders "15:00" (never "14:60") and values
+ * past midnight clamp to "24:00" (Task 2).
  *
  * @param {number} decimal
  * @returns {string}
  */
 function formatHour(decimal) {
-    const h = Math.floor(decimal);
-    const m = Math.round((decimal - h) * 60);
+    let h = Math.floor(decimal);
+    let m = Math.round((decimal - h) * 60);
+    if (m >= 60) { h += 1; m = 0; }
+    if (h >= 24) { h = 24; m = 0; }
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
@@ -411,15 +415,16 @@ export default function PlannerDrawer() {
     const handleReorder = useCallback(async (/** @type {string} */ recordId, /** @type {'up' | 'down'} */ direction) => {
         if (!world?.worldSetter) return;
 
-        const idx = records.findIndex(r => r.id === recordId);
-        if (idx === -1) return;
+        if (!records.some(r => r.id === recordId)) return;
 
         setReorderingId(recordId);
 
         // Smooth animation delay
         await new Promise(r => setTimeout(r, 250));
 
-        world.worldSetter.reorderBlocks(idx, direction);
+        // Task 3: reorders bind STRICTLY to record.id — only the affected
+        // pair swaps time slots; unrelated blocks are never re-timed.
+        world.worldSetter.reorderBlocksById(recordId, direction);
         refreshRecords();
 
         setReorderingId(null);
@@ -516,16 +521,28 @@ export default function PlannerDrawer() {
 
     // ─── Delete ──────────────────────────────────────────────────────────
 
+    /** One-off block delete (no recurring rule involved). */
     const handleDeleteRecord = useCallback(async (/** @type {string} */ id) => {
         if (!world?.worldSetter) return;
-        if (templates.some(t => t.id === id)) {
-            // Template delete removes the library entry AND its placed copy.
-            await world.worldSetter.deleteTemplate(id);
-        } else {
-            await world.worldSetter.deleteRecord(id);
-        }
+        await world.worldSetter.deleteRecord(id);
         refreshRecords();
-    }, [world, refreshRecords, templates]);
+    }, [world, refreshRecords]);
+
+    // Task 3: template protection — deleting TODAY'S INSTANCE of a recurring
+    // block is a different action from deleting the permanent recurrence
+    // RULE stored in the template library.
+    const handleDeleteTodayInstance = useCallback(async (/** @type {string} */ id) => {
+        if (!world?.worldSetter) return;
+        await world.worldSetter.deleteTodayInstance(id);
+        refreshRecords();
+    }, [world, refreshRecords]);
+
+    const handleDeleteTemplateRule = useCallback(async (/** @type {string} */ id) => {
+        if (!world?.worldSetter) return;
+        // Template rule delete removes the library entry AND its placed copy.
+        await world.worldSetter.deleteTemplate(id);
+        refreshRecords();
+    }, [world, refreshRecords]);
 
     const handleCreateBlock = useCallback(async () => {
         if (!world?.worldSetter || !createForm.topic.trim()) return;
@@ -556,6 +573,16 @@ export default function PlannerDrawer() {
         refreshRecords();
     }, [world, createForm, refreshRecords]);
 
+    // Task 3: blocks newly proposed by the active proposal (not yet committed
+    // to today's timeline) — merged into the timeline preview at their exact
+    // time slots with a bright green "+ PROPOSED" badge.
+    const proposedAddBlocks = useMemo(() => {
+        if (!proposal) return [];
+        return proposal.changes
+            .filter(c => c.action === "add")
+            .map(c => c.block);
+    }, [proposal]);
+
     // ─── Hybrid Planner: visible list (filters + title search) ───
     const visibleRecords = useMemo(() => {
         /** @type {ScheduleRecord[]} */
@@ -569,12 +596,22 @@ export default function PlannerDrawer() {
             list = [...templates.filter(t => !todayIdSet.has(t.id)), ...records];
         }
 
+        // Task 3: merged proposal preview — render the proposed additions
+        // alongside the existing day so the diff is fully interactive.
+        if (proposedAddBlocks.length > 0 && filterMode !== "templates") {
+            const existingIds = new Set(list.map(r => r.id));
+            list = [
+                ...list,
+                ...proposedAddBlocks.filter(b => !existingIds.has(b.id))
+            ];
+        }
+
         list.sort((a, b) => a.startHour - b.startHour);
 
         const query = searchQuery.trim().toLowerCase();
         if (!query) return list;
         return list.filter(r => String(r.title || r.topic || "").toLowerCase().includes(query));
-    }, [filterMode, records, templates, todayIdSet, searchQuery]);
+    }, [filterMode, records, templates, todayIdSet, searchQuery, proposedAddBlocks]);
 
     return (
         <div
@@ -767,11 +804,7 @@ export default function PlannerDrawer() {
                             {streamingBlocks.map((block, idx) => {
                                 const sHour = block.startHour ?? 0;
                                 const eHour = block.endHour ?? sHour + 1;
-                                const h1 = Math.floor(sHour);
-                                const m1 = Math.round((sHour - h1) * 60);
-                                const h2 = Math.floor(eHour);
-                                const m2 = Math.round((eHour - h2) * 60);
-                                const tr = `${String(h1).padStart(2, "0")}:${String(m1).padStart(2, "0")} - ${String(h2).padStart(2, "0")}:${String(m2).padStart(2, "0")}`;
+                                const tr = `${formatHour(sHour)} - ${formatHour(eHour)}`;
 
                                 return (
                                     <div key={`stream-${idx}-${sHour}`} className={`${styles.sceneCard} ${styles.sceneCardStreaming}`}>
@@ -934,6 +967,13 @@ export default function PlannerDrawer() {
                             const isRemoved = proposal?.changes.some(c => c.action === "remove" && c.block.id === record.id);
                             const diffClass = isProposed ? styles.sceneCardProposed : (isRemoved ? styles.sceneCardRemoved : "");
 
+                            // Task 2: past blocks stay visible for the full day, greyed out.
+                            const pastClass = record.status === "past" && !isCurrent ? styles.sceneCardPast : "";
+
+                            // Task 3: template protection — recurring rules offer a
+                            // separate "delete the permanent rule" action.
+                            const isRecurringRule = templates.some(t => t.id === record.id);
+
                             // Timeline continuity: surface non-contiguous blocks with a gap line.
                             const nextRecord = visibleRecords[idx + 1];
                             const gapMinutes = nextRecord ? Math.round((nextRecord.startHour - record.endHour) * 60) : 0;
@@ -945,7 +985,7 @@ export default function PlannerDrawer() {
                             return (
                                 <React.Fragment key={record.id}>
                                 <div
-                                    className={`${styles.sceneCard} ${variantClass} ${isCurrent ? styles.sceneCardCurrent : ""} ${isReordering ? styles.sceneCardReordering : ""} ${diffClass}`}
+                                    className={`${styles.sceneCard} ${variantClass} ${isCurrent ? styles.sceneCardCurrent : ""} ${isReordering ? styles.sceneCardReordering : ""} ${diffClass} ${pastClass}`}
                                     style={isReordering ? { transform: "translate3d(0, -4px, 0)", opacity: 0.7 } : undefined}
                                 >
                                     {/* ─── Card Header (always visible) ─── */}
@@ -994,7 +1034,7 @@ export default function PlannerDrawer() {
                                         >
                                             <div className={styles.minimizedTitleGroup}>
                                                 <span className={isCurrent ? styles.timeBadgeCurrent : styles.timeBadge}>
-                                                    {record.timeRange} {isCurrent && "• ACTIVE"}
+                                                    {record.timeRange} {isCurrent && "• ACTIVE"}{!isCurrent && record.status === "past" && "• PAST"}
                                                 </span>
                                                 <h4 className={styles.minimizedTitle}>{record.title || record.topic}</h4>
                                                 {recurrenceLabel && (
@@ -1043,14 +1083,35 @@ export default function PlannerDrawer() {
                                                 >
                                                     ✏️ Edit Block
                                                 </button>
-                                                <button
-                                                    onClick={() => handleDeleteRecord(record.id)}
-                                                    className={styles.deleteBtn}
-                                                    title="Delete block"
-                                                    aria-label="Delete block"
-                                                >
-                                                    🗑️ Delete
-                                                </button>
+                                                {isRecurringRule ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleDeleteTodayInstance(record.id)}
+                                                            className={styles.deleteBtn}
+                                                            title="Delete only today's instance — the recurring rule stays"
+                                                            aria-label="Delete today's instance"
+                                                        >
+                                                            🗑️ Delete Today
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteTemplateRule(record.id)}
+                                                            className={styles.deleteBtn}
+                                                            title="Delete the permanent recurring rule (all future days)"
+                                                            aria-label="Delete recurring rule"
+                                                        >
+                                                            🗑️ Delete Rule
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handleDeleteRecord(record.id)}
+                                                        className={styles.deleteBtn}
+                                                        title="Delete block"
+                                                        aria-label="Delete block"
+                                                    >
+                                                        🗑️ Delete
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     )}

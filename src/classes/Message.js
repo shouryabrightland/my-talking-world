@@ -6,7 +6,6 @@
  *
  * Responsibilities:
  * - Stores message body text, sender reference, and emotion metadata.
- * - Manages parent-child reply relationships via protocol IDs.
  * - Supports soft-deletion and sent-state tracking.
  * - Provides JSON serialization/deserialization for IndexedDB persistence.
  * - Generates LLM prompt-ready string representations.
@@ -19,7 +18,7 @@ import ReactionClass from "./Reaction";
 
 /**
  * Data structure representing a conversational exchange.
- * Supports emotion metadata and quote relationships.
+ * Strictly chronological — quote replies and parent-child trees were removed.
  */
 export default class Message {
 
@@ -27,7 +26,6 @@ export default class Message {
      * @param {Object} options
      * @param {string} [options.id] Unique UUID.
      * @param {string|null} [options.protocolId] String index of the parsed protocol ID.
-     * @param {string|null} [options.protocolReplyId] Target protocol ID this message is replying to.
      * @param {ChatMember|null} options.sender ChatMember instance of the author.
      * @param {string} [options.text] Message body text.
      * @param {{name?: string, intensity?: number}} [options.emotion] Character emotional metrics.
@@ -35,7 +33,6 @@ export default class Message {
     constructor({
         id = crypto.randomUUID(),
         protocolId = null,
-        protocolReplyId = null,
         sender,
         text = "",
         emotion = {}
@@ -46,10 +43,6 @@ export default class Message {
 
         if (protocolId !== null && !Message.#validId(protocolId)) {
             throw new TypeError("Initialization rejected: Protocol ID must be a non-empty string or null.");
-        }
-
-        if (protocolReplyId !== null && !Message.#validId(protocolReplyId)) {
-            throw new TypeError("Initialization rejected: Protocol Reply ID must be a non-empty string or null.");
         }
 
         if (typeof text !== "string") {
@@ -67,12 +60,11 @@ export default class Message {
         this.id = id;
 
         /** 
-         * Parent-child reply mapping parameters.
-         * @type {{id: string|null, replyId: string|null}} 
+         * Parsed protocol index for this message.
+         * @type {{id: string|null}} 
          */
         this.protocol = {
-            id: protocolId,
-            replyId: protocolReplyId
+            id: protocolId
         };
 
         /** 
@@ -96,12 +88,6 @@ export default class Message {
             emoji: info.emoji,
             intensity: Message.#validIntensity(emotion?.intensity) ? /** @type {number} */ (emotion.intensity) : 0
         };
-
-        /** 
-         * Parent message reference when this is a reply.
-         * @type {Message|null} 
-         */
-        this.reply = null;
 
         /** 
          * Soft-deletion state flag.
@@ -156,27 +142,12 @@ export default class Message {
         };
     }
 
-    /**
-     * Establishes a reply connection to a parent message.
-     * @param {Message|null} message
-     */
-    setReply(message) {
-        if (message !== null && !(message instanceof Message)) {
-            throw new TypeError("Failed to assign reply reference: Expected a Message instance or null.");
-        }
-        this.reply = message;
-    }
-
     delete() {
         this.deleted = true;
     }
 
     isDeleted() {
         return this.deleted;
-    }
-
-    isReply() {
-        return this.reply !== null;
     }
 
     sent() {
@@ -192,18 +163,16 @@ export default class Message {
     }
 
     /**
-     * Outputs an LLM prompt-ready string representation with inlined quotes.
+     * Outputs an LLM prompt-ready string representation.
      *
      * @param {Object} [options]
      * @param {boolean} [options.includeProtocol=false]
      * @param {boolean} [options.includeTimestamp=false]
-     * @param {number} [options.maxQuoteLength=60]
      * @returns {string|null}
      */
     toString({
         includeProtocol = false,
-        includeTimestamp = false,
-        maxQuoteLength = 60
+        includeTimestamp = false
     } = {}) {
         if (this.deleted) {
             return null;
@@ -220,23 +189,7 @@ export default class Message {
         const senderName = this.sender?.name ?? this.sender?.id ?? "Director/System";
         const emotionName = this.emotion?.name || "Default";
 
-        let replyContext = "";
-
-        if (includeProtocol) {
-            if (this.reply && this.reply.sender) {
-                const replyAuthor = this.reply.sender.name || this.reply.sender.id;
-                const cleanText = this.reply.text.trim();
-                const snippet = cleanText.length > maxQuoteLength
-                    ? `${cleanText.slice(0, maxQuoteLength)}...`
-                    : cleanText;
-
-                replyContext = ` [Replying to ${replyAuthor}: "${snippet}"]`;
-            } else if (this.protocol.replyId) {
-                replyContext = ` [Replying to Msg #${this.protocol.replyId}]`;
-            }
-        }
-
-        return `${timeStr}${idPrefix}${senderName} (${emotionName})${replyContext}: ${this.text}`.trim();
+        return `${timeStr}${idPrefix}${senderName} (${emotionName}): ${this.text}`.trim();
     }
 
     /**
@@ -246,12 +199,10 @@ export default class Message {
      *   id: string,
      *   senderId: string|null,
      *   protocolId: string|null,
-     *   protocolReplyId: string|null,
      *   text: string,
      *   emotion: {name: string, emoji: string, intensity: number},
      *   deleted: boolean,
-     *   sentAt: string|null,
-     *   replyId: string|null
+     *   sentAt: string|null
      * }}
      */
     toJSON() {
@@ -259,12 +210,10 @@ export default class Message {
             id: this.id,
             senderId: this.sender?.id ?? null,
             protocolId: this.protocol.id,
-            protocolReplyId: this.protocol.replyId,
             text: this.text,
             emotion: { ...this.emotion },
             deleted: this.deleted,
-            sentAt: this.sentAt?.toISOString() ?? null,
-            replyId: this.reply?.id ?? null
+            sentAt: this.sentAt?.toISOString() ?? null
         };
     }
 
@@ -284,7 +233,6 @@ export default class Message {
             id: data.id,
             sender,
             protocolId: Message.#nullableId(data.protocolId),
-            protocolReplyId: Message.#nullableId(data.protocolReplyId),
             text: typeof data.text === "string" ? data.text : "",
             emotion: Message.#validEmotion(data.emotion) ? data.emotion : {}
         });
@@ -352,12 +300,6 @@ export default class Message {
             return false;
         }
         if (obj.protocolId !== null && !Message.#validId(obj.protocolId)) {
-            return false;
-        }
-        if (obj.protocolReplyId !== null && !Message.#validId(obj.protocolReplyId)) {
-            return false;
-        }
-        if (obj.replyId !== null && !Message.#validId(obj.replyId)) {
             return false;
         }
         if (typeof obj.text !== "string") {

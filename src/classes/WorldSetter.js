@@ -15,13 +15,14 @@
  * @typedef {import("./lib/PromptLogger").PromptType} PromptType
  */
 
-import GeminiClient, { GOOGLE_SEARCH_TOOL, DEEP_THINKING_BUDGET, STABILIZER_THINKING_BUDGET } from "./GeminiClient";
+import GeminiClient, { DEEP_THINKING_BUDGET, STABILIZER_THINKING_BUDGET } from "./GeminiClient";
 import GeminiModelPool from "./lib/GeminiModelResolver";
 import PromptBuilderClass from "./PromptBuilder";
 import Storage from "./lib/Storage";
 import ProtocolCodec from "./ProtocolCodec";
 import XmlEncoder from "./lib/XmlEncoder";
 import { ChatMemberEvents } from "./ChatMember";
+import { WorldEvents } from "./World";
 import { getEnvironmentSnapshot } from "../util/environment";
 import {
     DEFAULT_GEMINI_MODEL,
@@ -31,7 +32,7 @@ import {
     PROMPT_RESTABILIZER_TASK,
     PROMPT_RESTABILIZER_RULES
 } from "../util/Constants";
-import { PROMPT_AGE_MANDATE } from "../util/prompts";
+import { PROMPT_AGE_MANDATE, PROMPT_CHILD_SAFETY_MANDATE } from "../util/prompts";
 
 /** Legacy monolithic horizon key — migrated into `world:schedule_today` on boot. */
 const SCHEDULE_STORAGE_KEY = "world:schedule_v2";
@@ -39,6 +40,8 @@ const SCHEDULE_STORAGE_KEY = "world:schedule_v2";
 const TODAY_STORAGE_KEY = "world:schedule_today";
 /** Template library: every non-"once" block, protected from today's overrides. */
 const TEMPLATES_STORAGE_KEY = "world:schedule_templates";
+/** Calendar-day key guarding today's timeline against cross-day restores. */
+const TODAY_DATE_KEY = "world:schedule_today_date";
 const STREAM_PROGRESS_DEBOUNCE_MS = 150;
 const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
@@ -77,6 +80,10 @@ export default class WorldSetter {
 
         /** @type {ScheduleRecord[]} */ this.schedule = [];
         /** @type {ScheduleRecord[]} Recurrence template library (non-"once" blocks). */ this.templates = [];
+        /** Calendar-day key ("Y-M-D") the current timeline belongs to. @type {string|null} */
+        this.scheduleDateKey = null;
+        /** Template ids whose TODAY instance was deleted (re-suppressed until midnight). @type {Set<string>} */
+        this.suppressedTodayIds = new Set();
         /** @type {boolean} */ this.isDirty = false;
         /** @type {boolean} */ this.isPlanning = false;
         /** @type {ScheduleProposal | null} */ this.pendingProposal = null;
@@ -172,7 +179,9 @@ export default class WorldSetter {
                         maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
                         promptType,
                         model,
-                        tools: isStabilizer ? null : GOOGLE_SEARCH_TOOL,
+                        // Task 1: routine planner/demand calls never attach Google
+                        // Search grounding — it burns the free-tier rate limit.
+                        tools: null,
                         thinkingBudget: isStabilizer ? STABILIZER_THINKING_BUDGET : DEEP_THINKING_BUDGET
                     });
 
@@ -340,6 +349,13 @@ export default class WorldSetter {
         }
 
         try {
+            const dayKeyRaw = await this.storage.getItem(TODAY_DATE_KEY);
+            this.scheduleDateKey = typeof dayKeyRaw === "string" ? dayKeyRaw : null;
+        } catch {
+            this.scheduleDateKey = null;
+        }
+
+        try {
             const tplRaw = await this.storage.getItem(TEMPLATES_STORAGE_KEY);
             if (Array.isArray(tplRaw)) {
                 this.templates = tplRaw
@@ -360,8 +376,60 @@ export default class WorldSetter {
         }
 
         this.#bindMemberProfileListeners();
+        this.#bindDayRolloverListener();
 
         return this.schedule;
+    }
+
+    /** Whether the DAY_CHANGE rollover listener is bound. @type {boolean} */
+    #dayRolloverBound = false;
+
+    /**
+     * Binds WorldEvents.DAY_CHANGE so midnight cleanly resolves a fresh
+     * 24-hour day from the recurrence template library (Task 2).
+     *
+     * @returns {void}
+     */
+    #bindDayRolloverListener() {
+        if (this.#dayRolloverBound) return;
+        const events = this.world?.events;
+        if (!events || typeof events.on !== "function") return;
+        this.#dayRolloverBound = true;
+
+        events.on(WorldEvents.DAY_CHANGE, (/** @type {unknown} */ now) => {
+            const at = now instanceof Date ? now : new Date();
+            void this.#handleDayRollover(at).catch((/** @type {unknown} */ err) => {
+                this.logger.warn("Midnight day rollover resolution failed:", err);
+            });
+        }, "WorldSetter: DAY_CHANGE");
+    }
+
+    /**
+     * Clears yesterday's timeline and resolves a fresh contiguous 24-hour day
+     * from templates + single-pass delta generation.
+     *
+     * @param {Date} now
+     * @returns {Promise<void>}
+     */
+    async #handleDayRollover(now) {
+        this.logger.info("DAY_CHANGE detected — resolving a fresh 24-hour day from templates...");
+        this.schedule = [];
+        this.pendingProposal = null;
+        this.isDirty = false;
+        this.suppressedTodayIds.clear();
+        this.scheduleDateKey = WorldSetter.#dayKey(now);
+        await this.#persistToday();
+        await this.resolveTodaySchedule(now);
+    }
+
+    /**
+     * Stable calendar-day key ("Y-M-D") used to detect day rollovers.
+     *
+     * @param {Date} now
+     * @returns {string}
+     */
+    static #dayKey(now) {
+        return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
     }
 
     /**
@@ -411,11 +479,20 @@ export default class WorldSetter {
     async ensureSchedule(now = new Date()) {
         const currentDecimalHour = now.getHours() + (now.getMinutes() / 60);
 
-        const prevLen = this.schedule.length;
-        this.schedule = this.schedule.filter(rec => rec.endHour > currentDecimalHour);
-        if (this.schedule.length < prevLen) {
-            this.logger.info(`Pruned ${prevLen - this.schedule.length} expired schedule blocks.`);
+        // Task 2: the FULL 24-hour day is preserved — past blocks are NEVER
+        // purged mid-day. They are only tagged (past | active | upcoming) so
+        // the planner UI can grey them out.
+        const dayKey = WorldSetter.#dayKey(now);
+        if (this.schedule.length > 0 && this.scheduleDateKey !== null && this.scheduleDateKey !== dayKey) {
+            this.logger.info(`Timeline belongs to ${this.scheduleDateKey} but the world rolled to ${dayKey} — resolving a fresh day.`);
+            this.schedule = [];
+            this.pendingProposal = null;
+            this.isDirty = false;
+            this.suppressedTodayIds.clear();
         }
+        this.scheduleDateKey = dayKey;
+        this.#tagScheduleStatus(now);
+
         const hasUpcomingCoverage = this.schedule.some(rec => rec.endHour >= currentDecimalHour + 3);
 
         if (!hasUpcomingCoverage && !this.isPlanning) {
@@ -428,6 +505,24 @@ export default class WorldSetter {
         }).catch(() => {});
 
         return this.schedule;
+    }
+
+    /**
+     * Tags every block with its lifecycle status relative to `now`:
+     * "past" | "active" | "upcoming". Purely derived — the 24-hour day
+     * itself is never trimmed (Task 2).
+     *
+     * @param {Date} now
+     * @returns {void}
+     */
+    #tagScheduleStatus(now) {
+        const ref = now instanceof Date ? now : (this.world?.now instanceof Date ? this.world.now : new Date());
+        const decimalNow = ref.getHours() + (ref.getMinutes() / 60);
+        for (const rec of this.schedule) {
+            rec.status = decimalNow >= rec.endHour
+                ? "past"
+                : (decimalNow >= rec.startHour ? "active" : "upcoming");
+        }
     }
 
     // ─── Hybrid 24-Hour Planner: Templates + Deltas ────────────────────
@@ -463,10 +558,13 @@ export default class WorldSetter {
         return text.endsWith(".") ? text : `${text}.`;
     }
 
-    /** Persists today's resolved timeline. @returns {Promise<void>} */
+    /** Persists today's resolved timeline (+ its calendar-day key). @returns {Promise<void>} */
     async #persistToday() {
         try {
             await this.storage.setItem(TODAY_STORAGE_KEY, this.schedule);
+            if (this.scheduleDateKey !== null) {
+                await this.storage.setItem(TODAY_DATE_KEY, this.scheduleDateKey);
+            }
         } catch (err) {
             this.logger.warn("Failed to persist today's schedule:", err);
         }
@@ -511,6 +609,7 @@ export default class WorldSetter {
 
         try {
             const decimalNow = now.getHours() + now.getMinutes() / 60;
+            this.scheduleDateKey = WorldSetter.#dayKey(now);
 
             /** @type {ScheduleRecord[]} */
             const placed = this.schedule.map(r => this.#withDerivedFields(r));
@@ -528,6 +627,7 @@ export default class WorldSetter {
                 .sort((a, b) => rankOf(b) - rankOf(a) || a.createdAt - b.createdAt);
 
             for (const tpl of matched) {
+                if (this.suppressedTodayIds.has(tpl.id)) continue; // today's instance was deleted by the user
                 const overlaps = occupied.some(o => tpl.startHour < o.end && tpl.endHour > o.start);
                 if (overlaps) continue; // a higher-priority or existing block owns this window
                 placed.push({
@@ -541,16 +641,16 @@ export default class WorldSetter {
             // 2. Empty gaps across 0..24 — only present/future gaps need deltas.
             const fillable = this.#findGaps(occupied).filter(g => g.end > decimalNow);
 
-            // 3. Gemini generates Delta Blocks ONLY for those gaps.
-            for (const gap of fillable) {
-                const deltas = await this.#generateDeltaBlocks(gap, now);
-                for (const delta of deltas) {
-                    placed.push(delta);
-                    occupied.push({ start: delta.startHour, end: delta.endHour });
-                }
+            // 3. Gemini generates Delta Blocks for ALL remaining gaps in ONE
+            // single-pass prompt call — not one sequential round-trip per gap.
+            const deltas = await this.#generateDeltaBlocksForGaps(fillable, now);
+            for (const delta of deltas) {
+                placed.push(delta);
+                occupied.push({ start: delta.startHour, end: delta.endHour });
             }
 
             this.schedule = this.#sanitizeAndSortSchedule(placed);
+            this.#tagScheduleStatus(now);
             this.isDirty = false;
             await this.#persistToday();
             this.world.tick(this.world.now);
@@ -605,24 +705,27 @@ export default class WorldSetter {
         if (cursor < 24 - 0.01) gaps.push({ start: cursor, end: 24 });
 
         return gaps;
-    }
-
-    /**
-     * Generates delta blocks (`type: "once"`, `source: "delta"`) for ONE gap
-     * via Gemini, clipping the model output into the gap and backfilling any
-     * remainder deterministically so the day stays contiguous.
+    }    /**
+     * Generates delta blocks (`type: "once"`, `source: "delta"`) for ALL
+     * remaining gaps in ONE Gemini prompt call (single-pass, Task 2). Each
+     * parsed block is assigned to the gap it overlaps and clipped into it;
+     * any remainder inside a gap is backfilled deterministically so the day
+     * stays contiguous.
      *
-     * @param {{ start: number, end: number }} gap
+     * @param {Array<{ start: number, end: number }>} gaps
      * @param {Date} now
      * @returns {Promise<ScheduleRecord[]>}
      */
-    async #generateDeltaBlocks(gap, now) {
-        const fmt = (/** @type {number} */ h) => {
-            const hh = Math.floor(h);
-            const mm = Math.round((h - hh) * 60);
-            return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    async #generateDeltaBlocksForGaps(gaps, now) {
+        if (!Array.isArray(gaps) || gaps.length === 0) return [];
+
+        const fmt = (/** @type {number} */ val) => {
+            let h = Math.floor(val);
+            let m = Math.round((val - h) * 60);
+            if (m >= 60) { h += 1; m = 0; }
+            if (h >= 24) { h = 24; m = 0; }
+            return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
         };
-        const gapLen = gap.end - gap.start;
 
         const members = this.world.members instanceof Map
             ? [...this.world.members.values()]
@@ -636,31 +739,38 @@ export default class WorldSetter {
                 { id: "ginger", name: "Ginger" }, { id: "hank", name: "Hank" }, { id: "becca", name: "Becca" }]
         ).map(m => `      <goal id="${XmlEncoder.encode(String(m.id))}" name="${XmlEncoder.encode(String(m.name))}">Goal</goal>`).join("\n");
 
+        const gapLines = gaps.map((g, i) => (
+            `  <gap index="${i + 1}" start="${g.start}" end="${g.end}">Fill ${fmt(g.start)} - ${fmt(g.end)} (${Math.round((g.end - g.start) * 60)} minutes) with contiguous block(s) that cover it end-to-end.</gap>`
+        )).join("\n");
+
         const promptBuilder = new PromptBuilderClass();
         promptBuilder.useSystem(() => promptBuilder.part([
-            "# 24-Hour Planner — Gap Delta Generator",
+            "# 24-Hour Planner — Gap Delta Generator (Single Pass)",
             'You are the Assistant Director for "Tom & Friends" in Lucknow, Uttar Pradesh, India.',
-            `Fill the missing time gap from ${fmt(gap.start)} to ${fmt(gap.end)} with 1-2 plausible scene blocks for Tom & Friends in Lucknow.`,
-            gapLen > 4
-                ? `The gap is ${gapLen} hours long — emit consecutive 1-2 hour blocks that COVER THE ENTIRE gap with no holes.`
-                : "Emit blocks that exactly fill the gap end-to-end.",
+            `Fill ALL ${gaps.length} missing time gap(s) below with plausible scene blocks in ONE response — this is a single pass, so never ask for more data.`,
+            "",
+            "## Gaps To Fill",
+            gapLines,
             "",
             "## Cast Profiles",
             castLine,
             "",
             "## Rules",
-            "1. Blocks stay strictly inside the gap: contiguous, non-overlapping.",
-            "2. Rotate varied Lucknow settings (Gomti Nagar riverfront, Aliganj markets, rooftop addas, balconies, study rooms, tea stalls).",
+            "1. Blocks stay strictly inside their own gap: contiguous, non-overlapping.",
+            "2. Rotate varied Lucknow settings (Gomti Nagar riverfront, Aliganj markets, university campus, balconies, study rooms, terraces, society parks).",
             "3. Every cast member gets an individual <goal> in every block.",
             "4. <dense_paragraph> is a vivid 2-3 sentence atmospheric scene setting: who is where, what prop in hand, room vibe.",
             "",
             "## Age Factor",
             PROMPT_AGE_MANDATE,
             "",
+            "## Child Safety",
+            PROMPT_CHILD_SAFETY_MANDATE,
+            "",
             "## Output Schema",
-            "Output strictly valid XML matching this structure:",
+            "Output strictly valid XML matching this structure — one <block> per generated scene, each staying inside its gap:",
             "<schedule>",
-            `  <block start="${gap.start}" end="${gap.end}">`,
+            `  <block start="${gaps[0].start}" end="${Math.min(gaps[0].end, gaps[0].start + 2)}">`,
             "    <topic>Scene title</topic>",
             "    <dense_paragraph>2-3 sentence atmospheric scene setting paragraph.</dense_paragraph>",
             "    <main_goal>Primary group objective</main_goal>",
@@ -671,40 +781,51 @@ export default class WorldSetter {
             "    <post_plot>Transition hook leading to next scene</post_plot>",
             "    <facts><fact>Concrete item or constraint</fact></facts>",
             "  </block>",
+            "  <!-- repeat <block> elements until every gap above is fully covered -->",
             "</schedule>"
         ].join("\n")));
 
         promptBuilder.useUser(() => promptBuilder.part(
-            `Today is ${now.toDateString()}. Fill ONLY the gap ${fmt(gap.start)} - ${fmt(gap.end)}.`
+            `Today is ${now.toDateString()}. Fill ONLY the ${gaps.length} gap(s) declared above — one single generation pass.`
         ));
 
+        /** @type {ScheduleRecord[][]} per-gap generated blocks */
+        const perGap = gaps.map(() => []);
         /** @type {ScheduleRecord[]} */
-        let clipped = [];
+        let parsed = [];
         try {
             const payload = await promptBuilder.build();
             const xml = await this.#generatePlannerXml(payload, "scheduler");
-            const parsed = this.#parseXmlScheduleResponse(xml, Math.floor(gap.start));
-
-            for (const block of parsed) {
-                const s = Math.max(block.startHour, gap.start);
-                const e = Math.min(block.endHour, gap.end);
-                if (e - s < 0.5) continue;
-                clipped.push(this.#withDerivedFields({
-                    ...block,
-                    startHour: s,
-                    endHour: e,
-                    timeRange: this.#formatDecimalRange(s, e),
-                    type: "once",
-                    source: "delta"
-                }));
-            }
+            parsed = this.#parseXmlScheduleResponse(xml, Math.floor(Math.min(...gaps.map(g => g.start))));
         } catch (err) {
-            this.logger.warn("Delta generation failed; backfilling deterministically:", err);
+            this.logger.warn("Single-pass delta generation failed; backfilling deterministically:", err);
         }
 
-        // Contiguity guarantee: whatever the model skipped inside the gap is
+        for (const block of parsed) {
+            const gapIdx = gaps.findIndex(g => block.startHour < g.end && block.endHour > g.start);
+            if (gapIdx === -1) continue; // outside every gap — the deterministic backfill covers it
+            const gap = gaps[gapIdx];
+            const s = Math.max(block.startHour, gap.start);
+            const e = Math.min(block.endHour, gap.end);
+            if (e - s < 0.5) continue;
+            perGap[gapIdx].push(this.#withDerivedFields({
+                ...block,
+                startHour: s,
+                endHour: e,
+                timeRange: this.#formatDecimalRange(s, e),
+                type: "once",
+                source: "delta"
+            }));
+        }
+
+        // Contiguity guarantee: whatever the model skipped inside each gap is
         // backfilled with quiet deterministic blocks.
-        return [...clipped, ...this.#buildDeltaFallback(gap, clipped)];
+        /** @type {ScheduleRecord[]} */
+        const result = [];
+        for (let i = 0; i < gaps.length; i++) {
+            result.push(...perGap[i], ...this.#buildDeltaFallback(gaps[i], perGap[i]));
+        }
+        return result;
     }
 
     /**
@@ -938,7 +1059,7 @@ export default class WorldSetter {
                 `- Simulation Time: ${this.world.date}, ${this.world.time} (Current Hour: ${currentHour}:00)`,
                 `- Location: ${env?.city || "Lucknow"}`,
                 `- Weather: ${env?.temperature || "32°C"}, ${env?.weather || "Warm"}`,
-                `- Occasion: ${env?.todayCelebration || "Regular day"}`,
+                `- Occasion: ${env?.todayCelebration || "No festival today"}`,
                 `- Headlines: ${(env?.newsHeadlines || []).slice(0, 3).join(" | ") || "None"}`,
                 "",
                 "## 2. Cast Profiles",
@@ -962,10 +1083,13 @@ export default class WorldSetter {
                 "## 6. Age Factor",
                 PROMPT_AGE_MANDATE,
                 "",
+                "## 7. Child Safety",
+                PROMPT_CHILD_SAFETY_MANDATE,
+                "",
                 "## Rules & Constraints",
                 "1. Provide a complete, unbroken sequence of blocks covering the full 24-hour cycle.",
                 "2. Contiguous start/end times with no overlapping hours.",
-                "3. Rotate settings across Lucknow (Gomti Nagar riverfront, Aliganj markets, university campus, rooftop addas, balconies, living rooms).",
+                "3. Rotate settings across Lucknow (Gomti Nagar riverfront, Aliganj markets, university campus, balconies, living rooms, terraces).",
                 "4. Assign explicit individual character goals for every cast member in each block.",
                 "",
                 "## Output Schema",
@@ -1082,6 +1206,7 @@ export default class WorldSetter {
             "      <schedule>\n" +
             '        <block start="16.0" end="17.0">\n' +
             "          <topic></topic>\n" +
+            "          <dense_paragraph>2-3 sentence atmospheric scene setting for this block</dense_paragraph>\n" +
             "          <goals>\n" +
             "            <main></main>\n" +
             '            <goal id="tom" name="Tom"></goal>\n' +
@@ -1109,6 +1234,34 @@ export default class WorldSetter {
             ));
         }
 
+        // Task 4: enrich the demand prompt with FULL cast personas (computed
+        // ages + bios) and the live environment context (weather, occasion,
+        // headlines) so demanded blocks land in-context.
+        const castMembers = this.world.members instanceof Map
+            ? [...this.world.members.values()]
+            : [];
+        if (castMembers.length > 0) {
+            promptBuilder.useSystem(() => promptBuilder.part(
+                "<cast_profiles>\n" +
+                castMembers.map(m => (
+                    `  <member id="${XmlEncoder.encode(m.id)}" name="${XmlEncoder.encode(m.name)}" age="${Number(m.age) || 0}">${XmlEncoder.encode(m.about || "")}</member>`
+                )).join("\n") +
+                "\n</cast_profiles>"
+            ));
+        }
+
+        const envSnapshot = this.world.environment;
+        if (envSnapshot) {
+            promptBuilder.useSystem(() => promptBuilder.part(
+                "<environment>\n" +
+                `  <city>${XmlEncoder.encode(envSnapshot.city || "")}</city>\n` +
+                `  <weather temperature="${XmlEncoder.encode(envSnapshot.temperature || "")}">${XmlEncoder.encode(envSnapshot.weather || "")}</weather>\n` +
+                `  <occasion>${XmlEncoder.encode(envSnapshot.todayCelebration || "")}</occasion>\n` +
+                `  <headlines>${XmlEncoder.encode((envSnapshot.newsHeadlines || []).slice(0, 3).join(" | "))}</headlines>\n` +
+                "</environment>"
+            ));
+        }
+
         const birthdayPart = this.#buildBirthdayPromptPart();
         if (birthdayPart) {
             promptBuilder.useSystem(() => promptBuilder.part(birthdayPart));
@@ -1133,6 +1286,17 @@ export default class WorldSetter {
 
         const updatedBlocks = this.#parseXmlScheduleResponse(xmlResponseText, currentHour, cleanDemand)
             .map(b => ({ ...b, type: /** @type {import("./types/World.types").ScheduleType} */ ("once"), source: /** @type {import("./types/World.types").ScheduleSource} */ ("demand") }));
+
+        // Task 4: recurrence keywords in the demand text ("daily",
+        // "weekdays", ...) mark the demanded block(s) as recurring — they are
+        // registered into the template library when the proposal is accepted.
+        const recurrence = WorldSetter.#parseRecurrenceKeyword(cleanDemand);
+        if (recurrence) {
+            for (const block of updatedBlocks) {
+                block.type = recurrence;
+            }
+        }
+
         const report = this.#parseNarrativeReport(xmlResponseText);
 
         const proposal = this.#computeProposal(this.schedule, updatedBlocks);
@@ -1149,25 +1313,52 @@ export default class WorldSetter {
         if (!this.pendingProposal) return this.schedule;
         this.logger.info(`Accepting proposal: ${this.pendingProposal.summary}`);
 
-        for (const change of this.pendingProposal.changes) {
-            if (change.action === "add") {
-                const exists = this.schedule.some(r => r.id === change.block.id);
-                if (!exists) this.schedule.push(change.block);
-            }
-        }
-        for (const change of this.pendingProposal.changes) {
-            if (change.action === "remove") {
-                this.schedule = this.schedule.filter(r => r.id !== change.block.id);
+        const additions = this.pendingProposal.changes
+            .filter(c => c.action === "add")
+            .map(c => c.block);
+        // Task 4: only blocks FULLY covered by a demanded window are deleted
+        // outright — partially overlapping blocks are split/trimmed by the
+        // smart splice, preserving the rest of the 24-hour day intact.
+        const removalIds = new Set(
+            this.pendingProposal.changes
+                .filter(c => c.action === "remove")
+                .filter(c => additions.some(b => c.block.startHour >= b.startHour && c.block.endHour <= b.endHour))
+                .map(c => c.block.id)
+        );
+
+        const kept = this.schedule.filter(r => !removalIds.has(r.id));
+        this.schedule = additions.length > 0
+            ? this.#mergeDemandSchedule(kept, additions)
+            : this.#sanitizeAndSortSchedule(kept);
+
+        this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
+        this.#tagScheduleStatus(this.world?.now instanceof Date ? this.world.now : new Date());
+
+        // Task 4: recurring demands register into the template library.
+        for (const block of additions) {
+            if (block.type && block.type !== "once") {
+                await this.#syncTemplateLibrary(block);
             }
         }
 
-        this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
         this.isDirty = false;
         this.pendingProposal = null;
 
         await this.#persistToday();
         this.world.tick(this.world.now);
         this.logger.info("Proposal accepted and schedule committed.");
+
+        // Task 4: instant chat bridge — when the accepted demand covers the
+        // CURRENT hour, world.activeSchedule is already refreshed by tick()
+        // above; notify listeners so ConversationManager triggers an
+        // in-character cast reaction immediately.
+        const nowRef = this.world?.now instanceof Date ? this.world.now : new Date();
+        const decimalNow = nowRef.getHours() + nowRef.getMinutes() / 60;
+        const activeNow = additions.find(b => b.startHour <= decimalNow && b.endHour > decimalNow);
+        if (activeNow && this.world?.events && typeof this.world.events.emit === "function") {
+            this.world.events.emit(WorldEvents.DEMAND_APPLIED, activeNow);
+        }
+
         return this.schedule;
     }
 
@@ -1194,11 +1385,15 @@ export default class WorldSetter {
             );
             if (!isExisting) changes.push({ action: "add", block });
         }
+        // Task 4: only blocks that actually OVERLAP a demanded window are
+        // marked for removal — the rest of the day stays untouched instead of
+        // being wholesale deleted whenever the model omits an echo.
+        const proposedAdds = changes.filter(c => c.action === "add").map(c => c.block);
         for (const block of current) {
-            const isKept = proposed.some(
-                r => r.topic === block.topic && Math.abs(r.startHour - block.startHour) < 0.5
+            const isOverlapped = proposedAdds.some(
+                b => block.startHour < b.endHour && block.endHour > b.startHour
             );
-            if (!isKept) changes.push({ action: "remove", block });
+            if (isOverlapped) changes.push({ action: "remove", block });
         }
         const addCount = changes.filter(c => c.action === "add").length;
         const removeCount = changes.filter(c => c.action === "remove").length;
@@ -1468,6 +1663,29 @@ export default class WorldSetter {
     }
 
     /**
+     * Deletes ONLY today's placed instance of a block. When the block is a
+     * recurring template rule, the permanent rule in the template library
+     * (`world:schedule_templates`) is KEPT — it will re-place itself on
+     * future days, but stays suppressed for the remainder of today (Task 3).
+     *
+     * @param {string} id
+     * @returns {Promise<boolean>}
+     */
+    async deleteTodayInstance(id) {
+        const isRecurringRule = this.templates.some(t => t.id === id);
+        if (isRecurringRule) {
+            // Keep the permanent template; suppress only today's placement.
+            this.suppressedTodayIds.add(id);
+        }
+
+        const removed = await this.deleteRecord(id);
+        if (removed) {
+            this.logger.info(`Deleted today's instance of "${id}"${isRecurringRule ? " (recurring template rule preserved)" : ""}.`);
+        }
+        return removed;
+    }
+
+    /**
      * @param {string} rawResponse
      * @param {number} startHour
      * @param {string} [fallbackTopic]
@@ -1626,8 +1844,12 @@ export default class WorldSetter {
     }
 
     /**
+     * Smart interval splicing (Task 4): inserts demanded blocks into the
+     * existing day, splitting or trimming ONLY the overlapping window of an
+     * existing block and preserving the rest of the 24-hour day intact.
+     *
      * @param {ScheduleRecord[]} existing
-     * @param {ScheduleRecord[]} modified
+     * @param {ScheduleRecord[]} modified Demanded blocks to splice in.
      * @returns {ScheduleRecord[]}
      */
     #mergeDemandSchedule(existing, modified) {
@@ -1635,19 +1857,63 @@ export default class WorldSetter {
         if (!Array.isArray(existing) || existing.length === 0) return this.#sanitizeAndSortSchedule(modified);
 
         /** @type {ScheduleRecord[]} */
-        const merged = [];
-        const minModifiedStart = Math.min(...modified.map(m => m.startHour));
-        const maxModifiedEnd = Math.max(...modified.map(m => m.endHour));
+        const merged = existing.map(r => ({ ...r }));
 
-        for (const block of existing) {
-            if (block.endHour <= minModifiedStart) merged.push(block);
-        }
-        for (const block of modified) merged.push(block);
-        for (const block of existing) {
-            if (block.startHour >= maxModifiedEnd) merged.push(block);
+        for (const block of modified) {
+            /** @type {ScheduleRecord[]} */
+            const next = [];
+
+            for (const orig of merged) {
+                const overlaps = block.startHour < orig.endHour && block.endHour > orig.startHour;
+                if (!overlaps) {
+                    next.push(orig);
+                    continue;
+                }
+
+                // Left remainder: the existing block trimmed to end where the
+                // demanded window starts.
+                if (orig.startHour < block.startHour - 0.01) {
+                    next.push({
+                        ...orig,
+                        endHour: block.startHour,
+                        timeRange: this.#formatDecimalRange(orig.startHour, block.startHour),
+                        updatedAt: Date.now()
+                    });
+                }
+                // Right remainder: the existing block trimmed to start where
+                // the demanded window ends (fresh id — it is a new record).
+                if (orig.endHour > block.endHour + 0.01) {
+                    next.push({
+                        ...orig,
+                        id: crypto.randomUUID(),
+                        startHour: block.endHour,
+                        timeRange: this.#formatDecimalRange(block.endHour, orig.endHour),
+                        updatedAt: Date.now()
+                    });
+                }
+            }
+
+            next.push({ ...block });
+            merged.length = 0;
+            merged.push(...next);
         }
 
         return this.#sanitizeAndSortSchedule(merged);
+    }
+
+    /**
+     * Detects recurrence keywords in raw demand text (Task 4), e.g.
+     * "daily", "every day", "weekdays", "weekends".
+     *
+     * @param {string} demandText
+     * @returns {import("./types/World.types").ScheduleType|null} Recurrence type or null for one-off demands.
+     */
+    static #parseRecurrenceKeyword(demandText) {
+        const t = String(demandText || "").toLowerCase();
+        if (/\bweekdays?\b|\bmonday|\btuesday|\bwednesday|\bthursday|\bfriday/.test(t)) return "weekdays";
+        if (/\bweekends?\b|\bsaturday|\bsunday/.test(t)) return "weekends";
+        if (/\bdaily\b|\bevery\s*day\b|\beveryday\b|\brozana\b|\bhamesha\b/.test(t)) return "forever";
+        return null;
     }
 
     /**
@@ -1684,24 +1950,30 @@ export default class WorldSetter {
      * @returns {string}
      */
     #formatDecimalRange(start, end) {
+        // Task 2: minute-overflow safe — 14.999 renders "15:00", never
+        // "14:60"; midnight wraps to "24:00", never "00:00"+1.
         const fmt = (/** @type {number} */ val) => {
-            const h = Math.floor(val);
-            const m = Math.round((val - h) * 60);
+            let h = Math.floor(val);
+            let m = Math.round((val - h) * 60);
+            if (m >= 60) { h += 1; m = 0; }
+            if (h >= 24) { h = 24; m = 0; }
             return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
         };
         return `${fmt(start)} - ${fmt(end)}`;
     }
 
     /**
+     * Clamps a decimal hour into the [0, 24] day window and rounds it to the
+     * nearest half hour. Values past midnight are CLAMPED (24.5 → 24), never
+     * wrapped around to the next morning (Task 2 — midnight wrap-around fix).
+     *
      * @param {number} h
      * @returns {number}
      */
     #clampHour(h) {
         if (!Number.isFinite(h)) return 0;
-        let clamped = h % 24;
-        if (clamped < 0) clamped += 24;
-        clamped = Math.round(clamped * 2) / 2;
-        return Math.max(0, Math.min(24, clamped));
+        let clamped = Math.max(0, Math.min(24, h));
+        return Math.round(clamped * 2) / 2;
     }
 
     /**
@@ -1721,7 +1993,8 @@ export default class WorldSetter {
 
         for (let i = 0; i < 4; i++) {
             const s = this.#clampHour(startHour + i);
-            const e = this.#clampHour(s + 1);
+            if (s >= 24) break; // Task 2: never wrap fallback blocks past midnight
+            const e = Math.min(24, s + 1);
             const t = topics[i % topics.length];
 
             records.push({
@@ -1744,6 +2017,11 @@ export default class WorldSetter {
     }
 
     /**
+     * Swaps the TIME SLOTS of exactly the affected pair (index & targetIndex).
+     * Unrelated afternoon/evening blocks keep their exact times — there is NO
+     * cascade re-timing across the whole day (Task 3). Block identity stays
+     * bound to `record.id` throughout.
+     *
      * @param {number} index
      * @param {'up'|'down'} direction
      * @returns {ScheduleRecord[]}
@@ -1754,31 +2032,44 @@ export default class WorldSetter {
         const targetIndex = direction === "up" ? index - 1 : index + 1;
         if (targetIndex < 0 || targetIndex >= this.schedule.length) return this.schedule;
 
-        const temp = this.schedule[index];
-        this.schedule[index] = this.schedule[targetIndex];
-        this.schedule[targetIndex] = temp;
+        const record = this.schedule[index];
+        const target = this.schedule[targetIndex];
 
-        const anchorStart = Math.min(...this.schedule.map(b => b.startHour));
-        const durations = this.schedule.map(b => Math.max(0.5, b.endHour - b.startHour));
-        let cursor = anchorStart;
-        for (let i = 0; i < this.schedule.length; i++) {
-            const start = this.#clampHour(cursor);
-            const end = this.#clampHour(Math.min(24, start + durations[i]));
-            this.schedule[i].startHour = start;
-            this.schedule[i].endHour = end > start ? end : this.#clampHour(Math.min(24, start + 1));
-            this.schedule[i].timeRange = this.#formatDecimalRange(this.schedule[i].startHour, this.schedule[i].endHour);
-            cursor = this.schedule[i].endHour;
-        }
+        // Swap only the two blocks' time slots — every other block is untouched.
+        const prevStart = record.startHour;
+        const prevEnd = record.endHour;
+        record.startHour = target.startHour;
+        record.endHour = target.endHour;
+        target.startHour = prevStart;
+        target.endHour = prevEnd;
+        record.timeRange = this.#formatDecimalRange(record.startHour, record.endHour);
+        target.timeRange = this.#formatDecimalRange(target.startHour, target.endHour);
+        record.updatedAt = Date.now();
+        target.updatedAt = Date.now();
 
         this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
+        this.#tagScheduleStatus(this.world?.now instanceof Date ? this.world.now : new Date());
         // Free reordering: persisted directly, NO AI stabilizer round-trip.
         this.isDirty = false;
         void this.#persistToday();
 
         this.world.tick(this.world.now);
-        this.logger.info(`Reordered block: moved index ${index} ${direction} to index ${targetIndex}.`);
+        this.logger.info(`Reordered block "${record.id}": swapped time slots with "${target.id}" (index ${index} → ${targetIndex}).`);
 
         return this.schedule;
+    }
+
+    /**
+     * Id-addressed reorder (Task 3 — binds reorders strictly to record.id).
+     *
+     * @param {string} id
+     * @param {'up'|'down'} direction
+     * @returns {ScheduleRecord[]}
+     */
+    reorderBlocksById(id, direction) {
+        const index = this.schedule.findIndex(r => r.id === id);
+        if (index === -1) return this.schedule;
+        return this.reorderBlocks(index, direction);
     }
 
     /**

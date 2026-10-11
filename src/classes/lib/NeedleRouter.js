@@ -10,7 +10,7 @@
  * dialogue pipeline is never blocked.
  *
  * @typedef {Object} NeedleRouteResult
- * @property {string[]} keywords 1-3 distinct search terms.
+ * @property {string[]} keywords 1-5 distinct search terms.
  * @property {string} member Target cast id ("tom" ... "becca") or "any".
  */
 
@@ -41,14 +41,16 @@ const STOPWORDS = new Set([
     "aapka", "aapse", "abhi", "accha", "achha", "arre", "baare", "bahut",
     "batao", "bata", "chalo", "hain", "hoon", "hoga", "hogi", "inka",
     "inki", "karke", "karta", "karti", "kaise", "kaisa", "kaisi", "kaun",
-    "kehte", "kya", "kyaa", "kyunki", "kyun", "lekin", "liye", "matlab",
+    "kehte", "kahan", "kya", "kyaa", "kyunki", "kyun", "lekin", "liye", "matlab",
     "mein", "mera", "mere", "meri", "mujhe", "phir", "raha", "rahe",
     "rahi", "saath", "sunao", "theek", "thik", "tumhe", "tumhara", "unka",
-    "unki", "waise", "wala", "wali", "wahan", "yahan", "yaar"
+    "unki", "waise", "wala", "wali", "wahan", "yahan", "yaar",
+    // Conversational filler that carries no retrieval value
+    "know", "remember", "said", "tell", "think", "thinking", "thought"
 ]);
 
-/** Maximum keywords returned per route. */
-const MAX_KEYWORDS = 3;
+/** Maximum keywords returned per route (Task 5: raised 3 → 5). */
+const MAX_KEYWORDS = 5;
 
 export default class NeedleRouter {
 
@@ -80,10 +82,12 @@ export default class NeedleRouter {
             }
         }
 
+        // Task 5: keep 3-letter keywords ("kal", "aaj", "tea", "car", "app",
+        // "bus", "key", ...) — only 1-2 letter tokens are dropped.
         const words = lower
             .replace(/[^a-z0-9\s]/g, " ")
             .split(/\s+/)
-            .filter(w => w.length > 3 && !STOPWORDS.has(w));
+            .filter(w => w.length > 2 && !STOPWORDS.has(w));
 
         /** @type {string[]} */
         const keywords = [];

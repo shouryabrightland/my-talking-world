@@ -117,6 +117,14 @@ export default function DevToolsPromptsTab({
                                                     ⇅ In {entry.tokensIn ?? "—"} / Out {entry.tokensOut ?? "—"}
                                                 </span>
                                             )}
+                                            {entry.tokensThinking != null && entry.tokensThinking > 0 && (
+                                                <span
+                                                    className={styles.promptThinkingTokenBadge}
+                                                    title={`Thinking Tokens: ${entry.tokensThinking}`}
+                                                >
+                                                    🧠 Think: {entry.tokensThinking} tok (Budget: 512)
+                                                </span>
+                                            )}
                                             {entry.finishReason === "length" && (
                                                 <span className={styles.statusBadgeError} title="Model hit the max token limit mid-response">
                                                     TRUNCATED

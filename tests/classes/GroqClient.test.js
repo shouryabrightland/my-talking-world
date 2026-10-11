@@ -59,7 +59,7 @@ describe("GroqClient — streaming metrics & per-attempt logging", () => {
             return new HttpResponse(sseBody([
                 { choices: [{ delta: { content: "Arre yaar " } }] },
                 { choices: [{ delta: { content: "chai peete hain!" } , finish_reason: "stop" }] },
-                { choices: [], usage: { prompt_tokens: 120, completion_tokens: 45 } }
+                { choices: [], usage: { prompt_tokens: 120, completion_tokens: 45, completion_tokens_details: { reasoning_tokens: 88 } } }
             ]), { headers: { "Content-Type": "text/event-stream" } });
         }));
 
@@ -76,6 +76,8 @@ describe("GroqClient — streaming metrics & per-attempt logging", () => {
         expect(entries[0].status).toBe("success");
         expect(entries[0].tokensIn).toBe(120);
         expect(entries[0].tokensOut).toBe(45);
+        // Phase 5.1: reasoning tokens captured from completion_tokens_details.
+        expect(entries[0].tokensThinking).toBe(88);
         expect(entries[0].finishReason).toBe("stop");
     });
 

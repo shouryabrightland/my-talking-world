@@ -2,7 +2,8 @@
 
 /**
  * @file WorldSetter.test.js
- * Tests for expired block pruning in ensureSchedule and reorderBlocks dirty flag.
+ * Tests for 24-hour day preservation + status tagging in ensureSchedule,
+ * pair-only reorderBlocks, and midnight DAY_CHANGE rollover resolution.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -130,7 +131,7 @@ function makeMockWorld() {
     };
 }
 
-function makeRecord(startHour, endHour, topic = "Test topic") {
+function makeRecord(startHour, endHour, topic = "Test topic", extra = {}) {
     return {
         id: crypto.randomUUID(),
         startHour,
@@ -143,13 +144,14 @@ function makeRecord(startHour, endHour, topic = "Test topic") {
         prePlot: "",
         postPlot: "",
         createdAt: Date.now(),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        ...extra
     };
 }
 
 // ─── Tests ───
 
-describe("WorldSetter — Expired Block Pruning", () => {
+describe("WorldSetter — 24-Hour Day Preservation & Status Tagging", () => {
     /** @type {WorldSetter} */
     let ws;
     /** @type {ReturnType<typeof makeMockWorld>} */
@@ -160,68 +162,97 @@ describe("WorldSetter — Expired Block Pruning", () => {
         ws = new WorldSetter({ logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }, world });
     });
 
-    it("prunes blocks whose endHour <= currentDecimalHour", async () => {
+    it("keeps ALL of today's blocks (no past purging) and tags their status", async () => {
         // Current time: 10:30 → currentDecimalHour = 10.5
         const now = new Date(2026, 7, 25, 10, 30);
 
-        ws.schedule = [
-            makeRecord(8, 10, "Morning block"),     // endHour 10 <= 10.5 → EXPIRED
-            makeRecord(10, 11, "Late morning"),     // endHour 11 > 10.5 → KEPT
-            makeRecord(11, 13, "Afternoon"),         // endHour 13 > 10.5 → KEPT
-        ];
+        const morning = makeRecord(8, 10, "Morning block");   // fully past
+        const lateMorning = makeRecord(10, 11, "Late morning"); // in progress
+        const afternoon = makeRecord(11, 13, "Afternoon");      // future
+        ws.schedule = [morning, lateMorning, afternoon];
 
-        // Prevent planHorizon from adding fallback blocks — this test only
-        // covers expiry pruning.
+        // Prevent horizon re-resolution — this test only covers preservation.
         ws.isPlanning = true;
         await ws.ensureSchedule(now);
 
-        expect(ws.schedule.length).toBe(2);
-        expect(ws.schedule.every(r => r.endHour > 10.5)).toBe(true);
-        expect(ws.schedule.find(r => r.topic === "Morning block")).toBeUndefined();
+        // Task 2: the full 24-hour day stays in the timeline — nothing purged.
+        expect(ws.schedule.length).toBe(3);
+        expect(morning.status).toBe("past");
+        expect(lateMorning.status).toBe("active");
+        expect(afternoon.status).toBe("upcoming");
     });
 
-    it("keeps all blocks when none are expired", async () => {
-        const now = new Date(2026, 7, 25, 8, 0);
-
-        ws.schedule = [
-            makeRecord(9, 10, "Block 1"),
-            makeRecord(10, 12, "Block 2"),
-        ];
-
-        await ws.ensureSchedule(now);
-
-        expect(ws.schedule.length).toBe(2);
-    });
-
-    it("removes all blocks when all are expired", async () => {
-        const now = new Date(2026, 7, 25, 15, 0);
-
-        ws.schedule = [
-            makeRecord(8, 9, "Old block 1"),
-            makeRecord(10, 11, "Old block 2"),
-            makeRecord(12, 13, "Old block 3"),
-        ];
-
-        // Prevent planHorizon from adding fallback blocks
-        ws.isPlanning = true;
-        await ws.ensureSchedule(now);
-
-        expect(ws.schedule.length).toBe(0);
-    });
-
-    it("prunes partial overlap: block ending exactly at currentHour is expired", async () => {
+    it("keeps blocks that end exactly at the current hour (tagged past)", async () => {
         const now = new Date(2026, 7, 25, 12, 0);
 
-        ws.schedule = [
-            makeRecord(11, 12, "Ends at 12"),    // endHour 12 <= 12.0 → EXPIRED
-            makeRecord(12, 14, "Starts at 12"),  // endHour 14 > 12.0 → KEPT
-        ];
+        const endsAtNoon = makeRecord(11, 12, "Ends at 12");
+        const startsAtNoon = makeRecord(12, 14, "Starts at 12");
+        ws.schedule = [endsAtNoon, startsAtNoon];
 
         ws.isPlanning = true;
         await ws.ensureSchedule(now);
 
-        expect(ws.schedule.length).toBe(1);
-        expect(ws.schedule[0].topic).toBe("Starts at 12");
+        expect(ws.schedule.length).toBe(2);
+        expect(endsAtNoon.status).toBe("past");
+        expect(startsAtNoon.status).toBe("active");
+    });
+
+    it("retags statuses as the clock advances without touching block data", async () => {
+        const morning = makeRecord(8, 10, "Morning block");
+        const evening = makeRecord(18, 20, "Evening block");
+        ws.schedule = [morning, evening];
+        ws.isPlanning = true;
+
+        await ws.ensureSchedule(new Date(2026, 7, 25, 9, 0));
+        expect(morning.status).toBe("active");
+        expect(evening.status).toBe("upcoming");
+
+        await ws.ensureSchedule(new Date(2026, 7, 25, 22, 0));
+        expect(morning.status).toBe("past");
+        expect(evening.status).toBe("past");
+        expect(ws.schedule.length).toBe(2); // still nothing purged
+    });
+
+    it("resolves a fresh day when the persisted timeline belongs to a previous calendar day", async () => {
+        ws.schedule = [makeRecord(9, 10, "Yesterday block")];
+        ws.scheduleDateKey = "2026-8-24";
+        ws.templates = [makeRecord(7, 8, "Morning walk template", { type: "forever" })];
+        vi.spyOn(ws.geminiClient, "streamGenerate").mockResolvedValue({ text: "" });
+
+        await ws.ensureSchedule(new Date(2026, 7, 25, 8, 0));
+
+        expect(ws.schedule.some(r => r.topic === "Yesterday block")).toBe(false);
+        expect(ws.schedule.some(r => r.topic === "Morning walk template")).toBe(true);
+        expect(ws.scheduleDateKey).toBe("2026-8-25");
+    });
+});
+
+describe("WorldSetter — Day Rollover (DAY_CHANGE)", () => {
+    /** @type {WorldSetter} */
+    let ws;
+    /** @type {ReturnType<typeof makeMockWorld>} */
+    let world;
+
+    beforeEach(() => {
+        world = makeMockWorld();
+        ws = new WorldSetter({ logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }, world });
+    });
+
+    it("binds WorldEvents.DAY_CHANGE and resolves a fresh day from templates at midnight", async () => {
+        ws.schedule = [makeRecord(9, 10, "Yesterday block")];
+        ws.scheduleDateKey = "2026-8-24";
+        ws.templates = [makeRecord(7, 8, "Morning walk template", { type: "forever" })];
+        vi.spyOn(ws.geminiClient, "streamGenerate").mockResolvedValue({ text: "" });
+
+        await ws.init();
+
+        // WorldEvents.DAY_CHANGE === "world:day:change" (World.js enum).
+        world.events.emit("world:day:change", new Date(2026, 7, 25, 0, 0));
+
+        await vi.waitFor(() => {
+            expect(ws.schedule.some(r => r.topic === "Morning walk template")).toBe(true);
+        });
+        expect(ws.schedule.some(r => r.topic === "Yesterday block")).toBe(false);
     });
 });
 
@@ -308,6 +339,46 @@ describe("WorldSetter — Reorder Blocks", () => {
         for (let i = 1; i < ws.schedule.length; i++) {
             expect(ws.schedule[i].startHour).toBeGreaterThanOrEqual(ws.schedule[i - 1].endHour);
         }
+    });
+
+    it("reorderBlocks only swaps the affected pair — unrelated blocks keep their exact times", () => {
+        // Task 3: no cascade re-timing across the whole day.
+        ws.schedule = [
+            makeRecord(8, 9, "Block A"),
+            makeRecord(9, 10, "Block B"),
+            makeRecord(10, 14, "Afternoon movie"),
+            makeRecord(14, 18, "Evening cricket"),
+        ];
+
+        ws.reorderBlocks(0, "down");
+
+        const byTopic = Object.fromEntries(ws.schedule.map(r => [r.topic, r]));
+        // The swapped pair trades time slots; identity stays on record.id.
+        expect(byTopic["Block B"].startHour).toBe(8);
+        expect(byTopic["Block A"].startHour).toBe(9);
+        // Every unrelated block is byte-for-byte untouched.
+        expect(byTopic["Afternoon movie"].startHour).toBe(10);
+        expect(byTopic["Afternoon movie"].endHour).toBe(14);
+        expect(byTopic["Evening cricket"].startHour).toBe(14);
+        expect(byTopic["Evening cricket"].endHour).toBe(18);
+    });
+
+    it("reorderBlocksById binds the reorder strictly to record.id", () => {
+        ws.schedule = [
+            makeRecord(8, 9, "Block A"),
+            makeRecord(9, 10, "Block B"),
+            makeRecord(10, 14, "Afternoon movie"),
+        ];
+        const targetId = ws.schedule[2].id;
+
+        // Unknown ids no-op; known ids reorder exactly like the index path.
+        expect(ws.reorderBlocksById("missing-id", "down")).toBe(ws.schedule);
+        ws.reorderBlocksById(targetId, "up");
+
+        const byTopic = Object.fromEntries(ws.schedule.map(r => [r.topic, r]));
+        expect(byTopic["Block B"].startHour).toBe(10); // B took the movie's slot
+        expect(byTopic["Afternoon movie"].startHour).toBe(9);
+        expect(byTopic["Block A"].startHour).toBe(8); // untouched
     });
 
     it("reorderBlocks(0, 'down') anchors to the earliest start hour so the schedule start does not drift", () => {

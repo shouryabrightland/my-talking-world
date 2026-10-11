@@ -42,7 +42,9 @@ export const WorldEvents = {
     HOUR_CHANGE: "world:hour:change",
     DAY_CHANGE: "world:day:change",
     ENVIRONMENT_CHANGE: "world:environment:change",
-    BIRTHDAY_TODAY: "world:birthday:today"
+    BIRTHDAY_TODAY: "world:birthday:today",
+    /** Accepted Director Demand that covers the CURRENT hour (Task 4 bridge). */
+    DEMAND_APPLIED: "world:demand:applied"
 };
 
 /**

@@ -45,7 +45,8 @@ export default class UnifiedMemory {
      */
     static WORLD_KEYWORDS = [
         "news", "weather", "world", "headline", "headlines",
-        "forecast", "mausam", "khabar", "khabrein", "samachar"
+        "forecast", "mausam", "khabar", "khabrein", "samachar",
+        "event", "events", "festival", "festivals", "tyohar", "utsav"
     ];
 
     /**
@@ -202,12 +203,35 @@ export default class UnifiedMemory {
     }
 
     /**
+     * Basic suffix normalization so plural/past/gerund forms compare equal:
+     * "drones" → "drone", "repaired" → "repair", "flying" → "fly".
+     *
+     * @param {string} word
+     * @returns {string}
+     */
+    static normalizeWord(word) {
+        let w = String(word || "").toLowerCase();
+        if (w.length > 4 && w.endsWith("ing")) w = w.slice(0, -3);
+        else if (w.length > 3 && w.endsWith("es")) w = w.slice(0, -2);
+        else if (w.length > 3 && w.endsWith("ed")) w = w.slice(0, -2);
+        else if (w.length > 3 && w.endsWith("s")) w = w.slice(0, -1);
+        // De-double the trailing consonant: "repaired" → "repair", "stopped" → "stop".
+        if (w.length > 3 && w[w.length - 1] === w[w.length - 2] && !/[aeiou]/.test(w[w.length - 1])) {
+            w = w.slice(0, -1);
+        }
+        return w;
+    }
+
+    /**
      * Deterministic relevance search executed in pure JS (no model call).
      *
-     * Priority scoring:
-     * - Cast-member / target tag matches: +5 points.
-     * - Content keyword matches: +3 points.
-     * - `%world%` news items: +2 points, and ONLY when the query explicitly
+     * Keyword-first scoring (Task 5 — inverted weights):
+     * - Content keyword match in the memory text: +5 (primary signal).
+     * - Keyword match in the entry's tags: +4.
+     * - Member / target tag match: +2 (tie-breaker only).
+     * - ELIGIBILITY: a memory must match at least one keyword to be
+     *   eligible (member-only lookups with zero keywords keep working).
+     * - `%world%` news items participate ONLY when the query explicitly
      *   mentions a news/weather/world keyword.
      * - Constraint: the top-2 results never contain more than one `%world%`
      *   news item, so real memories keep the retrieval slots.
@@ -226,6 +250,9 @@ export default class UnifiedMemory {
 
         if (!normKw.length && !normTags.length) return [];
 
+        // Suffix-normalized keyword stems for comparison ("drones" ≈ "drone").
+        const kwStems = normKw.map(k => UnifiedMemory.normalizeWord(k));
+
         // News is only retrievable when the human explicitly asks about it.
         const wantsWorld = normKw.some(k =>
             UnifiedMemory.WORLD_KEYWORDS.some(w => k.includes(w))
@@ -238,21 +265,47 @@ export default class UnifiedMemory {
             const entryTags = entry.tags.map(t => t.toLowerCase());
             const entryData = entry.data.toLowerCase();
             const isWorld = entryTags.includes("%world%");
+            // Calendar/countdown records are %world%-tagged but must also be
+            // reachable by naming the event ("Diwali kab hai?" — Phase 4.2).
+            const isCalendar = entryTags.includes("calendar");
 
+            // Gate non-calendar news behind an explicit news query.
+            if (isWorld && !isCalendar && !wantsWorld) continue;
+
+            // Task 5: keyword-first scoring — content match +5, tag match +4.
             let score = 0;
+            let keywordMatched = false;
 
-            if (isWorld) {
-                // News items rank low and only on an explicit news query.
-                if (!wantsWorld) continue;
-                score = 2;
-            } else {
-                for (const tag of normTags) {
-                    if (entryTags.includes(tag)) score += 5;
-                    else if (entryTags.some(t => t.includes(tag))) score += 3;
+            for (let i = 0; i < normKw.length; i++) {
+                const kw = normKw[i];
+                const stem = kwStems[i];
+                const dataHit = entryData.includes(kw) || (stem !== kw && entryData.includes(stem));
+                if (dataHit) {
+                    score += 5;
+                    keywordMatched = true;
+                    continue;
                 }
-                for (const kw of normKw) {
-                    if (entryData.includes(kw) || entryTags.some(t => t.includes(kw))) score += 3;
+                const tagHit = entryTags.some(t => t.includes(kw) || (stem !== kw && t.includes(stem)));
+                if (tagHit) {
+                    score += 4;
+                    keywordMatched = true;
                 }
+            }
+
+            // Task 5: eligibility gate — at least one keyword must match.
+            // Member-only lookups (zero keywords) stay member-tag driven.
+            if (normKw.length > 0 && !keywordMatched) continue;
+
+            // Member / target tag match — tie-breaker only (+2).
+            for (const tag of normTags) {
+                if (entryTags.includes(tag)) score += 2;
+            }
+
+            // Calendar + news baseline: eligible %world% rows keep a small
+            // floor so an explicit news query still surfaces them.
+            if (isWorld && score === 0) {
+                if (normKw.length === 0) continue;
+                score = 1;
             }
 
             if (score > 0) scored.push({ entry, score, isWorld });
@@ -413,6 +466,7 @@ export default class UnifiedMemory {
         // the "news" tag — leaving unified memory with zero %world% rows).
         this.entries = this.entries.filter(e => {
             if (e.tags.includes("environment")) return false;
+            if (e.tags.includes("calendar")) return false;
             if (e.tags.includes("news") && !e.tags.includes("%world%")) return false;
             return true;
         });
@@ -443,7 +497,34 @@ export default class UnifiedMemory {
             });
         }
 
-        // 4. Top news headlines — raw GDELT batch (1h TTL, %world%-tagged so
+        // 4. Next-10 calendar events (24h TTL) so the cast can answer
+        // "Diwali kab hai?" / "Agla festival kaunsa hai?" via Tier-3 retrieval.
+        if (Array.isArray(env.upcomingEvents) && env.upcomingEvents.length > 0) {
+            const dayMs = 24 * 60 * 60 * 1000;
+            const now = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+            for (const evt of env.upcomingEvents.slice(0, 10)) {
+                if (!evt?.name || !Number.isFinite(evt.ts)) continue;
+                const daysLeft = Math.max(0, Math.ceil((evt.ts - todayStart) / dayMs));
+                const eventKeywords = String(evt.name)
+                    .toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, " ")
+                    .split(/\s+/)
+                    .filter(w => w.length > 3)
+                    .slice(0, 3);
+
+                this.entries.push({
+                    id: crypto.randomUUID(),
+                    datetime: stamp,
+                    tags: [...new Set(["%world%", "event", "calendar", ...eventKeywords])],
+                    data: UnifiedMemory.clampRecord(`In ${daysLeft}d: ${evt.name} (${evt.dateStr})`),
+                    expiry: "24h"
+                });
+            }
+        }
+
+        // 5. Top news headlines — raw GDELT batch (1h TTL, %world%-tagged so
         // a unified-memory search for "%world%" surfaces them). The hourly
         // environment refresh replaces this batch every cycle; the distilled
         // digest from ingestNews() lives alongside under "news_digest".

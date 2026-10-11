@@ -31,8 +31,7 @@ function estimateMessageHeight(msg) {
     if (!msg.sender) return 52;
     const textLength = msg.text ? msg.text.length : 0;
     const lines = Math.ceil(textLength / 34);
-    const replyPadding = msg.reply ? 34 : 0;
-    return Math.max(DEFAULT_ESTIMATED_HEIGHT, 42 + (lines * 18) + replyPadding);
+    return Math.max(DEFAULT_ESTIMATED_HEIGHT, 42 + (lines * 18));
 }
 
 /**

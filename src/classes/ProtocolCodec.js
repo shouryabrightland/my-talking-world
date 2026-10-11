@@ -61,6 +61,26 @@ export default class ProtocolCodec {
     }
 
     /**
+     * Normalizes a `<delay>` numeric payload to milliseconds (Task 7 —
+     * seconds-based delay contract).
+     *
+     * The prompt contract is now `<delay sec="2"/>` (or `<delay s="3"/>`);
+     * the legacy `<delay ms="2000"/>` form is still honored:
+     * - value < 20 → SECONDS (× 1000), e.g. 2 → 2000 ms.
+     * - value > 100 → already MILLISECONDS, e.g. 2000 → 2000 ms.
+     * - value in [20, 100] → treated as seconds for safe pacing.
+     *
+     * @param {string|number} raw Numeric payload from a <delay> tag.
+     * @returns {number} Delay in milliseconds (0 for invalid input).
+     */
+    static parseDelayToMs(raw) {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) return 0;
+        if (n > 100) return Math.round(n); // legacy milliseconds payload
+        return Math.round(n * 1000); // seconds-based contract
+    }
+
+    /**
      * Strips incomplete/trailing `<record>` tags that were never closed (from aborted streams).
      * Prevents stale partial XML from polluting the next turn's buffer.
      *
@@ -197,7 +217,6 @@ export default class ProtocolCodec {
             return null;
         }
 
-        const replyToID = this._parseReplyId(attributes.reply || attributes.replytoid);
         const reaction = attributes.reaction ? attributes.reaction.trim() : "Default";
 
         // <thought> spans are stripped, never surfaced — see class docs.
@@ -215,7 +234,6 @@ export default class ProtocolCodec {
         return {
             recordType: "message",
             id,
-            replyToID,
             reaction,
             sender,
             text
@@ -251,18 +269,4 @@ export default class ProtocolCodec {
         const num = Number(value.trim());
         return Number.isInteger(num) ? num : null;
     }
-
-    /**
-     * @param {string|undefined} value
-     * @returns {string|null}
-     */
-    _parseReplyId(value) {
-        if (value === undefined) return null;
-        const trimmed = value.trim();
-        if (!trimmed || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "none") {
-            return null;
-        }
-        return trimmed;
-    }
-
 }

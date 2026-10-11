@@ -25,7 +25,13 @@ export const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1
 /** @readonly @type {string} */
 export const GEMINI_CONSOLE_KEYS_URL = "https://aistudio.google.com/app/apikey";
 
-/** @readonly @type {string} */
+/**
+ * LAST-RESORT FALLBACK ONLY — never a primary model.
+ * Runtime resolution always queries GeminiModelPool.getActiveModel() /
+ * getCandidates() (live /v1beta/models discovery) first; this constant is
+ * used only when the pool is empty (e.g. no network, no cache, no key yet).
+ * @readonly @type {string}
+ */
 export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
 
 /** @readonly @type {number} */

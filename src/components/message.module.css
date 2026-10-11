@@ -283,39 +283,6 @@
 }
 
 
-.replyCard {
-    padding: 5px 8px;
-    border-radius: 8px;
-    background-color: var(--reply-bg);
-    border-left: 3px solid var(--reply-border);
-    margin-bottom: 2px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    /* Task 2: keep the quote chain shrinkable inside the footer's flex row so
-       a long quoted message truncates instead of pushing the footer wide. */
-    min-width: 0;
-    max-width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-}
-
-.replyAuthor {
-    font-size: 11.5px;
-    font-weight: 700;
-}
-
-.replyContent {
-    font-size: 12.5px;
-    color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    max-width: 100%;
-    width: 100%;
-}
-
 /* Modals */
 .modalOverlay {
     position: fixed;
@@ -583,22 +550,6 @@
     .thoughtText {
         font-size: 11.5px;
         line-height: 1.35;
-    }
-
-    .replyCard {
-        padding: 4px 7px;
-        border-radius: 6px;
-        border-left-width: 2.5px;
-        margin-bottom: 2px;
-    }
-
-    .replyAuthor {
-        font-size: 10.5px;
-    }
-
-    .replyContent {
-        font-size: 11px;
-        max-width: 200px;
     }
 
     .directorRow {

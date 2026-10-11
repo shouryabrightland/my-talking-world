@@ -55,12 +55,20 @@ vi.mock("../../src/classes/lib/GeminiModelResolver.js", () => ({
     }
 }));
 
+const promptCapture = vi.hoisted(() => ({
+    systems: /** @type {Array<() => unknown>} */ ([]),
+    users: /** @type {Array<() => unknown>} */ ([])
+}));
+
 vi.mock("../../src/classes/PromptBuilder.js", () => ({
     default: class MockPromptBuilder {
-        constructor() {}
+        constructor() {
+            promptCapture.systems = [];
+            promptCapture.users = [];
+        }
         async build() { return { messages: [] }; }
-        useSystem() {}
-        useUser() {}
+        useSystem(fn) { promptCapture.systems.push(fn); }
+        useUser(fn) { promptCapture.users.push(fn); }
         part(text) { return text; }
     }
 }));
@@ -124,6 +132,27 @@ function makeMockWorld() {
         unifiedMemory: { getEntriesForMember: () => [], toTextStack: () => "" },
         members: new Map(),
         tick() {}
+    };
+}
+
+function makeRecord(startHour, endHour, topic = "Test topic", extra = {}) {
+    return {
+        id: crypto.randomUUID(),
+        startHour,
+        endHour,
+        timeRange: `${startHour}:00 - ${endHour}:00`,
+        topic,
+        title: topic,
+        mainGoal: "Test goal",
+        characterGoals: [],
+        facts: [],
+        prePlot: "",
+        postPlot: "",
+        type: "once",
+        source: "user",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        ...extra
     };
 }
 
@@ -366,5 +395,163 @@ describe("WorldSetter — Narrative Report Parsing (via applyUserDemand)", () =>
         for (const id of ["tom", "angela", "ben", "ginger", "hank", "becca"]) {
             expect(committedIds).toContain(id);
         }
+    });
+});
+
+describe("WorldSetter — Demand Engine (Task 4)", () => {
+    /** @type {WorldSetter} */
+    let ws;
+    /** @type {ReturnType<typeof makeMockWorld>} */
+    let world;
+
+    beforeEach(() => {
+        world = makeMockWorld();
+        ws = new WorldSetter({
+            logger: { info() {}, warn() {}, error() {}, debug() {}, child() { return this; } },
+            world
+        });
+    });
+
+    it("enriches the demand prompt with cast personas, environment and the dense_paragraph schema", async () => {
+        world.members.set("tom", { id: "tom", name: "Tom", age: 20, about: "Overconfident leader" });
+        world.environment = {
+            city: "Lucknow", temperature: "34°C", weather: "Sunny", humidity: "60%",
+            todayCelebration: "None", upcomingFestivals: [], upcomingEvents: [],
+            newsHeadlines: ["Headline one"], updatedAt: Date.now()
+        };
+        ws.geminiClient.streamGenerate = async () => ({ text: "", model: "mock" });
+
+        await ws.applyUserDemand("Study physics at 5pm");
+
+        const text = promptCapture.systems.map(fn => fn()).filter(t => typeof t === "string").join("\n");
+        expect(text).toContain("<cast_profiles>");
+        expect(text).toContain('id="tom"');
+        expect(text).toContain('age="20"');
+        expect(text).toContain("Overconfident leader");
+        expect(text).toContain("<environment>");
+        expect(text).toContain("34°C");
+        expect(text).toContain("Headline one");
+        // Task 4.1: the demand XML schema now REQUIRES a dense_paragraph.
+        expect(text).toContain("<dense_paragraph>");
+    });
+
+    it("smart interval splicing: an accepted demand splits ONLY the overlapping block", async () => {
+        const movie = makeRecord(16, 19, "Afternoon movie");
+        const night = makeRecord(20, 22, "Night banter");
+        ws.schedule = [movie, night];
+
+        ws.geminiClient.streamGenerate = async () => ({
+            text: `<demand_resolution><summary_line_1>Study scheduled</summary_line_1><schedule><block start="17" end="18"><topic>Physics study</topic><dense_paragraph>Books out on the table.</dense_paragraph><goals><main>Learn</main></goals></block></schedule></demand_resolution>`,
+            model: "mock"
+        });
+
+        await ws.applyUserDemand("Study physics at 5pm");
+        await ws.acceptProposal();
+
+        const byTopic = ws.schedule.filter(r => r.topic === "Afternoon movie");
+        // The overlapping block was SPLIT around the demanded window...
+        expect(byTopic).toHaveLength(2);
+        expect(byTopic[0].startHour).toBe(16);
+        expect(byTopic[0].endHour).toBe(17);
+        expect(byTopic[1].startHour).toBe(18);
+        expect(byTopic[1].endHour).toBe(19);
+        // ...the demanded block sits exactly in the spliced window...
+        const study = ws.schedule.find(r => r.topic === "Physics study");
+        expect(study?.startHour).toBe(17);
+        expect(study?.endHour).toBe(18);
+        // ...and unrelated blocks are byte-for-byte untouched.
+        expect(night.startHour).toBe(20);
+        expect(night.endHour).toBe(22);
+        expect(ws.schedule).toHaveLength(4);
+    });
+
+    it("removes a block outright when the demanded window fully covers it", async () => {
+        const chai = makeRecord(17, 18, "Chai break");
+        const night = makeRecord(20, 22, "Night banter");
+        ws.schedule = [chai, night];
+
+        ws.geminiClient.streamGenerate = async () => ({
+            text: `<demand_resolution><summary_line_1>Study scheduled</summary_line_1><schedule><block start="17" end="18"><topic>Physics study</topic><goals><main>Learn</main></goals></block></schedule></demand_resolution>`,
+            model: "mock"
+        });
+
+        await ws.applyUserDemand("Study physics at 5pm");
+        await ws.acceptProposal();
+
+        expect(ws.schedule.some(r => r.topic === "Chai break")).toBe(false);
+        expect(ws.schedule.some(r => r.topic === "Physics study")).toBe(true);
+        expect(ws.schedule.some(r => r.topic === "Night banter")).toBe(true);
+    });
+
+    it("parses recurrence keywords (daily/weekdays) and registers the block as a template", async () => {
+        ws.schedule = [makeRecord(20, 22, "Night banter")];
+        ws.geminiClient.streamGenerate = async () => ({
+            text: `<demand_resolution><summary_line_1>Daily study scheduled</summary_line_1><schedule><block start="17" end="18"><topic>Daily physics study</topic><goals><main>Learn</main></goals></block></schedule></demand_resolution>`,
+            model: "mock"
+        });
+
+        await ws.applyUserDemand("Study physics daily at 5pm");
+        await ws.acceptProposal();
+
+        const daily = ws.schedule.find(r => r.topic === "Daily physics study");
+        expect(daily?.type).toBe("forever");
+        // The recurring block is registered into world:schedule_templates.
+        expect(ws.getTemplates()).toHaveLength(1);
+        expect(ws.getTemplates()[0].topic).toBe("Daily physics study");
+
+        // "weekdays" maps to the weekdays selector too.
+        ws.geminiClient.streamGenerate = async () => ({
+            text: `<demand_resolution><summary_line_1>Weekday practice</summary_line_1><schedule><block start="7" end="8"><topic>Weekday cricket practice</topic><goals><main>Practice</main></goals></block></schedule></demand_resolution>`,
+            model: "mock"
+        });
+        await ws.applyUserDemand("Cricket practice on weekdays at 7am");
+        await ws.acceptProposal();
+
+        const practice = ws.schedule.find(r => r.topic === "Weekday cricket practice");
+        expect(practice?.type).toBe("weekdays");
+        expect(ws.getTemplates().some(t => t.topic === "Weekday cricket practice")).toBe(true);
+    });
+
+    it("instant chat bridge: an accepted demand covering the current hour emits DEMAND_APPLIED", async () => {
+        world.now = new Date(2026, 7, 25, 17, 30);
+        // Realistic tick: resolve the active record like World.tick() does.
+        world.tick = () => { world.activeSchedule = ws.getActiveRecord(world.now); };
+        ws.schedule = [makeRecord(16, 19, "Afternoon movie")];
+
+        /** @type {any[]} */
+        const applied = [];
+        world.events.on("world:demand:applied", b => applied.push(b));
+
+        ws.geminiClient.streamGenerate = async () => ({
+            text: `<demand_resolution><summary_line_1>Study scheduled</summary_line_1><schedule><block start="17" end="18"><topic>Physics study</topic><goals><main>Learn</main></goals></block></schedule></demand_resolution>`,
+            model: "mock"
+        });
+
+        await ws.applyUserDemand("Study physics right now");
+        await ws.acceptProposal();
+
+        expect(applied).toHaveLength(1);
+        expect(applied[0].topic).toBe("Physics study");
+        // world.activeSchedule reflects the new block immediately (tick ran).
+        expect(ws.world.activeSchedule?.topic).toBe("Physics study");
+    });
+
+    it("does NOT emit DEMAND_APPLIED when the accepted demand is in the future", async () => {
+        world.now = new Date(2026, 7, 25, 9, 0);
+        ws.schedule = [makeRecord(16, 19, "Afternoon movie")];
+
+        /** @type {any[]} */
+        const applied = [];
+        world.events.on("world:demand:applied", b => applied.push(b));
+
+        ws.geminiClient.streamGenerate = async () => ({
+            text: `<demand_resolution><summary_line_1>Study scheduled</summary_line_1><schedule><block start="17" end="18"><topic>Physics study</topic><goals><main>Learn</main></goals></block></schedule></demand_resolution>`,
+            model: "mock"
+        });
+
+        await ws.applyUserDemand("Study physics at 5pm");
+        await ws.acceptProposal();
+
+        expect(applied).toHaveLength(0);
     });
 });

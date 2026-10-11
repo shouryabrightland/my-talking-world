@@ -3,7 +3,6 @@
 import React, { memo, useEffect, useMemo, useState } from "react";
 import styles from "./message.module.css";
 import Avatar from "./Avatar";
-import { useInputBox } from "../contexts/InputBoxContext";
 import { useOptionalChat } from "../contexts/ChatContext";
 import MemoryExpiryParser from "../classes/lib/MemoryExpiryParser";
 import { Sound } from "../util/sound";
@@ -16,8 +15,7 @@ import { Sound } from "../util/sound";
 export const MessageUX = memo(
     /**
      * Living Dialogue Message Component.
-     * Displays character-branded comic balloons, quote replies,
-     * and Director Stage Directive banners.
+     * Displays character-branded comic balloons and Director Stage Directive banners.
      *
      * @param {Object} props
      * @param {Message} props.message Context Message instance.
@@ -25,8 +23,6 @@ export const MessageUX = memo(
      * @returns {React.JSX.Element|null}
      */
     function MessageUX({ message, user }) {
-        const { setReply } = useInputBox();
-
         /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
         const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
@@ -77,16 +73,15 @@ export const MessageUX = memo(
         return (
             <>
                 <div className={rowClass}>
-                    {/* Character Avatar (Click to Quote Reply, Double-Click for Full X-Ray Inspector) */}
+                    {/* Character Avatar (Double-Click for Full X-Ray Inspector) */}
                     {isOther && (
                         <div
                             className={styles.avatarWrapper}
-                            onClick={() => setReply(message)}
                             onDoubleClick={(e) => {
                                 e.stopPropagation();
                                 setIsInspectorOpen(true);
                             }}
-                            title="Click to Reply • Double-Click to Inspect Mind"
+                            title="Double-Click to Inspect Mind"
                         >
                             <Avatar member={message.sender} emotion={message.emotion?.name || "Default"} />
                         </div>
@@ -108,8 +103,6 @@ export const MessageUX = memo(
                                 </span>
                             </div>
                         )}
-
-                        <ReplyBox message={message.reply} />
 
                         <p className={isOther ? styles.bubbleTextOther : styles.bubbleTextUser}>
                             {message.text}
@@ -166,31 +159,6 @@ export function TypingMessageUX({ member }) {
                     <span className={styles.dot} />
                 </div>
             </div>
-        </div>
-    );
-}
-
-/**
- * @param {Object} props
- * @param {Message|null} [props.message]
- * @returns {React.JSX.Element|null}
- */
-export function ReplyBox({ message }) {
-    if (!message || !message.sender) return null;
-
-    const memberId = String(message.sender.id || "tom").toLowerCase();
-
-    return (
-        <div className={styles.replyCard}>
-            <span
-                className={styles.replyAuthor}
-                style={{ color: `var(--char-${memberId}, var(--primary))` }}
-            >
-                {message.sender.name}
-            </span>
-            <span className={styles.replyContent}>
-                {message.text}
-            </span>
         </div>
     );
 }

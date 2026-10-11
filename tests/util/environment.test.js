@@ -55,9 +55,23 @@ describe("Calendar Bharat festival parsing (live nested payload)", () => {
         const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
         const snapshot = await getEnvironmentSnapshot(true);
 
-        expect(snapshot.todayCelebration).toContain("Test Festivity Today");
+        expect(snapshot.todayCelebration).toContain("Today is Test Festivity Today!");
         expect(snapshot.todayCelebration).toContain("🎉");
         expect(snapshot.todayCelebration).not.toContain("Regular day");
+    });
+
+    it("exposes the next dated events (Phase 4.2) for memory seeding", async () => {
+        const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
+        const snapshot = await getEnvironmentSnapshot(true);
+
+        expect(Array.isArray(snapshot.upcomingEvents)).toBe(true);
+        expect(snapshot.upcomingEvents.length).toBe(2);
+        expect(snapshot.upcomingEvents.map(e => e.name)).toEqual(["Near Future Fest", "Later Fest"]);
+        expect(snapshot.upcomingEvents[0].ts).toBeLessThan(snapshot.upcomingEvents[1].ts);
+        expect(snapshot.upcomingEvents[0].dateStr).toMatch(/\d{1,2} \w{3}/);
+        // Today's event and past events are NOT in the countdown list.
+        expect(snapshot.upcomingEvents.some(e => e.name === "Test Festivity Today")).toBe(false);
+        expect(snapshot.upcomingEvents.some(e => e.name === "Past Year Day")).toBe(false);
     });
 
     it("lists only future festivals, nearest first, without duplicates or past entries", async () => {
@@ -76,7 +90,7 @@ describe("Calendar Bharat festival parsing (live nested payload)", () => {
         expect(nearIdx).toBeLessThan(laterIdx);
     });
 
-    it("falls back to a regular day when no entry matches today", async () => {
+    it("never returns 'Regular day' — falls back to the next-festival countdown", async () => {
         vi.stubGlobal("fetch", vi.fn(async () =>
             new Response(JSON.stringify({ "2026": { "January 2026": { "January 1, 2026, Thursday": { event: "New Year", type: "Good to know", extras: "" } } } }), {
                 status: 200,
@@ -87,17 +101,69 @@ describe("Calendar Bharat festival parsing (live nested payload)", () => {
         const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
         const snapshot = await getEnvironmentSnapshot(true);
 
-        expect(snapshot.todayCelebration).toContain("Regular day");
+        expect(snapshot.todayCelebration).not.toContain("Regular day");
+        expect(snapshot.todayCelebration).toContain("⏳");
     });
 
-    it("keeps the seasonal fallback when the API request fails", async () => {
+    it("keeps a countdown-style fallback when the API request fails", async () => {
         vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
 
         const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
         const snapshot = await getEnvironmentSnapshot(true);
 
-        expect(snapshot.todayCelebration).toContain("Regular day");
+        expect(snapshot.todayCelebration).not.toContain("Regular day");
+        expect(snapshot.todayCelebration).toContain("⏳");
         expect(snapshot.upcomingFestivals.length).toBeGreaterThan(0);
+    });
+
+    it("counts down to the nearest future festival when nothing matches today", async () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const monthLong = today.toLocaleString("en-US", { month: "long" });
+        const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+        const inFive = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5);
+        const keyFor = (/** @type {Date} */ d) =>
+            `${d.toLocaleString("en-US", { month: "long" })} ${d.getDate()}, ${d.getFullYear()}, ${d.toLocaleString("en-US", { weekday: "long" })}`;
+
+        // No event today → countdown to tomorrow's festival.
+        vi.stubGlobal("fetch", vi.fn(async () =>
+            new Response(JSON.stringify({
+                [String(year)]: {
+                    [`${monthLong} ${year}`]: {
+                        [keyFor(tomorrow)]: { event: "Test Countdown Fest", type: "Festival", extras: "" },
+                        [keyFor(inFive)]: { event: "Later Countdown Fest", type: "Festival", extras: "" }
+                    }
+                }
+            }), { status: 200, headers: { "Content-Type": "application/json" } })
+        ));
+
+        const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
+        const snapshot = await getEnvironmentSnapshot(true);
+        expect(snapshot.todayCelebration).toBe("⏳ Tomorrow is Test Countdown Fest!");
+    });
+
+    it("counts remaining days for festivals further out", async () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const monthLong = today.toLocaleString("en-US", { month: "long" });
+        const inFive = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5);
+        const keyFor = (/** @type {Date} */ d) =>
+            `${d.toLocaleString("en-US", { month: "long" })} ${d.getDate()}, ${d.getFullYear()}, ${d.toLocaleString("en-US", { weekday: "long" })}`;
+
+        vi.stubGlobal("fetch", vi.fn(async () =>
+            new Response(JSON.stringify({
+                [String(year)]: {
+                    [`${monthLong} ${year}`]: {
+                        [keyFor(inFive)]: { event: "Five Days Fest", type: "Festival", extras: "" }
+                    }
+                }
+            }), { status: 200, headers: { "Content-Type": "application/json" } })
+        ));
+
+        const { getEnvironmentSnapshot } = await import("../../src/util/environment.js");
+        const snapshot = await getEnvironmentSnapshot(true);
+        expect(snapshot.todayCelebration).toBe("⏳ 5 days left until Five Days Fest");
+        expect(snapshot.todayCelebration).not.toContain("Regular day");
     });
 });
 

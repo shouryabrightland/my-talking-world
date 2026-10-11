@@ -68,12 +68,6 @@ export default class Chat {
          */
         this.messageMap = new Map();
 
-        /** 
-         * Protocol ID index map used to resolve relative protocol reply parameters.
-         * @type {Map<string, string>} 
-         */
-        this.protocolMessageMap = new Map();
-
         /** @readonly @type {MessageStore} */
         this.messageStore = new MessageStore(this.logger);        /** @type {boolean} */ this.initialized = false;
 
@@ -113,7 +107,6 @@ export default class Chat {
                 if (!this.messageMap.has(message.id)) {
                     this.messages.push(message);
                     this.#addMaps(message);
-                    this.#repairMessage(message);
                 }
             }
 
@@ -277,7 +270,6 @@ export default class Chat {
         }
 
         // Align reply links
-        this.#repairMessage(message);
 
         if (!message.isSent()) {
             message.sent();
@@ -394,17 +386,6 @@ export default class Chat {
     }
 
     /**
-     * Resolves absolute message reference mapping using parsed protocol IDs.
-     *
-     * @param {string} protocolId String protocol index identifier.
-     * @returns {Message|undefined}
-     */
-    getMessageByProtocolId(protocolId) {
-        const id = this.protocolMessageMap.get(protocolId);
-        return id ? this.messageMap.get(id) : undefined;
-    }
-
-    /**
      * Checks if message ID exists inside active maps.
      *
      * @param {Message} message Target Message instance.
@@ -441,7 +422,6 @@ export default class Chat {
 
         this.messages.length = 0;
         this.messageMap.clear();
-        this.protocolMessageMap.clear();
 
         try {
             await this.messageStore.clear();
@@ -478,7 +458,6 @@ export default class Chat {
         this.members.clear();
         this.messages.length = 0;
         this.messageMap.clear();
-        this.protocolMessageMap.clear();
 
         this.events.clearAll();
 
@@ -493,11 +472,6 @@ export default class Chat {
     #addMaps(...messages) {
         for (const message of messages) {
             this.messageMap.set(message.id, message);
-
-            const protocolId = message.protocol?.id;
-            if (protocolId) {
-                this.protocolMessageMap.set(protocolId, message.id);
-            }
         }
     }
 
@@ -508,14 +482,6 @@ export default class Chat {
      */
     #removeMaps(message) {
         this.messageMap.delete(message.id);
-
-        const protocolId = message.protocol?.id;
-        if (
-            protocolId &&
-            this.protocolMessageMap.get(protocolId) === message.id
-        ) {
-            this.protocolMessageMap.delete(protocolId);
-        }
     }
 
     /**
@@ -552,27 +518,5 @@ export default class Chat {
         } catch (/** @type {unknown} */ error) {
             this.logger.error("Failed to synchronize active additions/removals with MessageStore database:", error);
         }
-    }
-
-    /**
-     * Maps message reference pointers using parsed protocol reply properties.
-     *
-     * @param {Message} message Target Message to verify.
-     */
-    #repairMessage(message) {
-        const replyId = message.protocol?.replyId;
-        if (!replyId) {
-            message.setReply(null);
-            return;
-        }
-
-        const reply = this.getMessageByProtocolId(replyId);
-        if (!reply) {
-            message.setReply(null);
-            this.logger.warn(`Message reply reference matching protocol ID "${replyId}" could not be resolved.`);
-            return;
-        }
-
-        message.setReply(reply);
     }
 }

@@ -8,7 +8,8 @@
  *   (ZERO generateContent probes — the old 429 self-DoS is gone)
  * - Dual-key enforcement (both keys required)
  * - Dynamic text-model filtering + tiered priority sorting (Flash-Lite →
- *   Flash → Pro → Gemma) used by GeminiModelPool
+ *   Flash → Gemma; Pro / image / embed models are filtered out) used by
+ *   GeminiModelPool
  * - GeminiModelPool cooldown / self-healing behaviour
  * - Model blocking via localStorage
  */
@@ -251,7 +252,7 @@ describe("filterTextGenerationModels", () => {
 });
 
 // =========================================================================
-// DYNAMIC PRIORITY SORTING (Flash-Lite → Flash → Pro → Gemma)
+// DYNAMIC PRIORITY SORTING (Flash-Lite → Flash → Gemma — Pro filtered out)
 // =========================================================================
 
 describe("Gemini model pool — dynamic tiered priority", () => {
@@ -266,10 +267,9 @@ describe("Gemini model pool — dynamic tiered priority", () => {
         { name: "models/text-embedding-004", supportedGenerationMethods: ["embedContent"] }
     ];
 
-    it("assigns tiers: Flash-Lite=1, Flash=2, Pro=3, Gemma=4, other=5", () => {
+    it("assigns tiers: Flash-Lite=1, Flash=2, Gemma=4, other=5", () => {
         expect(tierOf("gemini-2.5-flash-lite")).toBe(1);
         expect(tierOf("gemini-2.5-flash")).toBe(2);
-        expect(tierOf("gemini-3.1-pro")).toBe(3);
         expect(tierOf("gemma-3-27b-it")).toBe(4);
         expect(tierOf("some-unknown-model")).toBe(5);
     });
@@ -280,7 +280,7 @@ describe("Gemini model pool — dynamic tiered priority", () => {
         expect(versionOf("gemma-3-27b-it")).toBe(3);
     });
 
-    it("orders Flash-Lite → Flash → Pro → Gemma and sorts versions descending", () => {
+    it("orders Flash-Lite → Flash → Gemma, sorts versions descending, and NEVER admits Pro models", () => {
         const ranked = prioritizeGeminiModels(normalizeGeminiModels(RAW)).map(m => m.id);
 
         expect(ranked).toEqual([
@@ -289,9 +289,9 @@ describe("Gemini model pool — dynamic tiered priority", () => {
             "gemini-3.7-flash",
             "gemini-2.5-flash",
             "gemini-1.5-flash",
-            "gemini-3.1-pro",
             "gemma-3-27b-it"
         ]);
+        expect(ranked).not.toContain("gemini-3.1-pro");
     });
 
     it("drops non-text models from the pool", () => {
@@ -591,6 +591,9 @@ describe("Key Storage Helpers", () => {
 describe("Constants", () => {
     it("should define non-text model markers used by verification and the pool", () => {
         expect(NON_TEXT_MODEL_MARKERS).toBeInstanceOf(Array);
+        expect(NON_TEXT_MODEL_MARKERS).toContain("pro");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("image");
+        expect(NON_TEXT_MODEL_MARKERS).toContain("embed");
         expect(NON_TEXT_MODEL_MARKERS).toContain("embedding");
         expect(NON_TEXT_MODEL_MARKERS).toContain("imagen");
         expect(NON_TEXT_MODEL_MARKERS).toContain("veo");

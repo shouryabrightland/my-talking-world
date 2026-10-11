@@ -1094,6 +1094,15 @@
     color: var(--text-tertiary);
 }
 
+/* Task 2: past blocks stay visible for the full 24-hour day, greyed out. */
+.sceneCardPast {
+    opacity: 0.55;
+}
+
+.sceneCardPast .minimizedTitle {
+    color: var(--text-tertiary);
+}
+
 /* Diff badges */
 .diffBadgeProposed {
     display: inline-block;

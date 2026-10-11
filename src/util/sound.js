@@ -8,7 +8,7 @@
  * - Ambient audio mixer with melody, noise, and drone channels.
  * - BPM-synced audio generation using Web Audio API.
  * - Sound effects for message pops and character voices.
- * - Volume and mix controls with preset support (sitcom, coffee, sleep).
+ * - Volume and mix controls with preset support (sitcom, lounge, sleep).
  */
 
 /**
@@ -313,7 +313,7 @@ class AmbientSoundEngine {
     /**
      * Applies a 1-tap quick vibe preset.
      *
-     * @param {"sitcom"|"coffee"|"sleep"} presetName
+     * @param {"sitcom"|"lounge"|"sleep"} presetName
      */
     applyPreset(presetName) {
         switch (presetName) {
@@ -324,7 +324,7 @@ class AmbientSoundEngine {
                 this.droneVolume = 0.28;
                 this.bpm = 112;
                 break;
-            case "coffee":
+            case "lounge":
                 this.masterVolume = 0.42;
                 this.melodyVolume = 0.35;
                 this.noiseVolume = 0.28;

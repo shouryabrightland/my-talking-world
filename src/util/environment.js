@@ -132,7 +132,11 @@ async function fetchCityWeather() {
  * `{ "2026": { "October 2026": { "October 20, 2026, Tuesday": { event, type, extras } } } }`
  *
  * @param {Date} date
- * @returns {Promise<{ todayCelebration: string, upcomingFestivals: string[] }>}
+ * @returns {Promise<{
+ *   todayCelebration: string,
+ *   upcomingFestivals: string[],
+ *   upcomingEvents: Array<{ name: string, dateStr: string, ts: number }>
+ * }>}
  */
 async function fetchCalendarBharatFestivals(date) {
     const url = "https://jayantur13.github.io/calendar-bharat/calendar/2026.json";
@@ -142,10 +146,12 @@ async function fetchCalendarBharatFestivals(date) {
     const todayFormattedDate = `${date.getFullYear()}-${monthNum}-${dayNum}`;
     const todayDayKey = `${Number(dayNum)}`;
 
-    /** @type {string} */
-    let todayCelebration = `Regular day in ${SIMULATION_CITY}`;
+    /** @type {string} Empty until a real countdown / celebration is computed. */
+    let todayCelebration = "";
     /** @type {string[]} */
     const upcomingFestivals = [];
+    /** @type {Array<{ name: string, dateStr: string, ts: number }>} */
+    const upcomingEvents = [];
 
     try {
         const response = await fetchWithTimeout(url);
@@ -202,13 +208,34 @@ async function fetchCalendarBharatFestivals(date) {
             const isToday = (!Number.isNaN(entry.ts) && entry.ts === todayStart) ||
                 entry.key === todayFormattedDate || entry.key === todayDayKey;
             if (isToday) {
-                todayCelebration = `🎉 ${entry.name}`;
+                todayCelebration = `🎉 Today is ${entry.name}!`;
             }
         }
 
         const future = dated
             .filter(e => !Number.isNaN(e.ts) && e.ts > todayStart)
             .sort((a, b) => a.ts - b.ts);
+
+        // Phase 4.1: no "Regular day" — surface a live countdown to the next
+        // festival instead.
+        if (!todayCelebration && future.length > 0) {
+            const daysLeft = Math.ceil((future[0].ts - todayStart) / dayMs);
+            todayCelebration = daysLeft === 1
+                ? `⏳ Tomorrow is ${future[0].name}!`
+                : `⏳ ${daysLeft} days left until ${future[0].name}`;
+        }
+
+        // Phase 4.2: the next 10 dated events, nearest first, for memory seeding.
+        for (const entry of future) {
+            if (upcomingEvents.length >= 10) break;
+            if (upcomingEvents.some(e => e.name === entry.name)) continue;
+            upcomingEvents.push({
+                name: entry.name,
+                dateStr: new Date(entry.ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+                ts: entry.ts
+            });
+        }
+
         for (const entry of future) {
             if (upcomingFestivals.length >= 4) break;
             if (!upcomingFestivals.includes(entry.name)) upcomingFestivals.push(entry.name);
@@ -221,9 +248,16 @@ async function fetchCalendarBharatFestivals(date) {
         upcomingFestivals.push("Independence Day", "Diwali Festival of Lights", "Dussehra", "Makar Sankranti");
     }
 
+    // Never fall back to "Regular day in Lucknow" — every day carries either
+    // a celebration or a countdown to the next one.
+    if (!todayCelebration) {
+        todayCelebration = `⏳ Coming up next: ${upcomingFestivals[0]}`;
+    }
+
     return {
         todayCelebration,
-        upcomingFestivals
+        upcomingFestivals,
+        upcomingEvents
     };
 }
 
@@ -296,6 +330,7 @@ export async function getEnvironmentSnapshot(forceRefresh = false) {
         humidity: weatherData.humidity,
         todayCelebration: festivalData.todayCelebration,
         upcomingFestivals: festivalData.upcomingFestivals,
+        upcomingEvents: festivalData.upcomingEvents,
         newsHeadlines,
         updatedAt: now
     };

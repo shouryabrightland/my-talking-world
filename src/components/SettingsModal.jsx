@@ -219,7 +219,7 @@ export default function SettingsModal({ isOpen, onClose }) {
         AmbientAudio.setBpm(val);
     }, []);
 
-    const handleApplyAmbientPreset = useCallback((/** @type {"sitcom"|"coffee"|"sleep"} */ preset) => {
+    const handleApplyAmbientPreset = useCallback((/** @type {"sitcom"|"lounge"|"sleep"} */ preset) => {
         AmbientAudio.applyPreset(preset);
         const settings = AmbientAudio.getMixSettings();
         setAmbientMasterVol(Math.round(settings.masterVolume * 100));
@@ -604,7 +604,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                     <button onClick={() => handleApplyAmbientPreset("sitcom")} className={styles.vibePresetBtn}>
                                         🎉 Sitcom
                                     </button>
-                                    <button onClick={() => handleApplyAmbientPreset("coffee")} className={styles.vibePresetBtn}>
+                                    <button onClick={() => handleApplyAmbientPreset("lounge")} className={styles.vibePresetBtn}>
                                         ☕ Cozy Lounge
                                     </button>
                                     <button onClick={() => handleApplyAmbientPreset("sleep")} className={styles.vibePresetBtn}>

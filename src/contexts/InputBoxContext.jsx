@@ -2,8 +2,6 @@
 
 import React, { createContext, useContext, useMemo, useState, useCallback } from "react";
 
-/** @typedef {import("../classes/Message").default} Message */
-
 /**
  * Supported interaction perspectives in the simulation:
  * - "user": The human acts as an in-room conversational participant ("Me").
@@ -13,10 +11,6 @@ import React, { createContext, useContext, useMemo, useState, useCallback } from
 
 /**
  * @typedef {Object} InputBoxContextValue
- * @property {Message|null} reply Quoted message reference being replied to.
- * @property {Message|null} Reply Deprecated alias for reply.
- * @property {React.Dispatch<React.SetStateAction<Message|null>>} setReply Setter to assign or clear quoted reply target.
- * @property {() => void} clearReply Helper to directly cancel the active quote reply.
  * @property {AppMode} mode Active user perspective mode.
  * @property {(mode: AppMode) => void} setMode Setter to toggle between User and Director modes.
  * @property {boolean} isPlannerOpen Whether the 24-Hour Storyline Planner slide-over panel is visible.
@@ -27,16 +21,13 @@ import React, { createContext, useContext, useMemo, useState, useCallback } from
 const InputBoxContext = createContext(/** @type {InputBoxContextValue|null} */ (null));
 
 /**
- * Context Provider exposing input actions, mode states, and planner visibility.
+ * Context Provider exposing input mode states and planner visibility.
  *
  * @param {Object} props
  * @param {React.ReactNode} props.children
  * @returns {React.JSX.Element}
  */
 export function InputBoxContextProvider({ children }) {
-    /** @type {[Message|null, React.Dispatch<React.SetStateAction<Message|null>>]} */
-    const [reply, setReply] = useState(/** @type {Message|null} */ (null));
-
     /** @type {[AppMode, React.Dispatch<React.SetStateAction<AppMode>>]} */
     const [mode, setModeState] = useState(/** @type {AppMode} */ ("user"));
 
@@ -57,21 +48,13 @@ export function InputBoxContextProvider({ children }) {
         setIsPlannerOpenState(Boolean(isOpen));
     }, []);
 
-    const clearReply = useCallback(() => {
-        setReply(null);
-    }, []);
-
     /** @type {InputBoxContextValue} */
     const value = useMemo(() => ({
-        reply,
-        Reply: reply, // Preserved for backwards compatibility
-        setReply,
-        clearReply,
         mode,
         setMode,
         isPlannerOpen,
         setIsPlannerOpen
-    }), [reply, mode, isPlannerOpen, setMode, setIsPlannerOpen, clearReply]);
+    }), [mode, isPlannerOpen, setMode, setIsPlannerOpen]);
 
     return (
         <InputBoxContext.Provider value={value}>

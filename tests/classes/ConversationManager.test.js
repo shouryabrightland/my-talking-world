@@ -597,6 +597,96 @@ describe("ConversationManager — Streaming <record> Extraction", () => {
         // The explicit pacing tag replaces the timeline-derived delay.
         expect(timelineSpy).not.toHaveBeenCalled();
     });
+
+    it("arms the inter-message gap when a <delay> immediately follows a <msg>", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        manager.chat.getMember = () => (/** @type {any} */ ({ id: "tom", isAI: true }));
+        const addSpy = vi.spyOn(manager.timelineProcessor, "add");
+
+        // Bubble 1 has no gap (nothing precedes it), then a 1500ms pacing gap.
+        manager.onStreamToken('<msg sender="tom" reaction="Default">Pehla message</msg><delay ms="1500"/>');
+        expect(addSpy).toHaveBeenCalledTimes(1);
+        expect(addSpy.mock.calls[0][1]).toBe(0);
+        // The delay armed the NEXT bubble's gap.
+
+        manager.onStreamToken('<msg sender="tom" reaction="Default">Doosra message</msg>');
+        expect(addSpy).toHaveBeenCalledTimes(2);
+        expect(addSpy.mock.calls[1][1]).toBe(1500);
+
+        finish();
+        await turnPromise;
+    });
+
+    it("lets a trailing <delay> keep arming the next-turn schedule (macro pacing)", async () => {
+        const { turnPromise, finish } = await startHangingTurn();
+        manager.chat.getMember = () => (/** @type {any} */ ({ id: "tom", isAI: true }));
+        const addSpy = vi.spyOn(manager.timelineProcessor, "add");
+
+        manager.onStreamToken('<msg sender="tom" reaction="Default">Last line</msg><delay ms="4000"/>');
+        finish();
+        await turnPromise;
+
+        // First bubble is un-delayed; the trailing tag became the macro delay
+        // (consumed by scheduleNextRequest) rather than a bubble gap.
+        expect(addSpy.mock.calls[0][1]).toBe(0);
+    });
+});
+
+// ─── Phase 6.2: programmatic message auto-splitting ─────────────
+
+describe("ConversationManager — message auto-splitting (Phase 6.2)", () => {
+    /** Long multi-sentence banter line that exceeds the 70-char bubble cap. */
+    const LONG_LINE = "Arre yaar kal ka plan bilkul final hai, hum sab log subah jaldi uthenge aur park mein milke cricket khelenge, phir wapas aake saath nashta karenge.";
+
+    it("keeps a short single-sentence bubble intact", () => {
+        const { manager } = createManager();
+        expect(manager.splitMessageText("Arre kya baat hai!")).toEqual(["Arre kya baat hai!"]);
+    });
+
+    it("never returns a sub-chunk longer than 70 characters", () => {
+        const { manager } = createManager();
+        const chunks = manager.splitMessageText(LONG_LINE);
+
+        expect(chunks.length).toBeGreaterThan(1);
+        for (const chunk of chunks) {
+            expect(chunk.length).toBeLessThanOrEqual(70);
+        }
+        // Nothing is lost in the split.
+        expect(chunks.join(" ").replace(/\s+/g, " ")).toContain("cricket khelenge");
+    });
+
+    it("splits multiple sentences into separate bubbles", () => {
+        const { manager } = createManager();
+        const chunks = manager.splitMessageText("Chalo yaar plan set! Ab sab log taiyar ho jao.");
+
+        expect(chunks).toHaveLength(2);
+        expect(chunks[0]).toBe("Chalo yaar plan set!");
+    });
+
+    it("queues each chunk with a pacing gap between consecutive bubbles", () => {
+        const { manager } = createManager();
+        manager.chat.getMember = () => (/** @type {any} */ ({ id: "tom", isAI: true }));
+        const addSpy = vi.spyOn(manager.timelineProcessor, "add");
+
+        manager.handleBanterMessage("tom", "Default", LONG_LINE, 1500);
+
+        expect(addSpy.mock.calls.length).toBeGreaterThan(1);
+        // First bubble inherits the stream-supplied gap…
+        expect(addSpy.mock.calls[0][1]).toBe(1500);
+        // …later chunks get the fixed 1000–1500ms split gap.
+        expect(addSpy.mock.calls[1][1]).toBe(ConversationManager.SPLIT_GAP_MS);
+        expect(ConversationManager.SPLIT_GAP_MS).toBeGreaterThanOrEqual(1000);
+        expect(ConversationManager.SPLIT_GAP_MS).toBeLessThanOrEqual(1500);
+    });
+
+    it("rejects human-impersonating senders before splitting", () => {
+        const { manager } = createManager();
+        const addSpy = vi.spyOn(manager.timelineProcessor, "add");
+
+        manager.handleBanterMessage("me", "Default", LONG_LINE);
+
+        expect(addSpy).not.toHaveBeenCalled();
+    });
 });
 
 // ─── Director Mode transparency ──────────────────────────────────
@@ -699,7 +789,7 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         // Single source of truth: Reaction.EMOTION. Every valid reaction name
         // must be offered to the model so it never invents reaction values
         // that the avatar layer would silently discard. (Emojis are omitted
-        // from the prompt on purpose — the 700-token Groq gate is tight.)
+        // from the prompt on purpose — the 1200-token Groq gate is tight.)
         for (const { name } of Reaction.EMOTION) {
             expect(joined).toContain(name);
         }
@@ -716,7 +806,7 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         // Ages ride inline with the cast ids (fallback cast includes ages too),
         // and the compact Groq prompt carries one age-directive line.
         expect(joined).toMatch(/\(\d{2}\)/);
-        expect(joined).toMatch(/Speak each cast member at their listed age/);
+        expect(joined).toMatch(/Speak each character at their exact age/);
     });
 
     it("drops every legacy heavy block and the <thought> system", () => {
@@ -727,6 +817,13 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         expect(joined).not.toContain("<thought>");
         expect(joined).not.toContain("thought>");
 
+        // Phase 5: the compact markdown safety block is injected into every
+        // Groq dialogue turn (the verbose XML mandate still ships on the
+        // token-rich Gemini prompts).
+        expect(joined).toContain("Safety & Ethics (G-Rated CBSE Standard)");
+        expect(joined).toContain("Strictly family-friendly");
+        expect(joined).not.toContain("<child_safety_mandate>");
+
         // Replaced by the Tier-2 situation paragraph + Tier-3 memory lines.
         expect(joined).not.toContain("<system_directive>");
         expect(joined).not.toContain("<characters>");
@@ -736,10 +833,17 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         expect(joined).not.toContain("<task>");
         expect(joined).not.toContain("<rule>");
 
-        // Zero-bias framing: no anti-tags or negative rule language.
-        expect(joined).not.toContain("FORBIDDEN");
-        expect(joined).not.toContain("ANTI-CLICH");
-        expect(joined).not.toContain("NEVER");
+        // Zero-bias framing: no anti-tags or negative rule language — the ONLY
+        // exception is the compact Phase-5 safety block, which is deliberately
+        // packed with "NO …" constraints for the school-safety contract.
+        // Scope it out of the zero-bias scan.
+        const withoutSafety = joined.replace(
+            /## Safety & Ethics \(G-Rated CBSE Standard\):[\s\S]*?(?=\n## |$)/g,
+            ""
+        );
+        expect(withoutSafety).not.toContain("FORBIDDEN");
+        expect(withoutSafety).not.toContain("ANTI-CLICH");
+        expect(withoutSafety).not.toContain("NEVER");
     });
 
     it("renders the recent chat window as plain text capped at 1000 chars", () => {
@@ -877,10 +981,11 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
         expect(captured.system).toContain("Tom promised the group chai");
     });
 
-    it("leads the Needle query with the human message, then the recent chat", async () => {
+    it("isolates the Needle query to the human message — chat history never enters a keyword-bearing query", async () => {
         const { manager } = createManager();
         manager.initialized = true;
-        const route = vi.spyOn(manager.needleRouter, "route").mockResolvedValue({ keywords: [], member: "any" });
+        const route = vi.spyOn(manager.needleRouter, "route")
+            .mockResolvedValue({ keywords: ["drone", "rotor"], member: "any" });
 
         manager.getRecentMessages = () => [
             { id: "m1", deleted: false, sender: { id: "angela", name: "Angela" }, text: "Angela: rotor ka screw gayab hai" }
@@ -888,11 +993,27 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
 
         await manager.requestTurn(true, "drone ke rotor ke baare mein batao");
 
-        expect(route).toHaveBeenCalledTimes(1);
-        const query = String(route.mock.calls[0][0]);
-        // Human words first so the deterministic extractor ranks them highest.
-        expect(query.indexOf("drone ke rotor")).toBeGreaterThanOrEqual(0);
-        expect(query.indexOf("drone ke rotor")).toBeLessThan(query.indexOf("screw gayab"));
+        // Task 5: the FINAL route query is the isolated human message.
+        const finalQuery = String(route.mock.calls[route.mock.calls.length - 1][0]);
+        expect(finalQuery).toContain("drone ke rotor");
+        expect(finalQuery).not.toContain("screw gayab");
+    });
+
+    it("falls back to chat history only when the human message carries zero topical nouns", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        const route = vi.spyOn(manager.needleRouter, "route")
+            .mockResolvedValue({ keywords: [], member: "any" });
+
+        manager.getRecentMessages = () => [
+            { id: "m1", deleted: false, sender: { id: "angela", name: "Angela" }, text: "Angela: rotor ka screw gayab hai" }
+        ];
+
+        await manager.requestTurn(true, "hello");
+
+        const finalQuery = String(route.mock.calls[route.mock.calls.length - 1][0]);
+        expect(finalQuery).toContain("hello");
+        expect(finalQuery).toContain("screw gayab");
     });
 
     it("captures the human utterance from MESSAGE_ADD and routes the next turn through it", async () => {
@@ -989,7 +1110,7 @@ describe("ConversationManager — per-turn prompt token budget", () => {
     /** Standard ~4 chars/token estimate used across the prompt-budget gates. */
     const estimateTokens = (/** @type {string} */ s) => Math.ceil(s.length / 4);
 
-    it("stays under 700 tokens for a worst-case dialogue turn", async () => {
+    it("stays under 1200 tokens for a worst-case dialogue turn", async () => {
         vi.useFakeTimers();
         try {
             const { manager } = createManager();
@@ -1042,14 +1163,15 @@ describe("ConversationManager — per-turn prompt token budget", () => {
             const totalTokens = estimateTokens("x".repeat(totalChars));
             console.log(`[prompt-budget] dialogue turn ≈ ${totalTokens} tokens (${totalChars} chars)`);
 
-            // Gate 3: Groq prompt tokens stay under 700 per dialogue turn.
+            // Gate 3: Groq prompt tokens stay under 1200 per dialogue turn.
             // The Step-3 prompt documents the raw <msg>/<delay>/<next> XML
-            // contract, which costs ~150 tokens over the old 500-token ceiling,
-            // and Phase 8 added triple-backtick data fences plus the 100-char
-            // BREVITY rule (~30 tokens). Measured worst case: ~680 tokens.
-            // There is no separate live gate in the app — this test is the
-            // budget contract, so keep a real ceiling for future growth.
-            expect(totalTokens).toBeLessThan(700);
+            // contract; Phase 8 added triple-backtick data fences plus the
+            // 65-char bubble rules; and Phase 5 swaps the full ~420-token
+            // <child_safety_mandate> for a compact ~90-token markdown block
+            // on this turn. Measured worst case: ~1099 tokens. There is no
+            // separate live gate in the app — this test is the budget
+            // contract, so keep a real ceiling for future growth.
+            expect(totalTokens).toBeLessThan(1200);
         } finally {
             vi.useRealTimers();
             vi.restoreAllMocks();
