@@ -766,10 +766,10 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         expect(joined).toContain("# Live Group Chat: Tom & Friends");
         expect(joined).toContain("Cast:");
         expect(joined).toContain('<msg sender="id" reaction="ReactionName">');
-        expect(joined).toContain('<delay sec="3"/>');
-        expect(joined).toContain('<delay sec="60"/>');
+        expect(joined).toContain('<delay sec="4"/>');
+        expect(joined).toContain('<delay sec="10"/>');
         expect(joined).toContain('<next time="HH:MM"/>');
-        expect(joined).toContain('<next time="18:30"/>');
+        expect(joined).toContain('<next time="22:30"/>');
         // No bedtime framing in the instructions. "Sleeping" itself is a
         // VALID reaction name and must stay in the allow-list.
         expect(joined.toLowerCase()).not.toMatch(/\b(bedtime|sleepy|go to sleep|sleep at|time to sleep|lights out)\b/i);
@@ -1232,12 +1232,29 @@ describe("ConversationManager — macro pacing (<delay> / <next>)", () => {
         // Slowest queue still has 5s of typing/reading left when the stream ends.
         manager.timelineProcessor.getLastTime = () => Date.now() + 5000;
 
-        await runTurn(manager, '<delay ms="20000"/>');
+        await runTurn(manager, '<delay ms="10000"/>');
 
         const requestSpy = vi.spyOn(manager, "requestTurn");
 
-        // 5s delivery + 20s delay = 25s total, NOT 20s from stream end.
-        await vi.advanceTimersByTimeAsync(24_999);
+        // 5s delivery + 10s delay = 15s total, NOT 10s from stream end.
+        await vi.advanceTimersByTimeAsync(14_999);
+        expect(requestSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(2);
+        expect(requestSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("caps explicit banter delays at 15 seconds so the chat never freezes", async () => {
+        const { manager } = createManager();
+        manager.initialized = true;
+        manager.timelineProcessor.getLastTime = () => Date.now() + 5000;
+
+        await runTurn(manager, '<delay ms="120000"/>');
+
+        const requestSpy = vi.spyOn(manager, "requestTurn");
+
+        // 5s delivery + capped 15s delay = 20s total — NOT the raw 120s.
+        await vi.advanceTimersByTimeAsync(19_999);
         expect(requestSpy).not.toHaveBeenCalled();
 
         await vi.advanceTimersByTimeAsync(2);

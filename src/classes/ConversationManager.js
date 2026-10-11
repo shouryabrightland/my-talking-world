@@ -1486,7 +1486,9 @@ export default class ConversationManager {
             }
             this.logger.info(`Turn completed. Cast paused until ${nextTimeStr} (${Math.round((targetTimeMs - now) / 60000)}m wait).`);
         } else if (explicitDelay !== null) {
-            targetTimeMs = Math.max(now, lastMessageDeliveredAt) + explicitDelay;
+            // Cap daytime banter delays to 15 seconds max to prevent chat freeze
+            const safeDelay = Math.min(15_000, explicitDelay);
+            targetTimeMs = Math.max(now, lastMessageDeliveredAt) + safeDelay;
             // PHASE 3.1: An explicit `<delay ms="…"/>` is also a future wake
             // instant — persist it so reloads resume the remaining wait.
             localStorage.setItem(NEXT_WAKE_STORAGE_KEY, String(targetTimeMs));
@@ -1498,7 +1500,7 @@ export default class ConversationManager {
                     member.events.emit(ChatMemberEvents.ACTIVE, false);
                 }
             }
-            this.logger.info(`Turn completed. Next request scheduled ${explicitDelay / 1000}s AFTER last message delivery.`);
+            this.logger.info(`Turn completed. Next request scheduled ${safeDelay / 1000}s AFTER last message delivery.`);
         } else {
             // Default fast follow-up — nothing meaningful to restore on reload.
             localStorage.removeItem(NEXT_WAKE_STORAGE_KEY);
@@ -1709,9 +1711,9 @@ export default class ConversationManager {
                 '- TIMING: put <delay sec="1"/> to <delay sec="2"/> directly after EACH <msg> tag for natural cartoon pacing (SECONDS, not milliseconds).',
                 `- Valid reactions (exact): {${Reaction.EMOTION.map(e => e.name).join(", ")}}. Use Default if unsure.`,
                 "- After the LAST message, output exactly one end-of-turn pacing tag:",
-                '  * Banter: <delay sec="3"/> to <delay sec="5"/>',
-                '  * Thinking / waiting on the human: <delay sec="20"/> to <delay sec="60"/>',
-                '  * Wrapping up, signing off, or meeting later: <next time="HH:MM"/> (e.g. <next time="18:30"/>). Use <next> (not <delay>) for time jumps.'
+                '  * Normal banter (default): <delay sec="2"/> to <delay sec="4"/>',
+                '  * Thinking / quiet pause: <delay sec="5"/> to <delay sec="10"/>',
+                '  * ONLY when the group explicitly says goodbye, goes to sleep, or parts ways until a later hour: <next time="HH:MM"/> (e.g. <next time="22:30"/>). During active conversation, always use <delay> instead.'
             ].filter(Boolean).join("\n"));
         });
 

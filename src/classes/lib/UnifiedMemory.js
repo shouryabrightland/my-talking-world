@@ -116,10 +116,6 @@ export default class UnifiedMemory {
             ? trimmedData.slice(0, UnifiedMemory.MAX_RECORD_CHARACTERS).trim()
             : trimmedData;
 
-        // Task 12: UTC-anchored TTLs — store expiry as absolute UTC epoch millisecond number
-        const epochExpiry = MemoryExpiryParser.toEpochMs(expiry);
-        const resolvedExpiry = (epochExpiry !== null && epochExpiry !== undefined) ? epochExpiry : (expiry || "forever");
-
         /** @type {UnifiedMemoryEntry} */
         const entry = {
             id: crypto.randomUUID(),
@@ -390,11 +386,14 @@ export default class UnifiedMemory {
         ].join("\n");
 
         try {
+            // Zero hardcoded model names: when the client exposes no
+            // resolver we pass model: null and let GeminiClient resolve its
+            // own configured default (DEFAULT_GEMINI_MODEL via config).
             const targetModel = typeof gemmaClient.resolveGemmaModel === "function"
                 ? await gemmaClient.resolveGemmaModel()
                 : (typeof gemmaClient.resolveModel === "function"
                     ? await gemmaClient.resolveModel()
-                    : "gemini-2.5-flash-lite");
+                    : null);
 
             const result = await gemmaClient.streamGenerate(
                 [{ role: "user", content: prompt }],
@@ -489,7 +488,7 @@ export default class UnifiedMemory {
                 data: UnifiedMemory.clampRecord(
                     `Current weather in ${env.city || "Lucknow"}: ${env.temperature || "32°C"}, ${env.weather} (Humidity: ${env.humidity || "55%"})`
                 ),
-                expiry: MemoryExpiryParser.toEpochMs("1h")
+                expiry: "1h"
             });
         }
 
@@ -500,7 +499,7 @@ export default class UnifiedMemory {
                 datetime: stamp,
                 tags: ["environment", "occasion", "festival", "celebration", "lucknow"],
                 data: UnifiedMemory.clampRecord(`Today's celebration: ${env.todayCelebration}`),
-                expiry: MemoryExpiryParser.toEpochMs("24h")
+                expiry: "24h"
             });
         }
 
@@ -526,7 +525,7 @@ export default class UnifiedMemory {
                     datetime: stamp,
                     tags: [...new Set(["%world%", "event", "calendar", ...eventKeywords])],
                     data: UnifiedMemory.clampRecord(`In ${daysLeft}d: ${evt.name} (${evt.dateStr})`),
-                    expiry: MemoryExpiryParser.toEpochMs("24h")
+                    expiry: "24h"
                 });
             }
         }
@@ -553,7 +552,7 @@ export default class UnifiedMemory {
                     datetime: stamp,
                     tags,
                     data: UnifiedMemory.clampRecord(`Headlines: ${headline}`),
-                    expiry: MemoryExpiryParser.toEpochMs("1h")
+                    expiry: "1h"
                 });
             }
         }
@@ -598,9 +597,11 @@ export default class UnifiedMemory {
             const time = block.timeRange || `${fmt(block.startHour)}-${fmt(block.endHour)}`;
             const goals = Array.isArray(block.characterGoals) ? block.characterGoals : [];
             // Records are hard-capped at 80 chars — the data line stays a compact
-            // scene pointer while goal owners travel as retrieval tags below.
+            // scene pointer built from the self-contained dense paragraph, while
+            // goal owners travel as retrieval tags below.
+            const sceneDescription = block.denseParagraph || block.topic || "Casual hangout";
             const data = UnifiedMemory.clampRecord(
-                `Upcoming scene ${time}: ${block.topic || "Casual hangout"} — ${block.mainGoal || "Chat naturally"}.`
+                `Upcoming scene ${time}: ${block.topic || "Casual hangout"} — ${sceneDescription}`
             );
 
             // Retrieval tags: fixed planner keywords + topic words + goal owners.

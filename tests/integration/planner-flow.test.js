@@ -94,7 +94,7 @@ describe("Planner Flow Integration (Gemini + MSW)", () => {
         ws = new WorldSetter({ logger, world: fakeWorld });
     });
 
-    it("restabilizeAndSave sends schedule to Gemini and persists valid result", async () => {
+    it("restabilizeAndSave persists the schedule directly without an AI round-trip", async () => {
         ws.schedule = [
             { id: "b1", startHour: 14, endHour: 15, timeRange: "14:00 - 15:00", topic: "Chai break", mainGoal: "Relax", characterGoals: [], facts: ["Chai"], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() }
         ];
@@ -102,34 +102,30 @@ describe("Planner Flow Integration (Gemini + MSW)", () => {
 
         const result = await ws.restabilizeAndSave();
 
-        // Log result for debugging
-        if (!result.success) {
-            console.log("[TEST DEBUG] restabilizeAndSave failed:", result.message, result.errors);
-        }
-
         expect(result.success).toBe(true);
         expect(result.schedule).toBeDefined();
         expect(result.schedule.length).toBeGreaterThan(0);
         expect(ws.isDirty).toBe(false);
     });
 
-    it("restabilizeAndSave returns error when Gemini returns garbage", async () => {
+    it("restabilizeAndSave saves directly even when Gemini would return garbage", async () => {
         ws.schedule = [
             { id: "b1", startHour: 14, endHour: 15, timeRange: "14:00 - 15:00", topic: "Chai", mainGoal: "Relax", characterGoals: [], facts: [], prePlot: "", postPlot: "", createdAt: Date.now(), updatedAt: Date.now() }
         ];
         ws.isDirty = true;
 
-        // Override Gemini to return overlapping blocks
+        // Garbage overlapping Gemini output is irrelevant — direct save never
+        // consults the model, so the local schedule is persisted untouched.
         setCustomGenerateResponse(
             '<schedule>\n<block start="14" end="16"><topic>Block A</topic><goals><main>Goal</main></goals><pre_plot>p</pre_plot><post_plot>p</post_plot><facts><fact>f</fact></facts></block>\n<block start="15" end="17"><topic>Block B</topic><goals><main>Goal</main></goals><pre_plot>p</pre_plot><post_plot>p</post_plot><facts><fact>f</fact></facts></block>\n</schedule>'
         );
 
         const result = await ws.restabilizeAndSave();
 
-        expect(result.success).toBe(false);
-        expect(result.errors).toBeDefined();
-        expect(result.errors.length).toBeGreaterThan(0);
-        expect(ws.isDirty).toBe(true);
+        expect(result.success).toBe(true);
+        expect(result.schedule.length).toBe(1);
+        expect(result.schedule[0].topic).toBe("Chai");
+        expect(ws.isDirty).toBe(false);
     });
 
     it("ensureSchedule triggers horizon generation when coverage is low", async () => {

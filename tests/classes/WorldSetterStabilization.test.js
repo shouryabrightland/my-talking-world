@@ -162,60 +162,42 @@ describe("WorldSetter restabilizeAndSave", () => {
         ];
     });
 
-    it("returns success immediately if schedule is not dirty", async () => {
+    it("saves immediately and reports the persisted block count when not dirty", async () => {
         ws.isDirty = false;
         const result = await ws.restabilizeAndSave();
         expect(result.success).toBe(true);
-        expect(result.message).toContain("already stable");
+        expect(result.message).toBe("Saved 2 blocks.");
     });
 
-    it("successfully stabilizes and persists when Gemini returns valid XML", async () => {
+    it("persists the schedule directly WITHOUT any AI round-trip", async () => {
         ws.isDirty = true;
-        const stabilizedXml = buildXmlSchedule([
-            { startHour: 14, endHour: 15, topic: "Tea break", mainGoal: "Relax", prePlot: "Afternoon begins", postPlot: "Transition to planning", facts: ["Chai"] },
-            { startHour: 15, endHour: 16, topic: "Project brainstorm", mainGoal: "Plan features", prePlot: "After tea", postPlot: "Wrap up day", facts: ["Whiteboard"] },
-        ]);
-
-        // Override mock GeminiClient.streamGenerate
-        ws.geminiClient.streamGenerate = vi.fn().mockResolvedValue({ text: stabilizedXml });
+        const spy = vi.spyOn(ws.geminiClient, "streamGenerate");
 
         const result = await ws.restabilizeAndSave();
 
         expect(result.success).toBe(true);
         expect(result.schedule).toBeDefined();
-        expect(result.schedule.length).toBe(2);
+        expect(result.schedule.map(b => b.topic)).toEqual(["Tea break", "Project brainstorm"]);
         expect(ws.isDirty).toBe(false);
         expect(ws.storage.setItem).toHaveBeenCalled();
+        expect(spy).not.toHaveBeenCalled();
     });
 
-    it("stabilizes blocks with individual goals for ALL 6 characters", async () => {
+    it("preserves individual goals for ALL 6 characters across a direct save", async () => {
         ws.isDirty = true;
-        const stabilizedXml = [
-            "<schedule>",
-            "  <block start=\"14\" end=\"15\">",
-            "    <topic>Tea break</topic>",
-            "    <goals>",
-            "      <main>Relax together</main>",
-            "      <goal id=\"tom\" name=\"Tom\">Lead the conversation</goal>",
-            "      <goal id=\"angela\" name=\"Angela\">Share trending gossip</goal>",
-            "      <goal id=\"ben\" name=\"Ben\">Tinker with his gadget</goal>",
-            "      <goal id=\"ginger\" name=\"Ginger\">Pull a playful prank</goal>",
-            "      <goal id=\"hank\" name=\"Hank\">Enjoy samosas and chai</goal>",
-            "      <goal id=\"becca\" name=\"Becca\">Propose an evening run</goal>",
-            "    </goals>",
-            "    <pre_plot>Afternoon lull begins</pre_plot>",
-            "    <post_plot>Energy picks up for the evening</post_plot>",
-            "    <facts><fact>Chai is ready</fact></facts>",
-            "  </block>",
-            "</schedule>"
-        ].join("\n");
-
-        ws.geminiClient.streamGenerate = vi.fn().mockResolvedValue({ text: stabilizedXml });
+        ws.schedule[0].characterGoals = [
+            { id: "tom", name: "Tom", goal: "Lead the conversation" },
+            { id: "angela", name: "Angela", goal: "Share trending gossip" },
+            { id: "ben", name: "Ben", goal: "Tinker with his gadget" },
+            { id: "ginger", name: "Ginger", goal: "Pull a playful prank" },
+            { id: "hank", name: "Hank", goal: "Enjoy samosas and chai" },
+            { id: "becca", name: "Becca", goal: "Propose an evening run" }
+        ];
 
         const result = await ws.restabilizeAndSave();
 
         expect(result.success).toBe(true);
-        expect(result.schedule).toHaveLength(1);
+        expect(result.schedule).toHaveLength(2);
 
         const ids = result.schedule[0].characterGoals.map(g => g.id);
         expect(ids).toHaveLength(6);
@@ -224,53 +206,47 @@ describe("WorldSetter restabilizeAndSave", () => {
         }
     });
 
-    it("returns validation errors when Gemini returns overlapping blocks", async () => {
+    it("sanitizes and sorts out-of-order blocks instead of rejecting them", async () => {
         ws.isDirty = true;
-        const badXml = buildXmlSchedule([
-            { startHour: 14, endHour: 16, topic: "Overlapping block A", mainGoal: "Goal A", facts: [] },
-            { startHour: 15, endHour: 17, topic: "Overlapping block B", mainGoal: "Goal B", facts: [] },
-        ]);
-
-        ws.geminiClient.streamGenerate = vi.fn().mockResolvedValue({ text: badXml });
+        // Blocks arrive out of chronological order — direct save normalizes
+        // the timeline rather than failing an AI validation pass.
+        ws.schedule = [ws.schedule[1], ws.schedule[0]];
 
         const result = await ws.restabilizeAndSave();
 
-        expect(result.success).toBe(false);
-        expect(result.errors).toBeDefined();
-        expect(result.errors.length).toBeGreaterThan(0);
-        expect(result.message).toContain("invalid schedule");
-        expect(ws.isDirty).toBe(true); // dirty state retained
-    });
-
-    it("returns validation error when schedule is empty after parsing", async () => {
-        ws.isDirty = true;
-        // Response with no <block> tags — parser will create a fallback block,
-        // but with non-overlapping single block it should succeed
-        ws.geminiClient.streamGenerate = vi.fn().mockResolvedValue({ text: "No schedule tags here at all" });
-
-        const result = await ws.restabilizeAndSave();
-
-        // The parser creates a fallback block, so it should actually succeed
         expect(result.success).toBe(true);
-        expect(result.schedule).toBeDefined();
-        expect(result.schedule.length).toBe(1);
+        expect(result.schedule.map(b => b.topic)).toEqual(["Tea break", "Project brainstorm"]);
+        expect(ws.isDirty).toBe(false);
     });
 
-    it("returns success without calling Groq when every Gemini model fails", async () => {
+    it("saves an empty schedule cleanly (no model call)", async () => {
+        ws.isDirty = true;
+        ws.schedule = [];
+        const spy = vi.spyOn(ws.geminiClient, "streamGenerate");
+
+        const result = await ws.restabilizeAndSave();
+
+        expect(result.success).toBe(true);
+        expect(result.schedule).toHaveLength(0);
+        expect(result.message).toBe("Saved 0 blocks.");
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("saves directly with a broken Gemini client — the model is never consulted", async () => {
         ws.isDirty = true;
         ws.modelPool.candidates = [{ id: "gemini-a" }, { id: "gemini-b" }];
         ws.geminiClient.streamGenerate = vi.fn().mockRejectedValue(new Error("API key invalid"));
 
         const result = await ws.restabilizeAndSave();
 
-        expect(result.success).toBe(false);
-        expect(result.message).toContain("error");
-        expect(ws.isDirty).toBe(true);
+        expect(result.success).toBe(true);
+        expect(ws.geminiClient.streamGenerate).not.toHaveBeenCalled();
+        expect(ws.isDirty).toBe(false);
         // Strict provider isolation: no Groq client ever exists on the planner.
         expect(ws.groqClient).toBeUndefined();
     });
 
-    it("does not invoke Groq when the Gemini circuit breaker is open", async () => {
+    it("saves directly even when the Gemini circuit breaker is open", async () => {
         ws.isDirty = true;
         ws.modelPool.candidates = [{ id: "gemini-a" }];
         ws.geminiClient.streamGenerate = vi.fn().mockRejectedValue(
@@ -279,9 +255,10 @@ describe("WorldSetter restabilizeAndSave", () => {
 
         const result = await ws.restabilizeAndSave();
 
-        expect(result.success).toBe(false);
+        expect(result.success).toBe(true);
+        expect(ws.geminiClient.streamGenerate).not.toHaveBeenCalled();
         expect(ws.groqClient).toBeUndefined();
-        expect(ws.isDirty).toBe(true);
+        expect(ws.isDirty).toBe(false);
     });
 });
 

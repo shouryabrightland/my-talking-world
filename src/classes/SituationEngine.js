@@ -435,11 +435,14 @@ export default class SituationEngine {
         try {
             this.events?.emit("conversation:news:ingest:start", { count: headlines.length });
 
+            // Zero hardcoded model names: when the client exposes no
+            // resolver we pass model: null and let GeminiClient resolve its
+            // own configured default (DEFAULT_GEMINI_MODEL via config).
             const targetModel = typeof this.geminiClient.resolveGemmaModel === "function"
                 ? await this.geminiClient.resolveGemmaModel()
                 : (typeof this.geminiClient.resolveModel === "function"
                     ? await this.geminiClient.resolveModel()
-                    : "gemini-2.5-flash-lite");
+                    : null);
 
             const result = await this.geminiClient.streamGenerate(
                 [{ role: "user", content: prompt }],

@@ -655,6 +655,7 @@ export default class WorldSetter {
             this.isDirty = false;
             await this.#persistToday();
             this.world.tick(this.world.now);
+            this.#syncPlannerScenesToMemory();
             this.logger.info(
                 `Resolved today's schedule: ${this.schedule.length} block(s), ${fillable.length} gap(s) filled.`
             );
@@ -1165,12 +1166,10 @@ export default class WorldSetter {
             ? unifiedMemory.getEntriesForMember(this.world.User.id).map(e => e.data)
             : [];
 
+        // Delta-only reference: one line per existing block — the model only
+        // needs to know WHERE the timeline is occupied, not its full content.
         const existingBlocksXml = this.schedule.map(b => (
-            `    <block start="${b.startHour}" end="${b.endHour}">\n` +
-            `      <topic>${XmlEncoder.encode(b.topic)}</topic>\n` +
-            `      <dense_paragraph>${XmlEncoder.encode(b.denseParagraph || b.mainGoal || "")}</dense_paragraph>\n` +
-            `      <facts>${b.facts.map(f => `<fact>${XmlEncoder.encode(f)}</fact>`).join("")}</facts>\n` +
-            `    </block>`
+            `    <block time="${b.timeRange}" topic="${XmlEncoder.encode(b.topic)}" />`
         )).join("\n");
 
         promptBuilder.useSystem(() => promptBuilder.part(
@@ -1178,17 +1177,18 @@ export default class WorldSetter {
             `  <task>${PROMPT_DEMAND_TASK}</task>\n` +
             "  <rules>\n" +
             PROMPT_DEMAND_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
+            "    <rule>DELTA ONLY: Output ONLY the 1-2 new block(s) needed for the demanded activity at the requested time. Do NOT re-emit or duplicate untouched existing blocks. Our engine automatically splices your block into the timeline.</rule>\n" +
             "  </rules>\n" +
             `${PROMPT_AGE_MANDATE}\n` +
             "  <output_schema>\n" +
             "    <demand_resolution>\n" +
             "      <summary_line_1>Clear 1-sentence summary of what was scheduled</summary_line_1>\n" +
-            "      <summary_line_2>Exact time window and lead-up hook</summary_line_2>\n" +
+            "      <summary_line_2>Exact time window</summary_line_2>\n" +
             "      <schedule>\n" +
-            '        <block start="16.0" end="17.0">\n' +
-            "          <topic>Scene title</topic>\n" +
-            "          <dense_paragraph>2-4 sentence self-contained scene setting detailing the activity and individual character roles without time or sequence dependencies.</dense_paragraph>\n" +
-            "          <facts><fact>Concrete context item</fact></facts>\n" +
+            '        <block start="17.0" end="18.0">\n' +
+            "          <topic>Demanded activity title</topic>\n" +
+            "          <dense_paragraph>2-3 sentence self-contained scene setting detailing the activity and individual character roles without time or sequence dependencies.</dense_paragraph>\n" +
+            "          <facts><fact>Relevant context item</fact></facts>\n" +
             "        </block>\n" +
             "      </schedule>\n" +
             "    </demand_resolution>\n" +
@@ -1316,6 +1316,7 @@ export default class WorldSetter {
 
         await this.#persistToday();
         this.world.tick(this.world.now);
+        this.#syncPlannerScenesToMemory();
         this.logger.info("Proposal accepted and schedule committed.");
 
         // Task 4: instant chat bridge — when the accepted demand covers the
@@ -1389,74 +1390,28 @@ export default class WorldSetter {
         return this.schedule;
     }
 
+    /**
+     * Real-time bridge: pushes the current planner horizon into the shared
+     * UnifiedMemory stack so cast recall stays in sync with every planner
+     * mutation (create, edit, delete, reorder, demand, resolve, save).
+     *
+     * @returns {void}
+     */
+    #syncPlannerScenesToMemory() {
+        if (this.world?.unifiedMemory?.syncPlannerScenes) {
+            void this.world.unifiedMemory.syncPlannerScenes(this.schedule);
+        }
+    }
+
     async restabilizeAndSave() {
-        if (!this.isDirty) {
-            return { success: true, message: "Schedule is already stable. Saving directly.", schedule: this.schedule };
-        }
+        this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
+        this.isDirty = false;
+        await this.#persistToday();
+        this.world.tick(this.world.now);
+        this.#syncPlannerScenesToMemory();
 
-        this.logger.info("Starting AI-assisted stabilization...");
-
-        try {
-            const promptBuilder = new PromptBuilderClass();
-
-            promptBuilder.useSystem(() => promptBuilder.part(
-                "<restabilizer_instruction>\n" +
-                `  <task>${PROMPT_RESTABILIZER_TASK}</task>\n` +
-                "  <rules>\n" +
-                PROMPT_RESTABILIZER_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
-                "  </rules>\n" +
-                `${PROMPT_AGE_MANDATE}\n` +
-                '  <output_format>Output strictly &lt;schedule&gt;&lt;block start="..." end="..."&gt;&lt;topic&gt;...&lt;/topic&gt;&lt;dense_paragraph&gt;...&lt;/dense_paragraph&gt;&lt;facts&gt;...&lt;/facts&gt;&lt;/block&gt;&lt;/schedule&gt; XML tags. Every block MUST include a self-contained &lt;dense_paragraph&gt; independent of other blocks.</output_format>\n' +
-                "</restabilizer_instruction>"
-            ));
-
-            const blocksXml = this.schedule.map(b => (
-                `  <block start=\"${b.startHour}\" end=\"${b.endHour}\">\n` +
-                `    <topic>${XmlEncoder.encode(b.topic)}</topic>\n` +
-                `    <dense_paragraph>${XmlEncoder.encode(b.denseParagraph || b.mainGoal || "")}</dense_paragraph>\n` +
-                `    <facts>${b.facts.map(f => `<fact>${XmlEncoder.encode(f)}</fact>`).join("")}</facts>\n` +
-                `  </block>`
-            )).join("\n");
-
-            promptBuilder.useUser(() => promptBuilder.part(
-                `<schedule>\n${blocksXml}\n</schedule>`
-            ));
-
-            const promptPayload = await promptBuilder.build();
-            const xmlResponseText = await this.#generatePlannerXml(promptPayload, "stabilizer");
-
-            const startHour = this.schedule.length > 0 ? this.schedule[0].startHour : 0;
-            const stabilizedBlocks = this.#parseXmlScheduleResponse(xmlResponseText, startHour)
-                .map(r => ({ ...r, source: /** @type {import("./types/World.types").ScheduleSource} */ ("horizon") }));
-
-            const validationErrors = this.#validateStabilizedSchedule(stabilizedBlocks);
-
-            if (validationErrors.length > 0) {
-                this.logger.warn(`Stabilization validation failed with ${validationErrors.length} error(s):`, validationErrors);
-                return {
-                    success: false,
-                    message: `AI stabilization produced invalid schedule: ${validationErrors[0]}`,
-                    errors: validationErrors
-                };
-            }
-
-            this.schedule = this.#sanitizeAndSortSchedule(stabilizedBlocks);
-            this.isDirty = false;
-            await this.#persistToday();
-            this.world.tick(this.world.now);
-
-            this.logger.info(`Stabilization complete. ${this.schedule.length} blocks persisted.`);
-            return { success: true, message: `Stabilized and saved ${this.schedule.length} blocks.`, schedule: this.schedule };
-
-        } catch (err) {
-            const errMsg = err instanceof Error ? err.message : "Unknown error";
-            this.logger.error("Stabilization failed:", err);
-            return {
-                success: false,
-                message: `Stabilization error: ${errMsg}. Schedule remains unsaved.`,
-                errors: [errMsg]
-            };
-        }
+        this.logger.info(`Schedule saved directly. ${this.schedule.length} blocks persisted.`);
+        return { success: true, message: `Saved ${this.schedule.length} blocks.`, schedule: this.schedule };
     }
 
     /**
@@ -1583,6 +1538,7 @@ export default class WorldSetter {
         await this.#syncTemplateLibrary(newRecord);
         await this.#persistToday();
         this.world.tick(this.world.now);
+        this.#syncPlannerScenesToMemory();
 
         this.logger.info(`User created schedule block: "${newRecord.topic}" [${newRecord.timeRange}]`);
         return newRecord;
@@ -1599,12 +1555,13 @@ export default class WorldSetter {
 
         this.#applyUpdates(record, updates);
         this.schedule = this.#sanitizeAndSortSchedule(this.schedule);
-        this.isDirty = true;
+        this.isDirty = false;
 
         // Recurrence change ⇄ template library (non-destructive for today).
         await this.#syncTemplateLibrary(record);
         await this.#persistToday();
         this.world.tick(this.world.now);
+        this.#syncPlannerScenesToMemory();
 
         return record;
     }
@@ -1622,6 +1579,7 @@ export default class WorldSetter {
         this.isDirty = true;
         await this.#persistToday();
         this.world.tick(this.world.now);
+        this.#syncPlannerScenesToMemory();
         return true;
     }
 
@@ -2017,6 +1975,7 @@ export default class WorldSetter {
         void this.#persistToday();
 
         this.world.tick(this.world.now);
+        this.#syncPlannerScenesToMemory();
         this.logger.info(`Reordered block "${record.id}": swapped time slots with "${target.id}" (index ${index} → ${targetIndex}).`);
 
         return this.schedule;

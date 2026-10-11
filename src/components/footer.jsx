@@ -242,17 +242,13 @@ const UserInputBox = memo(function UserInputBox() {
         setText("");
         setIsDrawerOpen(false);
 
-        // Keep the typing cadence running after an explicit submit: if the
-        // user immediately starts typing a follow-up the flag stays true and
-        // the AI turn waits for the 800ms settle; otherwise the pending timer
-        // clears it automatically. Never leave `isTyping` stuck on.
+        // Immediate reset: clear typing indicator synchronously on submit so
+        // the engine never treats the user as mid-sentence.
         if (typingTimeout.current) {
             clearTimeout(typingTimeout.current);
-        }
-        typingTimeout.current = setTimeout(() => {
-            user.events.emit(ChatMemberEvents.TYPING, false);
             typingTimeout.current = null;
-        }, TYPING_IDLE_MS);
+        }
+        user.events.emit(ChatMemberEvents.TYPING, false);
     }, [text, user]);
 
     /** Handle form submission (Enter key or Send button) */

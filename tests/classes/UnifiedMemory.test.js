@@ -262,16 +262,18 @@ describe("UnifiedMemory — Gemma compression", () => {
         expect(memory.isCompressing).toBe(false);
     });
 
-    it("falls back to a default text model when the client exposes no resolvers", async () => {
+    it("passes no model when the client exposes no resolvers (client owns its default)", async () => {
         memory.entries.push(entry("big", "x".repeat(20_000), ["tom"], "forever"));
 
         const bareClient = { streamGenerate: vi.fn().mockResolvedValue({ text: "" }) };
 
         await expect(memory.compressIfExceeded(bareClient)).resolves.toBe(false);
 
+        // Zero hardcoded model names: model is passed as null so
+        // GeminiClient resolves its own configured default at call time.
         expect(bareClient.streamGenerate).toHaveBeenCalledWith(
             [{ role: "user", content: expect.any(String) }],
-            expect.objectContaining({ model: "gemini-2.5-flash-lite" })
+            expect.objectContaining({ model: null })
         );
     });
 

@@ -103,9 +103,9 @@ describe("PlannerDrawer — Dynamic Action Bar", () => {
         expect(COMPONENT_SOURCE).toContain("↩ Discard");
     });
 
-    it("has Stabilize & Save button", () => {
+    it("has a direct Save Changes button", () => {
         expect(COMPONENT_SOURCE).toContain("handleStabilizeSave");
-        expect(COMPONENT_SOURCE).toContain("Stabilize & Save");
+        expect(COMPONENT_SOURCE).toContain("Save Changes");
     });
 
     it("action bar only shows when isDirty and no proposal", () => {

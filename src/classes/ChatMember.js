@@ -400,15 +400,25 @@ export default class ChatMember {
     }
 
     /**
-     * Calculates typing delay in milliseconds based on text length and typing speed rate.
+     * Calculates realistic human typing delay in milliseconds:
+     * 1. Baseline reaction/reading time (1.0 to 1.8 seconds) to read the previous line and open the keyboard.
+     * 2. Pacing time per letter based on character typing speed.
      *
      * @param {Message} message
      * @returns {number} Delay in milliseconds.
      */
     typingDelay(message) {
-        const length = Math.max(message?.text?.length ?? 0, 1);
-        const rate = this.typingSpeedMs || 28;
-        return random(length * (rate * 0.8), length * (rate * 1.25));
+        const text = message?.text || "";
+        const length = Math.max(text.length, 1);
+        const rate = this.typingSpeedMs || 32;
+
+        // Human reaction time: 1.0s to 1.8s to react and start typing
+        const reactionDelay = random(1000, 1800);
+
+        // Actual typing duration: ~28-40ms per letter with variance
+        const typingDuration = random(length * (rate * 0.9), length * (rate * 1.3));
+
+        return Math.round(reactionDelay + typingDuration);
     }
 
     /**

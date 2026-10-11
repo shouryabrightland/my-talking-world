@@ -772,9 +772,9 @@ export default function PlannerDrawer() {
                                     onClick={handleStabilizeSave}
                                     className={styles.stabilizeSaveBtn}
                                     disabled={isStabilizing}
-                                    title="AI-stabilize and persist schedule"
+                                    title="Save schedule changes directly"
                                 >
-                                    {isStabilizing ? "⏳ Stabilizing..." : "🔬 Stabilize & Save"}
+                                    {isStabilizing ? "⏳ Saving..." : "💾 Save Changes"}
                                 </button>
                             </div>
                             {stabilizationError && (
@@ -790,7 +790,7 @@ export default function PlannerDrawer() {
                                     </button>
                                 </div>
                             )}
-                            <span className={styles.dirtyBadge}>● Unsaved Changes — Requires Stabilization</span>
+                            <span className={styles.dirtyBadge}>● Unsaved Changes</span>
                         </div>
                     )}
 
@@ -1180,7 +1180,7 @@ export default function PlannerDrawer() {
                                             <textarea
                                                 value={editForm.denseParagraph}
                                                 onChange={(e) => setEditForm(prev => ({ ...prev, denseParagraph: e.target.value }))}
-                                                placeholder="2-3 sentence atmospheric scene setting injected into the dialogue prompt"
+                                                placeholder="2-3 sentence self-contained scene setting (who is where, cast actions) independent of time sequence"
                                                 className={styles.formTextarea}
                                                 rows={3}
                                             />
