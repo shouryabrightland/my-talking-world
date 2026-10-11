@@ -903,7 +903,7 @@ export default function PlannerDrawer() {
                                 <textarea
                                     value={createForm.denseParagraph}
                                     onChange={(e) => setCreateForm(prev => ({ ...prev, denseParagraph: e.target.value }))}
-                                    placeholder="2-3 sentence atmospheric scene setting injected into the dialogue prompt"
+                                    placeholder="2-3 sentence self-contained scene setting (who is where, cast actions) independent of time sequence"
                                     className={styles.formTextarea}
                                     rows={3}
                                 />

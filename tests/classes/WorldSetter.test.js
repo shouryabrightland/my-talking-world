@@ -486,8 +486,7 @@ describe("WorldSetter — 24-hour planner prompt (UnifiedMemory + continuity)", 
         expect(text).toContain("LOCKED / PAST");
         expect(text).toContain("FUTURE - SUBJECT TO RE-STABILIZATION");
         expect(text).toContain("full 24-hour cycle");
-        expect(text).toContain("<main_goal>");
-        expect(text).toContain('goal id="tom" name="Tom"');
+        expect(text).toContain("<dense_paragraph>");
     });
 
     it("uses clean objective framing (no anti-tags or <thought> spans)", async () => {

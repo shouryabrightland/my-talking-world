@@ -761,8 +761,7 @@ export default class WorldSetter {
             "## Rules",
             "1. Blocks stay strictly inside their own gap: contiguous, non-overlapping.",
             "2. Rotate varied Lucknow settings (Gomti Nagar riverfront, Aliganj markets, university campus, balconies, study rooms, terraces, society parks).",
-            "3. Every cast member gets an individual <goal> in every block.",
-            "4. <dense_paragraph> is a vivid 2-3 sentence atmospheric scene setting: who is where, what prop in hand, room vibe.",
+            "3. The <dense_paragraph> must be a vivid, self-contained 2-4 sentence scene setting describing who is where, atmosphere, and what individual members are actively doing or aiming for, completely independent of chronological order or neighboring blocks.",
             "",
             "## Age Factor",
             PROMPT_AGE_MANDATE,
@@ -771,20 +770,13 @@ export default class WorldSetter {
             PROMPT_CHILD_SAFETY_MANDATE,
             "",
             "## Output Schema",
-            "Output strictly valid XML matching this structure — one <block> per generated scene, each staying inside its gap:",
+            "Output strictly valid XML matching this structure — one <block> per generated scene:",
             "<schedule>",
             `  <block start="${gaps[0].start}" end="${Math.min(gaps[0].end, gaps[0].start + 2)}">`,
             "    <topic>Scene title</topic>",
-            "    <dense_paragraph>2-3 sentence atmospheric scene setting paragraph.</dense_paragraph>",
-            "    <main_goal>Primary group objective</main_goal>",
-            "    <character_goals>",
-            goalSchema,
-            "    </character_goals>",
-            "    <pre_plot>Backstory leading into this scene</pre_plot>",
-            "    <post_plot>Transition hook leading to next scene</post_plot>",
+            "    <dense_paragraph>2-4 sentence self-contained scene setting showing cast actions and goals, independent of sequence.</dense_paragraph>",
             "    <facts><fact>Concrete item or constraint</fact></facts>",
             "  </block>",
-            "  <!-- repeat <block> elements until every gap above is fully covered -->",
             "</schedule>"
         ].join("\n")));
 
@@ -1093,7 +1085,7 @@ export default class WorldSetter {
                 "1. Provide a complete, unbroken sequence of blocks covering the full 24-hour cycle.",
                 "2. Contiguous start/end times with no overlapping hours.",
                 "3. Rotate settings across Lucknow (Gomti Nagar riverfront, Aliganj markets, university campus, balconies, living rooms, terraces).",
-                "4. Assign explicit individual character goals for every cast member in each block.",
+                "4. INDEPENDENT SCENES: In each block, the <dense_paragraph> MUST be a 2-4 sentence self-contained scene description showing the setting, atmosphere, and individual cast actions. It must be completely independent of order, preceding blocks, or future scenes — no transitional phrases like 'after the earlier session' or 'preparing for tonight'.",
                 "",
                 "## Output Schema",
                 "Output strictly valid XML matching this structure:",
@@ -1101,11 +1093,7 @@ export default class WorldSetter {
                 "  <summary>Brief 1-2 sentence overview of the daily arc.</summary>",
                 '  <block start="14.0" end="15.5">',
                 "    <topic>Scene title</topic>",
-                "    <dense_paragraph>2-3 sentence atmospheric scene setting paragraph (macro scene).</dense_paragraph>",
-                "    <main_goal>Primary group objective</main_goal>",
-                "    <character_goals>",
-                goalSchema,
-                "    </character_goals>",
+                "    <dense_paragraph>2-4 sentence self-contained scene description showing the setting and individual cast actions/goals. Completely independent of time sequence or neighboring blocks.</dense_paragraph>",
                 "    <facts><fact>Concrete item or constraint</fact></facts>",
                 "  </block>",
                 "</schedule>"
@@ -1180,14 +1168,7 @@ export default class WorldSetter {
         const existingBlocksXml = this.schedule.map(b => (
             `    <block start="${b.startHour}" end="${b.endHour}">\n` +
             `      <topic>${XmlEncoder.encode(b.topic)}</topic>\n` +
-            `      <goals>\n` +
-            `        <main>${XmlEncoder.encode(b.mainGoal || "")}</main>\n` +
-            (Array.isArray(b.characterGoals) ? b.characterGoals.map(cg =>
-                `        <goal id="${XmlEncoder.encode(cg.id)}" name="${XmlEncoder.encode(cg.name)}">${XmlEncoder.encode(cg.goal)}</goal>`
-            ).join("\n") : "") + "\n" +
-            `      </goals>\n` +
-            `      <pre_plot>${XmlEncoder.encode(b.prePlot || "")}</pre_plot>\n` +
-            `      <post_plot>${XmlEncoder.encode(b.postPlot || "")}</post_plot>\n` +
+            `      <dense_paragraph>${XmlEncoder.encode(b.denseParagraph || b.mainGoal || "")}</dense_paragraph>\n` +
             `      <facts>${b.facts.map(f => `<fact>${XmlEncoder.encode(f)}</fact>`).join("")}</facts>\n` +
             `    </block>`
         )).join("\n");
@@ -1205,22 +1186,14 @@ export default class WorldSetter {
             "      <summary_line_2>Exact time window and lead-up hook</summary_line_2>\n" +
             "      <schedule>\n" +
             '        <block start="16.0" end="17.0">\n' +
-            "          <topic></topic>\n" +
-            "          <dense_paragraph>2-3 sentence atmospheric scene setting for this block</dense_paragraph>\n" +
-            "          <goals>\n" +
-            "            <main></main>\n" +
-            '            <goal id="tom" name="Tom"></goal>\n' +
-            '            <goal id="angela" name="Angela"></goal>\n' +
-            '            <goal id="ben" name="Ben"></goal>\n' +
-            '            <goal id="ginger" name="Ginger"></goal>\n' +
-            '            <goal id="hank" name="Hank"></goal>\n' +
-            '            <goal id="becca" name="Becca"></goal>\n' +
-            "          </goals>\n" +
-            "          <facts><fact></fact></facts>\n" +
+            "          <topic>Scene title</topic>\n" +
+            "          <dense_paragraph>2-4 sentence self-contained scene setting detailing the activity and individual character roles without time or sequence dependencies.</dense_paragraph>\n" +
+            "          <facts><fact>Concrete context item</fact></facts>\n" +
             "        </block>\n" +
             "      </schedule>\n" +
             "    </demand_resolution>\n" +
-            "  </output_schema>\n"
+            "  </output_schema>\n"+
+            "</demand_engine>"
         ));
 
         if (userMemories.length > 0) {
@@ -1433,21 +1406,14 @@ export default class WorldSetter {
                 PROMPT_RESTABILIZER_RULES.map(r => `    <rule>${r}</rule>`).join("\n") + "\n" +
                 "  </rules>\n" +
                 `${PROMPT_AGE_MANDATE}\n` +
-                '  <output_format>Output strictly &lt;schedule&gt;&lt;block start="..." end="..."&gt;...&lt;/block&gt;&lt;/schedule&gt; XML tags. Every block MUST include individual &lt;goal&gt; entries for every participant declared in the &lt;characters&gt; context block (one goal per participant, using each participant\'s id) — never drop or omit any participant\'s goal.</output_format>\n' +
+                '  <output_format>Output strictly &lt;schedule&gt;&lt;block start="..." end="..."&gt;&lt;topic&gt;...&lt;/topic&gt;&lt;dense_paragraph&gt;...&lt;/dense_paragraph&gt;&lt;facts&gt;...&lt;/facts&gt;&lt;/block&gt;&lt;/schedule&gt; XML tags. Every block MUST include a self-contained &lt;dense_paragraph&gt; independent of other blocks.</output_format>\n' +
                 "</restabilizer_instruction>"
             ));
 
             const blocksXml = this.schedule.map(b => (
                 `  <block start=\"${b.startHour}\" end=\"${b.endHour}\">\n` +
                 `    <topic>${XmlEncoder.encode(b.topic)}</topic>\n` +
-                `    <goals>\n` +
-                `      <main>${XmlEncoder.encode(b.mainGoal || "")}</main>\n` +
-                (Array.isArray(b.characterGoals) ? b.characterGoals.map(cg =>
-                    `      <goal id=\"${XmlEncoder.encode(cg.id)}\" name=\"${XmlEncoder.encode(cg.name)}\">${XmlEncoder.encode(cg.goal)}</goal>`
-                ).join("\n") : "") + "\n" +
-                `    </goals>\n` +
-                `    <pre_plot>${XmlEncoder.encode(b.prePlot || "")}</pre_plot>\n` +
-                `    <post_plot>${XmlEncoder.encode(b.postPlot || "")}</post_plot>\n` +
+                `    <dense_paragraph>${XmlEncoder.encode(b.denseParagraph || b.mainGoal || "")}</dense_paragraph>\n` +
                 `    <facts>${b.facts.map(f => `<fact>${XmlEncoder.encode(f)}</fact>`).join("")}</facts>\n` +
                 `  </block>`
             )).join("\n");

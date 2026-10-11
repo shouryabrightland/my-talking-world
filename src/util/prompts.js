@@ -155,9 +155,9 @@ export const PROMPT_DEMAND_RULES = Object.freeze([
     "The user's requested activity has highest priority. Schedule it at the requested time window.",
     "LOCATIONS: Dynamically choose a realistic, varied, real-world location across Lucknow that fits the activity (parks, markets, local cafes, streets, rooftops, libraries, home spaces).",
     "ANTI-CLICHÉ & LOCATION DIVERSITY: Avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots and domestic spaces unless requested otherwise.",
-    "The <dense_paragraph> of every block MUST vividly describe the scene setting, atmosphere, and what individual cast members are actively doing or aiming for.",
+    "SELF-CONTAINED SCENE: The <dense_paragraph> of every block MUST vividly describe the scene setting, atmosphere, and what individual cast members are actively doing or aiming for.",
+    "ORDER & TIME INDEPENDENCE: Every <dense_paragraph> must be completely self-contained and independent of neighboring scenes or chronological sequence. Never write transition phrases like 'Continuing from earlier', 'After the previous study session', or 'Before winding down'. The scene must stand entirely on its own.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
-    "In the <dense_paragraph> of the block immediately preceding the requested activity, reference the upcoming activity for natural continuity.",
     "Use relevant saved memories to contextualize topic details without overriding the user's explicit request.",
     "Output strictly valid XML <demand_resolution> containing a 2-line summary, the updated schedule, and a structured <narrative_report>.",
     "The <narrative_report> must contain: <summary> (1-2 sentences of what changed), <continuity_impact> (flow effect), <character_shifts> (affected character motivations), and <transition_hooks> (lead-in and lead-out hooks).",
@@ -165,12 +165,12 @@ export const PROMPT_DEMAND_RULES = Object.freeze([
 ]);
 
 export const PROMPT_RESTABILIZER_TASK =
-    "Review and connect the schedule blocks so the storyline flows smoothly and logically from one scene to the next, " +
-    "preserving the core topic and objective of each scene.";
+    "Review the schedule blocks to ensure each scene description is self-contained and cohesive, " +
+    "preserving the core topic and objective of each scene without narrative dependencies between blocks.";
 
 export const PROMPT_RESTABILIZER_RULES = Object.freeze([
     "Preserve existing topics, times, and facts unless an adjustment is necessary for continuity.",
-    "Ensure every block has a cohesive <dense_paragraph> describing the scene atmosphere and individual character actions.",
+    "Ensure every block has a cohesive, self-contained <dense_paragraph> describing the scene atmosphere and individual character actions, completely independent of neighboring blocks or sequence order.",
     "Ensure timeline blocks maintain chronological sequence without overlaps.",
     "Output strictly valid XML <schedule><block start=\"...\" end=\"...\">...</block></schedule>.",
     "Return the complete and final updated schedule."

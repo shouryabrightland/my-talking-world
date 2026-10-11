@@ -1647,11 +1647,9 @@ export default class ConversationManager {
                     "```"
                 ]
                 : [];
-
-            // Task 6 — SceneBar & Prompt Alignment: the dialogue prompt sees
-            // EXACTLY what the SceneBar displays — weather, temperature,
-            // occasion, the active scene topic, its denseParagraph, and the
-            // live news headlines.
+            
+            // Live environmental context: weather, occasion, and real headlines.
+            // (Scene title and narrative are already declared in ## Current Scene above)
             const env = this.world.environment;
             const sceneBarLines = [
                 "",

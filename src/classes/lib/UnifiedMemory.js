@@ -128,7 +128,7 @@ export default class UnifiedMemory {
                 ? [...new Set(tags.map(t => String(t).toLowerCase().trim()).filter(Boolean))]
                 : [],
             data: cleanData,
-            expiry: resolvedExpiry
+            expiry: (expiry === null || expiry === undefined) ? "forever" : expiry
         };
 
         this.entries.push(entry);
@@ -618,7 +618,7 @@ export default class UnifiedMemory {
                 datetime: stamp,
                 tags,
                 data,
-                expiry: MemoryExpiryParser.toEpochMs("24h")
+                expiry: "24h"
             });
             count++;
         }
