@@ -26,12 +26,15 @@ export default class MemoryExpiryParser {
      * Malformed values fall back to a safe +24h Date — they must NEVER be
      * coerced into `-1` (permanent).
      *
-     * @param {string|Date|null|-1} rawExpiry Raw expiry from protocol or storage.
+     * @param {string|number|Date|null} rawExpiry Raw expiry from protocol or storage.
      * @returns {Date|null|-1} Parsed expiry: Date for relative/absolute, null for unset, -1 for permanent.
      */
     static parse(rawExpiry) {
         if (rawExpiry === null || rawExpiry === "null" || rawExpiry === "notset") return null;
         if (rawExpiry === -1 || rawExpiry === "-1" || rawExpiry === "forever") return -1;
+        if (typeof rawExpiry === "number") {
+            return Number.isFinite(rawExpiry) ? new Date(rawExpiry) : -1;
+        }
         if (rawExpiry instanceof Date) return rawExpiry;
 
         const str = String(rawExpiry).trim().toLowerCase();
@@ -57,5 +60,20 @@ export default class MemoryExpiryParser {
         // A malformed expiry must not silently become an immortal memory —
         // degrade to a safe 24-hour TTL instead.
         return new Date(now + 24 * 3600 * 1000);
+    }
+
+    /**
+     * Converts an expiry value into an absolute UTC epoch millisecond timestamp number (Task 12).
+     * Permanent entries ('forever', -1) return -1; unset entries return null.
+     *
+     * @param {string|number|Date|null} rawExpiry
+     * @returns {number|null}
+     */
+    static toEpochMs(rawExpiry) {
+        const parsed = MemoryExpiryParser.parse(rawExpiry);
+        if (parsed === null) return null;
+        if (parsed === -1) return -1;
+        if (parsed instanceof Date) return parsed.getTime();
+        return null;
     }
 }

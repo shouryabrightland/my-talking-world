@@ -106,19 +106,15 @@ export const PROMPT_LOCATION_MANDATE =
  */
 export const PROMPT_AGE_MANDATE = [
     "<age_factor>",
-    "  <principle>Chronological age is the primary driver of how every character speaks, decides, plans, and reacts. Before writing any block, scene, goal, or memory, read each participant's age from the cast/characters context and hold their voice at that exact developmental stage. Age controls vocabulary, sentence length, emotional regulation, ambitions, humor, authority, energy level, schedule preferences, and what a character even cares about — it is not decorative flavor text.</principle>",
+    "  <principle>Character age in the cast profiles strictly anchors vocabulary, maturity, concerns, and energy level. Keep each character grounded in their life stage:</principle>",
     "  <bands>",
-    "    <band range=\"11-14 early teen\">Impulsive, peer-driven, high-energy. Short punchy messages, heavy slang and Hinglish code-mixing, constant reactions and excitement, easily distracted, tests boundaries, seeks attention and validation, avoids adult topics (bills, office politics). Cares about school, tuition, cricket/football, gadgets, games, crushes, and hanging out. Sleeps late, wakes reluctantly, budgets pocket money.</band>",
-    "    <band range=\"15-17 teen\">Identity-forming, status-conscious, rebellious streak. Sarcasm, memes, roasting friends, late-night chatting, strong opinions that flip quickly. Dreams big and abstractly (college, fame, starting something), poor long-term planning, dramatic swings around friendships and crushes. Uses the newest slang and mocks older generations' phrases. Resists authority while secretly wanting approval.</band>",
-    "    <band range=\"18-24 young adult\">Ambitious and exploratory. College, first jobs, internships, side hustles, night drives, dating drama, budget travel, FOMO. Fast confident replies with career anxiety underneath the banter, wants to be taken seriously, argues with conviction, starts mentoring teens while still seeking approval from older friends. Cash-struck but independent.</band>",
-    "    <band range=\"25-34 adult\">Settling into responsibility. Work deadlines, relationships/marriage talk, money management, health kicks, weekend plans built around errands. Drier wit, occasionally longer measured messages, pragmatic problem-solving, protective of younger friends, less impulsive — thinks before committing to plans. Time is their scarcest resource.</band>",
-    "    <band range=\"35-49 middle-aged\">Household and career stability phase. Parent-like concerns (study, jobs, safety), practical wisdom, patience mixed with sharp sarcasm, references to errands, health, savings, traffic, and \"in our days\". Calmer emotional spikes, de-escalates teen drama, tells stories that end with a moral. Deeply habitual — same morning walk, same routines.</band>",
-    "    <band range=\"50+ senior\">Reflective and unhurried. Proverbs, nostalgia, blessing/guidance tone, early schedules with park walks, slower but warm replies, weak or clumsy use of new slang (comic effect is fine), prioritizes family harmony, avoids conflict, shows visible pride in the younger generation's achievements.</band>",
+    "    <band range=\"11-14\">High-energy, short messages, playful reactions, school/gaming/hobby focus. Avoid adult concerns.</band>",
+    "    <band range=\"15-17\">Identity-forming, witty banter, slang, strong opinions, dreams, peer-focused.</band>",
+    "    <band range=\"18-24\">Ambitious, independent, college/early career talk, confident, active social life.</band>",
+    "    <band range=\"25-34\">Grounded, pragmatic, career/life balance, measured advice, collaborative problem-solving.</band>",
+    "    <band range=\"35+\">Protective, experienced, calm emotional register, mentor figure, nostalgic humor.</band>",
     "  </bands>",
-    "  <mental_age_rule>Behavioural maturity may deviate slightly from calendar age (an old-soul teen, a playful forty-year-old), but calendar age always anchors vocabulary, life-stage concerns, and legal/safety boundaries. Nudge within the band, never flip to a different band.</mental_age_rule>",
-    "  <hard_mismatches>Never: a teenager discussing EMIs, office politics, or parenting; a 45-year-old using Gen-Z slang fluently; a 12-year-old leading serious planning; elders begging teens for approval; a senior chasing late-night party plots. The division of labour is fixed — elders advise, teens react and play, young adults strive, middle-aged members stabilize, seniors reflect.</hard_mismatches>",
-    "  <scene_application>When choosing activities, timings, and settings for a block: late-night outings only for young adults (with context), tuition/matches/playgrounds for teens, work and networking for 25-34s, household and community errands for 35-49s, morning parks, temple/mosque visits, and nostalgia talk for 50+. Goals inside each block must sound like they were written BY that age group, not assigned to them by an adult.</scene_application>",
-    "  <dialogue_application>Match message length and register to age: teens send 2-8 word bursts with slang, young adults send one or two confident lines, older members allow longer, calmer sentences with life references. Every reaction, emotion, and memory a character expresses must be plausible for their band.</dialogue_application>",
+    "  <guidelines>Keep scenes and dialogue natural to the age group. Teens banter with rapid reactions; young adults discuss plans and projects; older members provide steady grounding.</guidelines>",
     "</age_factor>"
 ].join("\n");
 
@@ -157,36 +153,24 @@ export const PROMPT_DEMAND_TASK =
 
 export const PROMPT_DEMAND_RULES = Object.freeze([
     "The user's requested activity has highest priority. Schedule it at the requested time window.",
-    "LOCATIONS: Dynamically choose a realistic, varied, real-world location across the active city that fits the requested activity — grounded in the <location> tag and real-world city geography (e.g. parks, markets, local cafes, streets, rooftops, libraries, food stalls, home spaces). Do not force a fixed or repeating location.",
-    "ANTI-CLICHÉ & LOCATION DIVERSITY: explicitly avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots (Gomti Nagar riverfront, Indira Nagar lanes, Aliganj markets, Indira Nagar lanes, university campus) and everyday domestic spaces (study room, balcony, kitchen) unless the user's request dictates otherwise.",
-    "Every block in the updated schedule MUST include individual <goal> entries for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
+    "LOCATIONS: Dynamically choose a realistic, varied, real-world location across Lucknow that fits the activity (parks, markets, local cafes, streets, rooftops, libraries, home spaces).",
+    "ANTI-CLICHÉ & LOCATION DIVERSITY: Avoid repetitive defaults to Hazratganj or Chowk — prefer varied Lucknow spots and domestic spaces unless requested otherwise.",
+    "The <dense_paragraph> of every block MUST vividly describe the scene setting, atmosphere, and what individual cast members are actively doing or aiming for.",
     "Preserve all timeline blocks before and after the requested activity intact. Do not overwrite unrelated blocks.",
-    "In the <main_goal> of the block immediately preceding the requested activity, reference the upcoming activity so the timeline reads as one continuous day.",
+    "In the <dense_paragraph> of the block immediately preceding the requested activity, reference the upcoming activity for natural continuity.",
     "Use relevant saved memories to contextualize topic details without overriding the user's explicit request.",
     "Output strictly valid XML <demand_resolution> containing a 2-line summary, the updated schedule, and a structured <narrative_report>.",
-    "The <narrative_report> must contain: <summary> (1-2 sentences of what changed), <continuity_impact> (how this affects the narrative flow), <character_shifts> (list each affected character with their new motivation), and <transition_hooks> (lead-in and lead-out hooks for the inserted scene).",
+    "The <narrative_report> must contain: <summary> (1-2 sentences of what changed), <continuity_impact> (flow effect), <character_shifts> (affected character motivations), and <transition_hooks> (lead-in and lead-out hooks).",
     "If any <narrative_report> sub-element is not applicable, omit it rather than providing empty text."
 ]);
 
-// =========================================================================
-// PROMPT 3: STORYLINE NARRATIVE RE-STABILIZER (Gemini Flash 65K)
-// =========================================================================
-
-/**
- * Context layers provided:
- * 1. <current_blocks>: The user's custom created or edited schedule blocks.
- * 2. <grounding_context>: Real-world location, live weather, and occasion.
- * Note: scenes are carried by <topic> + <dense_paragraph>; pre/post plot
- * fields were retired with the hybrid planner and must not reappear here.
- */
 export const PROMPT_RESTABILIZER_TASK =
     "Review and connect the schedule blocks so the storyline flows smoothly and logically from one scene to the next, " +
     "preserving the core topic and objective of each scene.";
 
 export const PROMPT_RESTABILIZER_RULES = Object.freeze([
-    "Preserve existing topics, main goals, times, and facts unless an adjustment is necessary for continuity.",
-    "Assign individual character <goal id=\"...\" name=\"...\"></goal> tags aligning with the main objective.",
-    "Every block MUST include individual goals for every participant declared in the <characters> context block (one goal per participant, using each participant's id) — never drop or omit any participant's goal.",
+    "Preserve existing topics, times, and facts unless an adjustment is necessary for continuity.",
+    "Ensure every block has a cohesive <dense_paragraph> describing the scene atmosphere and individual character actions.",
     "Ensure timeline blocks maintain chronological sequence without overlaps.",
     "Output strictly valid XML <schedule><block start=\"...\" end=\"...\">...</block></schedule>.",
     "Return the complete and final updated schedule."

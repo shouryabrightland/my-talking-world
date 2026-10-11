@@ -766,8 +766,8 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
         expect(joined).toContain("# Live Group Chat: Tom & Friends");
         expect(joined).toContain("Cast:");
         expect(joined).toContain('<msg sender="id" reaction="ReactionName">');
-        expect(joined).toContain('<delay ms="3000"/>');
-        expect(joined).toContain('<delay ms="60000"/>');
+        expect(joined).toContain('<delay sec="3"/>');
+        expect(joined).toContain('<delay sec="60"/>');
         expect(joined).toContain('<next time="HH:MM"/>');
         expect(joined).toContain('<next time="18:30"/>');
         // No bedtime framing in the instructions. "Sleeping" itself is a
@@ -801,9 +801,10 @@ describe("ConversationManager — Tier-4 ultra-lean dialogue prompt", () => {
 
     it("lists cast ages and the age directive in the message contract", () => {
         const { manager } = createManager();
+        manager.world.members.set("tom", /** @type {any} */ ({ id: "tom", name: "Tom", isAI: true, age: 28, about: "Leader cat" }));
         const joined = buildSystemParts(manager).join("\n\n");
 
-        // Ages ride inline with the cast ids (fallback cast includes ages too),
+        // Ages ride inline with the live cast members (Task 6 dynamic personas),
         // and the compact Groq prompt carries one age-directive line.
         expect(joined).toMatch(/\(\d{2}\)/);
         expect(joined).toMatch(/Speak each character at their exact age/);
@@ -1394,8 +1395,8 @@ describe("ConversationManager — Director Twist Engine", () => {
         expect(manager.directorGate().ok).toBe(true);
     });
 
-    it("rejects past the 5-twist limit", async () => {
-        for (let i = 0; i < 5; i++) {
+    it("rejects past the 2-twist limit", async () => {
+        for (let i = 0; i < 2; i++) {
             manager.directorCooldownUntil = 0;
             const res = await manager.injectDirectorPlot(`Twist ${i}`);
             expect(res.ok).toBe(true);
@@ -1405,7 +1406,7 @@ describe("ConversationManager — Director Twist Engine", () => {
         const overflow = await manager.injectDirectorPlot("Overflow twist");
         expect(overflow.ok).toBe(false);
         expect(overflow.reason).toBe("limit");
-        expect(manager.activeDirectives).toHaveLength(5);
+        expect(manager.activeDirectives).toHaveLength(2);
     });
 
     // ─── 6.2 Gemma Twist Synthesizer ───
@@ -1609,6 +1610,16 @@ describe("parseTwistAnalysis", () => {
         expect(parsed.prePlot).toBe("boom");
         expect(parsed.postPlot).toBe("calm");
         expect(parsed.cancellations).toEqual([]);
+    });
+
+    it("strips markdown fences and <think> blocks and falls back to directive for optional fields (Task 9)", () => {
+        const raw = "```xml\n<think>I am reasoning about the plot</think>\n<plot><pre_plot>Power goes out!</pre_plot><post_plot>Power returns!</post_plot></plot>\n```";
+        const parsed = parseTwistAnalysis(raw, "Sudden power cut in the evening");
+        expect(parsed).not.toBeNull();
+        expect(parsed.prePlot).toBe("Power goes out!");
+        expect(parsed.postPlot).toBe("Power returns!");
+        expect(parsed.title).toBe("Sudden power cut in the evening");
+        expect(parsed.midPlot).toBe("Sudden power cut in the evening");
     });
 });
 

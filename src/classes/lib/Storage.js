@@ -250,65 +250,114 @@ export default class Storage {
      *
      * @returns {Promise<Array<[string, any]>>}
      */
+    /**
+     * Checks if an error is due to a closed or stale database connection.
+     * @param {unknown} error
+     * @returns {boolean}
+     */
+    #isClosedConnectionError(error) {
+        if (!error) return false;
+        const errObj = /** @type {Record<string, unknown>} */ (error);
+        const msg = String(errObj.message || errObj.name || error).toLowerCase();
+        return (
+            msg.includes("closing") ||
+            msg.includes("closed") ||
+            msg.includes("invalidstateerror") ||
+            errObj.name === "InvalidStateError" ||
+            errObj.name === "TransactionInactiveError"
+        );
+    }
+
+    /**
+     * Reconnects to IndexedDB, resetting the cached connection.
+     * @returns {Promise<IDBDatabase>}
+     */
+    async #reconnect() {
+        this.logger.warn("Re-opening IndexedDB connection transparently...");
+        Storage.database = null;
+        this.database = Storage.open(this.logger);
+        return this.database;
+    }
+
+    /**
+     * Returns an array containing all key-value tuples.
+     *
+     * @returns {Promise<Array<[string, any]>>}
+     */
     async entries() {
-        const db = await this.database;
-
-        return new Promise((resolve, reject) => {
-            let transaction;
-
-            try {
-                transaction = db.transaction(this.table, "readonly");
-            } catch (/** @type {unknown} */ error) {
-                this.logger.error("Failed to construct transaction block during entries() fetch:", error);
-                reject(error);
-                return;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            let db = await this.database;
+            if (!db || Storage.database === null) {
+                db = await this.#reconnect();
             }
 
-            /** @type {Array<[string, any]>} */
-            const result = [];
-
             try {
-                const store = transaction.objectStore(this.table);
-                const request = store.openCursor();
+                return await new Promise((resolve, reject) => {
+                    let transaction;
 
-                request.onsuccess = () => {
-                    const cursor = request.result;
-                    if (!cursor) {
-                        return; // Done iterating
+                    try {
+                        transaction = db.transaction(this.table, "readonly");
+                    } catch (/** @type {unknown} */ error) {
+                        reject(error);
+                        return;
                     }
 
-                    result.push([String(cursor.key), cursor.value]);
-                    cursor.continue();
-                };
+                    /** @type {Array<[string, any]>} */
+                    const result = [];
 
-                request.onerror = () => {
-                    this.logger.error("Cursor transaction failed during entries() loop:", request.error);
-                    reject(request.error ?? new Error("IndexedDB Cursor execution failed."));
-                };
+                    try {
+                        const store = transaction.objectStore(this.table);
+                        const request = store.openCursor();
 
-                transaction.oncomplete = () => {
-                    resolve(result);
-                };
+                        request.onsuccess = () => {
+                            const cursor = request.result;
+                            if (!cursor) {
+                                return; // Done iterating
+                            }
 
-                transaction.onerror = () => {
-                    this.logger.error("Transaction error occurred during entries() loop:", transaction.error);
-                    reject(transaction.error ?? new Error("Transaction execution failed."));
-                };
+                            result.push([String(cursor.key), cursor.value]);
+                            cursor.continue();
+                        };
 
-                transaction.onabort = () => {
-                    this.logger.warn("Entries() loop transaction was aborted.");
-                    reject(transaction.error ?? new Error("Transaction aborted."));
-                };
-            } catch (/** @type {unknown} */ error) {
-                this.logger.error("Error occurred while opening database cursor:", error);
-                try {
-                    transaction.abort();
-                } catch {
-                    // Ignore abort exceptions
+                        request.onerror = () => {
+                            this.logger.error("Cursor transaction failed during entries() loop:", request.error);
+                            reject(request.error ?? new Error("IndexedDB Cursor execution failed."));
+                        };
+
+                        transaction.oncomplete = () => {
+                            resolve(result);
+                        };
+
+                        transaction.onerror = () => {
+                            this.logger.error("Transaction error occurred during entries() loop:", transaction.error);
+                            reject(transaction.error ?? new Error("Transaction execution failed."));
+                        };
+
+                        transaction.onabort = () => {
+                            this.logger.warn("Entries() loop transaction was aborted.");
+                            reject(transaction.error ?? new Error("Transaction aborted."));
+                        };
+                    } catch (/** @type {unknown} */ error) {
+                        this.logger.error("Error occurred while opening database cursor:", error);
+                        try {
+                            transaction.abort();
+                        } catch {
+                            // Ignore abort exceptions
+                        }
+                        reject(error);
+                    }
+                });
+            } catch (/** @type {unknown} */ err) {
+                if (this.#isClosedConnectionError(err) && attempt < MAX_RETRIES) {
+                    this.logger.warn(`entries() encountered closed database. Reconnecting (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+                    await this.#reconnect();
+                    continue;
                 }
-                reject(error);
+                throw err;
             }
-        });
+        }
+
+        return [];
     }
 
     /**
@@ -350,6 +399,13 @@ export default class Storage {
             } catch (/** @type {unknown} */ error) {
                 lastError = error;
 
+                // Task 11: Multi-tab onversionchange or closed context reconnection
+                if (this.#isClosedConnectionError(error)) {
+                    this.logger.warn(`Closed database context detected during "${operationName}". Reconnecting transparently...`);
+                    await this.#reconnect();
+                    continue;
+                }
+
                 // Detect corruption indicators
                 if (this.#isCorruptionError(error)) {
                     this.logger.error(`Corruption detected during "${operationName}". Rebuilding database...`, error);
@@ -380,7 +436,10 @@ export default class Storage {
      * @returns {Promise<any>}
      */
     async #request(mode, operationName, operation) {
-        const db = await this.database;
+        let db = await this.database;
+        if (!db || Storage.database === null) {
+            db = await this.#reconnect();
+        }
 
         return new Promise((resolve, reject) => {
             /** @type {IDBTransaction|undefined} */
@@ -406,7 +465,11 @@ export default class Storage {
             } catch (/** @type {unknown} */ error) {
                 settled = true;
                 clearTimeout(timer);
-                this.logger.error(`Failed to execute operation "${operationName}": Transaction block creation failed.`, error);
+                if (this.#isClosedConnectionError(error)) {
+                    this.logger.warn(`Transaction creation hit closed connection during "${operationName}". Triggering reconnection.`);
+                } else {
+                    this.logger.error(`Failed to execute operation "${operationName}": Transaction block creation failed.`, error);
+                }
                 reject(error);
                 return;
             }
@@ -465,12 +528,9 @@ export default class Storage {
             lowerMsg.includes("corrupt") ||
             lowerMsg.includes("dataerror") ||
             lowerMsg.includes("transactionerror") ||
-            lowerMsg.includes("notfounderror") ||
-            lowerMsg.includes("invalidstateerror") ||
             (errObj.name === "DataError") ||
-            (errObj.name === "InvalidStateError") ||
-            (errObj.name === "NotFoundError") ||
-            (errObj.name === "TransactionInactiveError")
+            lowerMsg.includes("notfounderror") ||
+            (errObj.name === "NotFoundError")
         );
     }
 

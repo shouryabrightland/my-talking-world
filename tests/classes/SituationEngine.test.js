@@ -339,6 +339,33 @@ describe("SituationEngine — memory deletions & dedupe", () => {
         expect(unifiedMemory.entries.map(e => e.id)).toContain("keep-1");
     });
 
+    it("deletes stale entries listed in <deletions> by stable id (Task 8)", async () => {
+        const { engine, geminiClient, unifiedMemory, ctx } = makeEngine();
+        engine.unreadMessagesCount = 10;
+
+        unifiedMemory.entries.push(
+            { id: "mem-del-1", datetime: "2026-10-01 09:00", tags: ["tom"], data: "Fact to remove by id", expiry: "forever" },
+            { id: "mem-keep-2", datetime: "2026-10-02 09:00", tags: ["ben"], data: "Fact to keep by id", expiry: "forever" }
+        );
+
+        geminiClient.streamGenerate.mockResolvedValue({
+            text: [
+                "<analysis>",
+                "  <new_memories></new_memories>",
+                "  <deletions>",
+                '    <delete id="mem-del-1"/>',
+                "  </deletions>",
+                "</analysis>"
+            ].join("\n")
+        });
+
+        await expect(engine.executeIfDue(ctx)).resolves.toBe(true);
+
+        const ids = unifiedMemory.entries.map(e => e.id);
+        expect(ids).not.toContain("mem-del-1");
+        expect(ids).toContain("mem-keep-2");
+    });
+
     it("ignores out-of-range deletion indices (concurrent stack changes are safe)", async () => {
         const { engine, geminiClient, unifiedMemory, ctx } = makeEngine();
         engine.unreadMessagesCount = 10;

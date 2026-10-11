@@ -170,6 +170,7 @@ export default class World {
          * @type {string|null}
          */
         this.birthdayCheckDate = null;
+        this.#bindVisibilityListener();
     }
 
     /**
@@ -262,6 +263,7 @@ export default class World {
             this.events.emit(WorldEvents.ENVIRONMENT_CHANGE, this.environment);
         }
         this.startEnvironmentRefresh();
+        this.#bindVisibilityListener();
 
         this.initialized = true;
         this.setReady(true);
@@ -623,9 +625,42 @@ export default class World {
     destroy() {
         this.stopHeartbeat();
         this.stopEnvironmentRefresh();
+        this.#unbindVisibilityListener();
 
         this.events.clearAll();
         this.chat.destroy();
         this.logger.info("World context destroyed.");
+    }
+
+    /** @type {(() => void)|null} */
+    #visibilityListener = null;
+
+    /**
+     * Re-syncs simulation time and flushes past-due scheduler queues when mobile
+     * tabs wake from background sleep (Task 10).
+     * @returns {void}
+     */
+    #bindVisibilityListener() {
+        if (typeof document === "undefined" || this.#visibilityListener !== null) return;
+        this.#visibilityListener = () => {
+            if (document.visibilityState === "visible") {
+                const freshNow = new Date();
+                this.logger.info("Tab returned to visible state — immediately re-syncing simulation clock and scheduler.");
+                this.tick(freshNow);
+                for (const member of this.members.values()) {
+                    if (member?.scheduler && typeof member.scheduler.executeDue === "function") {
+                        member.scheduler.executeDue();
+                    }
+                }
+            }
+        };
+        document.addEventListener("visibilitychange", this.#visibilityListener);
+    }
+
+    #unbindVisibilityListener() {
+        if (typeof document !== "undefined" && this.#visibilityListener !== null) {
+            document.removeEventListener("visibilitychange", this.#visibilityListener);
+            this.#visibilityListener = null;
+        }
     }
 }

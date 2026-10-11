@@ -54,8 +54,8 @@ const BANNED_PLOTS = [
 ];
 
 describe("DIRECTOR_PRESETS — child-safe purge (Phase 1.2)", () => {
-    it("keeps the full 200-cue library", () => {
-        expect(DIRECTOR_PRESETS).toHaveLength(200);
+    it("keeps the 25 elite-cue library (5 per category)", () => {
+        expect(DIRECTOR_PRESETS).toHaveLength(25);
     });
 
     it("removes every label the spec marked unsafe", () => {

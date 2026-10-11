@@ -120,8 +120,8 @@ import { probeGroqModel, probeGeminiModel } from "../util/apiKeys";
 const STORAGE_DEVTOOLS_ENABLED_KEY = "tgf:devtools:enabled";
 
 /**
- * Formats a UnifiedMemory TTL directive ("forever", "1h", ISO…) into a label.
- * @param {string|Date|null|-1} expiry
+ * Formats a UnifiedMemory TTL directive ("forever", "1h", ISO, epoch ms…) into a label.
+ * @param {string|number|Date|null} expiry
  * @returns {string}
  */
 function formatMemoryExpiry(expiry) {

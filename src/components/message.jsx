@@ -166,14 +166,15 @@ export function TypingMessageUX({ member }) {
 /**
  * Renders a UnifiedMemory entry expiry as a short human-readable badge.
  *
- * @param {string|null|undefined} expiry "forever", "-1", "15m"/"2h"/"7d", or ISO.
+ * @param {string|number|null|undefined} expiry "forever", "-1", epoch ms, "15m"/"2h"/"7d", or ISO.
  * @returns {{ permanent: boolean, label: string }}
  */
 function formatUnifiedExpiry(expiry) {
-    const raw = String(expiry || "forever");
-    if (raw === "forever" || raw === "-1") return { permanent: true, label: "♾️ Forever" };
+    if (expiry === -1 || expiry === "-1" || expiry === "forever" || !expiry) {
+        return { permanent: true, label: "♾️ Forever" };
+    }
 
-    const parsed = MemoryExpiryParser.parse(raw);
+    const parsed = typeof expiry === "number" ? new Date(expiry) : MemoryExpiryParser.parse(expiry);
     if (!(parsed instanceof Date)) return { permanent: true, label: "♾️ Forever" };
 
     const msLeft = parsed.getTime() - Date.now();

@@ -78,11 +78,13 @@ export default class SituationEngine {
      * @param {import("./lib/Logger").default} options.logger
      * @param {import("./GeminiClient").default|null} [options.geminiClient]
      * @param {import("./lib/UnifiedMemory").default|null} [options.unifiedMemory]
+     * @param {import("./EventManager").default|null} [options.events]
      */
-    constructor({ logger, geminiClient = null, unifiedMemory = null }) {
+    constructor({ logger, geminiClient = null, unifiedMemory = null, events = null }) {
         this.logger = logger.child("SituationEngine");
         this.geminiClient = geminiClient;
         this.unifiedMemory = unifiedMemory;
+        this.events = events;
         this.storage = new Storage("Memories", this.logger);
 
         /** @type {string} Ambient <=500-char baseline (never model-written). */
@@ -229,13 +231,10 @@ export default class SituationEngine {
         this.lastContext = ctx;
         this.logger.info("Executing memory extraction pass via Gemma...");
 
-        // Snapshot of the stack at prompt time: the model references entries
-        // for deletion by their position in this snapshot, and we map them
-        // back by id so concurrent additions during the await can never
-        // mis-target a delete.
+        // Task 8: Memory stack formatted with stable Memory IDs for deletion
         const memSnapshot = [...this.unifiedMemory.entries];
-        const numberedStack = memSnapshot
-            .map((e, i) => `${i}: [${e.datetime} | tags: ${e.tags.join(", ")}] ${e.data}`)
+        const formattedStack = memSnapshot
+            .map((e, i) => `[id="${e.id}" index="${i}"]: [${e.datetime} | tags: ${e.tags.join(", ")}] ${e.data}`)
             .join("\n");
 
         const prompt = [
@@ -258,16 +257,16 @@ export default class SituationEngine {
             ctx.recentDialogue || "No messages yet. Scene is just beginning.",
             "```",
             "",
-            "## Current Memory Stack (numbered for deletion)",
+            "## Current Memory Stack (identified for deletion)",
             "```",
-            numberedStack || "(empty)",
+            formattedStack || "(empty)",
             "```",
             "",
             "## Instructions",
             "0. PRIORITY: the human's latest message outranks ambient chatter — first record what the human committed to, promised, revealed, or asked for, then the cast's own facts.",
             `1. Extract important commitments, secrets, facts, or relationship milestones into <new_memories> as <memory tags="..." expiry="..."> records. Expiries: '15m', '1h', '24h', 'forever'.`,
             `2. HARD LIMIT: every memory text MUST be ${MAX_RECORD_CHARS} characters or fewer — one dense, self-contained factual sentence. No lists, no explanations, no pronouns without a named subject.`,
-            "3. Review the numbered memory stack above. Storage must not only grow: DELETE every entry that is stale, contradicted by newer events, expired in spirit, or no longer relevant by listing its index inside <deletions> (e.g. <delete index=\"3\"/>). Prefer deleting stale facts over adding new ones.",
+            "3. Review the memory stack above. Storage must not only grow: DELETE every entry that is stale, contradicted by newer events, expired in spirit, or no longer relevant by listing its stable id inside <deletions> (e.g. <delete id=\"...\"/>). Prefer deleting stale facts over adding new ones.",
             "4. Do not record trivial chit-chat or temporary physical movements, and never re-add a memory that already exists in the stack verbatim.",
             "5. Apply the <age_factor> block below: only extract memories that fit each character's life stage (a teen's crush confession is a memory; a teen discussing loan EMIs is a continuity error to avoid).",
             "",
@@ -284,7 +283,7 @@ export default class SituationEngine {
             '    <memory tags="ben, gadget" expiry="forever">Ben completed his solar charging circuit.</memory>',
             "  </new_memories>",
             "  <deletions>",
-            '    <delete index="3"/>',
+            '    <delete id="..."/>',
             "  </deletions>",
             "</analysis>"
         ].join("\n");
@@ -295,6 +294,7 @@ export default class SituationEngine {
                 : await this.geminiClient.resolveModel();
 
             this.logger.info(`Running SituationEngine with model: "${targetModel}"`);
+            this.events?.emit("conversation:gemma:report:start", { model: targetModel });
 
             const result = await this.geminiClient.streamGenerate(
                 [{ role: "user", content: prompt }],
@@ -321,14 +321,21 @@ export default class SituationEngine {
                 addedCount++;
             }
 
-            // Apply deletions by snapshot index → stable id (see snapshot above).
-            const delMatches = [...output.matchAll(/<delete\s+index="(\d+)"\s*\/?>/gi)];
+            // Task 8: apply deletions by stable Memory ID (id="...") or legacy index
+            const delMatches = [...output.matchAll(/<delete\s+(?:id="([^"]+)"|id='([^']+)'|index="(\d+)")\s*\/?>/gi)];
             let deletedCount = 0;
             for (const dm of delMatches) {
-                const target = memSnapshot[Number(dm[1])];
-                if (!target) continue;
-                await this.unifiedMemory.remove(target.id);
-                deletedCount++;
+                const targetId = dm[1] || dm[2];
+                if (targetId) {
+                    await this.unifiedMemory.remove(targetId);
+                    deletedCount++;
+                } else if (dm[3] !== undefined) {
+                    const target = memSnapshot[Number(dm[3])];
+                    if (target) {
+                        await this.unifiedMemory.remove(target.id);
+                        deletedCount++;
+                    }
+                }
             }
             if (deletedCount > 0) {
                 this.logger.info(`Pruned ${deletedCount} stale memor${deletedCount === 1 ? "y" : "ies"} from the unified stack.`);
@@ -341,9 +348,13 @@ export default class SituationEngine {
             this.logger.info(
                 `Memories updated successfully (+${addedCount} added, -${deletedCount} deleted).`
             );
+            this.events?.emit("conversation:gemma:report:done", { added: addedCount, deleted: deletedCount });
             return true;
         } catch (/** @type {unknown} */ err) {
             this.logger.warn("Situation extraction pass failed (will retry on next trigger):", err);
+            this.events?.emit("conversation:gemma:report:error", {
+                error: err instanceof Error ? err.message : String(err)
+            });
             return false;
         } finally {
             this.isProcessing = false;
@@ -407,9 +418,7 @@ export default class SituationEngine {
             "Condense the headlines below into 3 to 5 dense factual memory records.",
             `Each record MUST be ${MAX_RECORD_CHARS} characters or fewer: one self-contained fact with concrete entities (place, person, event, number).`,
             "No opinions, no predictions, no advice, no duplicated facts, no meta commentary.",
-            "Skip anything that is pure entertainment gossip with no local relevance.",
-            "",
-            PROMPT_CHILD_SAFETY_MANDATE,
+            "Skip sensationalist gossip. Ensure all selected items are positive or constructive real-world updates suitable for a family sitcom.",
             "",
             "## Headlines",
             "```",
@@ -424,6 +433,8 @@ export default class SituationEngine {
         ].join("\n");
 
         try {
+            this.events?.emit("conversation:news:ingest:start", { count: headlines.length });
+
             const targetModel = typeof this.geminiClient.resolveGemmaModel === "function"
                 ? await this.geminiClient.resolveGemmaModel()
                 : (typeof this.geminiClient.resolveModel === "function"
@@ -470,9 +481,13 @@ export default class SituationEngine {
             }
 
             this.logger.info(`News distillation stored ${stored} record(s).`);
+            this.events?.emit("conversation:news:ingest:done", { stored });
             return stored;
         } catch (/** @type {unknown} */ err) {
             this.logger.warn("News distillation failed:", err);
+            this.events?.emit("conversation:news:ingest:error", {
+                error: err instanceof Error ? err.message : String(err)
+            });
             return 0;
         } finally {
             this.isProcessing = false;

@@ -87,6 +87,7 @@ export default class WorldSetter {
         /** @type {boolean} */ this.isDirty = false;
         /** @type {boolean} */ this.isPlanning = false;
         /** @type {ScheduleProposal | null} */ this.pendingProposal = null;
+        this.#bindDayRolloverListener();
     }
 
     #streamProgress = { lastEmitAt: 0, emittedBlocks: 0 };
@@ -638,8 +639,8 @@ export default class WorldSetter {
                 occupied.push({ start: tpl.startHour, end: tpl.endHour });
             }
 
-            // 2. Empty gaps across 0..24 — only present/future gaps need deltas.
-            const fillable = this.#findGaps(occupied).filter(g => g.end > decimalNow);
+            // 2. Empty gaps across 0..24 — calculate all missing intervals across today (Task 2).
+            const fillable = this.#findGaps(occupied);
 
             // 3. Gemini generates Delta Blocks for ALL remaining gaps in ONE
             // single-pass prompt call — not one sequential round-trip per gap.
@@ -705,7 +706,9 @@ export default class WorldSetter {
         if (cursor < 24 - 0.01) gaps.push({ start: cursor, end: 24 });
 
         return gaps;
-    }    /**
+    }
+
+    /**
      * Generates delta blocks (`type: "once"`, `source: "delta"`) for ALL
      * remaining gaps in ONE Gemini prompt call (single-pass, Task 2). Each
      * parsed block is assigned to the gap it overlaps and clipped into it;
@@ -1099,13 +1102,10 @@ export default class WorldSetter {
                 '  <block start="14.0" end="15.5">',
                 "    <topic>Scene title</topic>",
                 "    <dense_paragraph>2-3 sentence atmospheric scene setting paragraph (macro scene).</dense_paragraph>",
-                "    <setting>Specific location</setting>",
                 "    <main_goal>Primary group objective</main_goal>",
                 "    <character_goals>",
                 goalSchema,
                 "    </character_goals>",
-                "    <pre_plot>Backstory leading into this scene</pre_plot>",
-                "    <post_plot>Transition hook leading to next scene</post_plot>",
                 "    <facts><fact>Concrete item or constraint</fact></facts>",
                 "  </block>",
                 "</schedule>"
@@ -1216,14 +1216,11 @@ export default class WorldSetter {
             '            <goal id="hank" name="Hank"></goal>\n' +
             '            <goal id="becca" name="Becca"></goal>\n' +
             "          </goals>\n" +
-            "          <pre_plot></pre_plot>\n" +
-            "          <post_plot></post_plot>\n" +
             "          <facts><fact></fact></facts>\n" +
             "        </block>\n" +
             "      </schedule>\n" +
             "    </demand_resolution>\n" +
-            "  </output_schema>\n" +
-            "</demand_engine>"
+            "  </output_schema>\n"
         ));
 
         if (userMemories.length > 0) {

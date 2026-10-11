@@ -216,13 +216,16 @@ async function fetchCalendarBharatFestivals(date) {
             .filter(e => !Number.isNaN(e.ts) && e.ts > todayStart)
             .sort((a, b) => a.ts - b.ts);
 
-        // Phase 4.1: no "Regular day" — surface a live countdown to the next
-        // festival instead.
+        // Task 8: clamp festival countdowns to <= 30 days (avoiding "180 days until Diwali" in April).
         if (!todayCelebration && future.length > 0) {
             const daysLeft = Math.ceil((future[0].ts - todayStart) / dayMs);
-            todayCelebration = daysLeft === 1
-                ? `⏳ Tomorrow is ${future[0].name}!`
-                : `⏳ ${daysLeft} days left until ${future[0].name}`;
+            if (daysLeft <= 30) {
+                todayCelebration = daysLeft === 1
+                    ? `⏳ Tomorrow is ${future[0].name}!`
+                    : `⏳ ${daysLeft} days left until ${future[0].name}`;
+            } else {
+                todayCelebration = `⏳ Coming up next: ${future[0].name}`;
+            }
         }
 
         // Phase 4.2: the next 10 dated events, nearest first, for memory seeding.

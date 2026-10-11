@@ -67,10 +67,11 @@ function timeAgo(ts) {
 
 /**
  * Icon for notification type.
- * @param {{ type: string }} props
+ * @param {{ type: string, status?: string }} props
  * @returns {React.JSX.Element}
  */
-function NotificationIcon({ type }) {
+function NotificationIcon({ type, status }) {
+    if (status === "completed") return <span className={styles.notifIcon}>✅</span>;
     const icons = /** @type {Record<string, string>} */ ({
         stream: "⚡",
         error: "❌",
@@ -211,7 +212,7 @@ export default function BackgroundBar() {
                 // Transition to completed → auto-dismiss will clean up
                 ctxRef.current.updateNotification(active.id, {
                     message: "Schedule generated",
-                    phase: "",
+                    phase: "✅ Done",
                     status: "completed",
                 });
             },
@@ -403,6 +404,130 @@ export default function BackgroundBar() {
         };
     }, [conversationEvents]);
 
+    // ── Gemma Memory Report Lifecycle (SituationEngine pass) ───────────
+    useEffect(() => {
+        if (!conversationEvents || typeof conversationEvents.on !== "function") return;
+
+        /** @type {string|null} */
+        let gemmaNotifId = null;
+
+        const offStart = conversationEvents.on(
+            ConversationEvents.GEMMA_REPORT_START,
+            (/** @type {{model?: string}} */ data) => {
+                gemmaNotifId = ctxRef.current.addNotification(
+                    "stream",
+                    "Gemma analyzing memories...",
+                    {
+                        id: "gemma-memory-report",
+                        details: `Model: ${data?.model || "gemma"}`,
+                        dismissable: false
+                    }
+                );
+                ctxRef.current.updateNotification(gemmaNotifId, {
+                    phase: `🧠 [${data?.model || "gemma"}] Extracting facts & updating stack...`
+                });
+            },
+            "BackgroundBar: gemma report start"
+        );
+
+        const offDone = conversationEvents.on(
+            ConversationEvents.GEMMA_REPORT_DONE,
+            (/** @type {{added?: number, deleted?: number}} */ data) => {
+                const id = gemmaNotifId || "gemma-memory-report";
+                gemmaNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: `Memories updated (+${data?.added ?? 0}, -${data?.deleted ?? 0})`,
+                    phase: "✅ Done",
+                    status: "completed"
+                });
+            },
+            "BackgroundBar: gemma report done"
+        );
+
+        const offError = conversationEvents.on(
+            ConversationEvents.GEMMA_REPORT_ERROR,
+            (/** @type {{error?: string}} */ data) => {
+                const id = gemmaNotifId || "gemma-memory-report";
+                gemmaNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: "Memory extraction failed",
+                    phase: data?.error || "Error",
+                    status: "error"
+                });
+            },
+            "BackgroundBar: gemma report error"
+        );
+
+        return () => {
+            offStart();
+            offDone();
+            offError();
+            gemmaNotifId = null;
+        };
+    }, [conversationEvents]);
+
+    // ── News Ingestion Lifecycle (SituationEngine ingestNews) ──────────
+    useEffect(() => {
+        if (!conversationEvents || typeof conversationEvents.on !== "function") return;
+
+        /** @type {string|null} */
+        let newsNotifId = null;
+
+        const offStart = conversationEvents.on(
+            ConversationEvents.NEWS_INGEST_START,
+            (/** @type {{count?: number}} */ data) => {
+                newsNotifId = ctxRef.current.addNotification(
+                    "stream",
+                    "Distilling live news headlines...",
+                    {
+                        id: "news-ingest-report",
+                        details: `Headlines: ${data?.count ?? 0}`,
+                        dismissable: false
+                    }
+                );
+                ctxRef.current.updateNotification(newsNotifId, {
+                    phase: `📰 Distilling ${data?.count ?? 0} headlines into active memories...`
+                });
+            },
+            "BackgroundBar: news ingest start"
+        );
+
+        const offDone = conversationEvents.on(
+            ConversationEvents.NEWS_INGEST_DONE,
+            (/** @type {{stored?: number}} */ data) => {
+                const id = newsNotifId || "news-ingest-report";
+                newsNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: `Distilled ${data?.stored ?? 0} news memories`,
+                    phase: "✅ Done",
+                    status: "completed"
+                });
+            },
+            "BackgroundBar: news ingest done"
+        );
+
+        const offError = conversationEvents.on(
+            ConversationEvents.NEWS_INGEST_ERROR,
+            (/** @type {{error?: string}} */ data) => {
+                const id = newsNotifId || "news-ingest-report";
+                newsNotifId = null;
+                ctxRef.current.updateNotification(id, {
+                    message: "News distillation failed",
+                    phase: data?.error || "Error",
+                    status: "error"
+                });
+            },
+            "BackgroundBar: news ingest error"
+        );
+
+        return () => {
+            offStart();
+            offDone();
+            offError();
+            newsNotifId = null;
+        };
+    }, [conversationEvents]);
+
     // ── All-Models Cooldown / Rate-Limit Ticker (Task 3) ────────────────
     // When every Groq chat model is cooling down (or the shared rate window is
     // exhausted) the engine looks frozen. Surface an active notification with a
@@ -569,7 +694,7 @@ export default function BackgroundBar() {
                 onClick={() => setSelectedNotification(latest)}
                 title="Click for details"
             >
-                <NotificationIcon type={latest.type} />
+                <NotificationIcon type={latest.type} status={latest.status} />
                 <span className={styles.barMessage}>{latest.message}</span>
                 {latest.phase && (
                     <span className={styles.barPhase}>{latest.phase}</span>

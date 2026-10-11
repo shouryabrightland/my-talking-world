@@ -40,8 +40,8 @@ export const DIRECTOR_COOLDOWN_MS = 30_000;
  */
 export const DELAY_ATTR_PATTERN = String.raw`(?:ms|sec|s)=["'](\d+(?:\.\d+)?)["']`;
 
-/** Maximum concurrent active twists (Phase 6.2). @type {number} */
-export const MAX_ACTIVE_DIRECTIVES = 5;
+/** Maximum concurrent active twists (Task 8: capped to 2). @type {number} */
+export const MAX_ACTIVE_DIRECTIVES = 2;
 
 /**
  * localStorage key holding the epoch ms wake time of a scheduled `<next>`
@@ -94,15 +94,23 @@ export const NEXT_WAKE_STORAGE_KEY = "tgf:next_wake_time";
  * @param {string} xml Raw model output.
  * @returns {TwistAnalysis|null} Parsed analysis or null when unusable.
  */
-export function parseTwistAnalysis(xml) {
-    const text = String(xml || "");
+export function parseTwistAnalysis(xml, directive = "") {
+    let text = String(xml || "");
+
+    // Task 9: automatically strip markdown fences and <think> blocks before parsing
+    text = text.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "");
+    text = text.replace(/```(?:xml)?\s*([\s\S]*?)```/gi, "$1");
 
     const prePlot = /<pre_plot\s*>([\s\S]*?)<\/pre_plot\s*>/i.exec(text)?.[1]?.trim() || "";
     const postPlot = /<post_plot\s*>([\s\S]*?)<\/post_plot\s*>/i.exec(text)?.[1]?.trim() || "";
     if (!prePlot || !postPlot) return null;
 
-    const midPlot = /<mid_plot\s*>([\s\S]*?)<\/mid_plot\s*>/i.exec(text)?.[1]?.trim() || "";
-    const title = /<title\s*>([\s\S]*?)<\/title\s*>/i.exec(text)?.[1]?.trim() || "";
+    // Task 9: <title> and <mid_plot> are optional, falling back to directive text if needed
+    let midPlot = /<mid_plot\s*>([\s\S]*?)<\/mid_plot\s*>/i.exec(text)?.[1]?.trim() || "";
+    if (!midPlot) midPlot = directive ? directive.trim() : prePlot;
+
+    let title = /<title\s*>([\s\S]*?)<\/title\s*>/i.exec(text)?.[1]?.trim() || "";
+    if (!title) title = directive ? directive.slice(0, 48).trim() : "";
 
     /** @type {string[]} */
     const cancellations = [];
@@ -140,6 +148,7 @@ export const ConversationEvents = {
     READY: "conversation:ready",
     ERROR: "conversation:error",
     SCHEDULE_SYNC: "conversation:schedule:sync",
+    REQUEST_STATE: "conversation:request:state",
     DIRECTOR_EVENT: "conversation:director:event",
     DIRECTOR_RESPONSE_START: "conversation:director:response:start",
     DIRECTOR_TWIST_CHANGE: "conversation:director:twist:change",
@@ -147,6 +156,12 @@ export const ConversationEvents = {
     MEMORY_COMPRESS_START: "conversation:memory:compress:start",
     MEMORY_COMPRESS_DONE: "conversation:memory:compress:done",
     MEMORY_COMPRESS_ERROR: "conversation:memory:compress:error",
+    GEMMA_REPORT_START: "conversation:gemma:report:start",
+    GEMMA_REPORT_DONE: "conversation:gemma:report:done",
+    GEMMA_REPORT_ERROR: "conversation:gemma:report:error",
+    NEWS_INGEST_START: "conversation:news:ingest:start",
+    NEWS_INGEST_DONE: "conversation:news:ingest:done",
+    NEWS_INGEST_ERROR: "conversation:news:ingest:error",
     LOGOUT: "conversation:logout"
 };
 
@@ -196,7 +211,8 @@ export default class ConversationManager {
         this.situationEngine = new SituationEngine({
             logger: this.logger,
             geminiClient: this.world.worldSetter ? this.world.worldSetter.geminiClient : null,
-            unifiedMemory: this.unifiedMemory
+            unifiedMemory: this.unifiedMemory,
+            events: this.events
         });
 
         /** @readonly @type {ProtocolCodec} */ this.codec = new ProtocolCodec({ logger: this.logger });
@@ -307,6 +323,7 @@ export default class ConversationManager {
         this.protocolBuffer = "";
         this.#generationActive = false;
         this.requesting = false;
+        this.events.emit(ConversationEvents.REQUEST_STATE, false);
         this.consecutiveErrors = 0;
         this.#lastUserMessageText = "";
         this.#userTurnPending = false;
@@ -870,6 +887,7 @@ export default class ConversationManager {
         }
 
         this.requesting = true;
+        this.events.emit(ConversationEvents.REQUEST_STATE, true);
         this.protocolBuffer = "";
         this.#generationActive = true;
         this.#directorResponseStarted = false;
@@ -936,6 +954,7 @@ export default class ConversationManager {
             this.requesting = false;
             this.#pendingMemorySnippet = "";
             this.#activeHumanUtterance = "";
+            this.events.emit(ConversationEvents.REQUEST_STATE, false);
         }
 
         this.scheduleNextRequest();
@@ -1636,12 +1655,10 @@ export default class ConversationManager {
             const env = this.world.environment;
             const sceneBarLines = [
                 "",
-                "## Live SceneBar Context",
+                "## Live Environment",
                 "```",
                 `- Weather: ${env?.temperature || "32°C"}, ${env?.weather || "Warm"} (Humidity: ${env?.humidity || "55%"})`,
                 `- Occasion: ${env?.todayCelebration || "No festival today"}`,
-                `- Scene: ${activeRecord ? (activeRecord.title || activeRecord.topic) : "Casual Banter"}${activeRecord ? ` (${activeRecord.timeRange})` : ""}`,
-                `- Scene Paragraph: ${activeRecord ? (activeRecord.denseParagraph || activeRecord.mainGoal || activeRecord.topic) : "The cast hangs out together in Lucknow, chatting naturally."}`,
                 `- Headlines: ${(env?.newsHeadlines || []).slice(0, 3).join(" | ") || "None"}`,
                 "```"
             ];
