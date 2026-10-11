@@ -52,22 +52,22 @@ export const PRESENTATION_LAYERS = [
     },
     {
         id: 2, code: "02", label: "Display", role: "layer",
-        tag: "COGNITIVE TRANSPARENCY",
+        tag: "AUTHENTIC DIALOGUE & PACING",
         headline: "THE CHAT IS ALIVE.",
-        headlineGradient: "THEY THINK BEFORE THEY SPEAK.",
-        blurb: "Real human conversation is not an instant 500-word paragraph dump. Our cast speaks in natural Lucknow Roman Hinglish with realistic human typing cadence and inspectable inner monologues.",
+        headlineGradient: "HUMAN TIMING & EMOTIONS.",
+        blurb: "Real human conversation is not a robotic 500-word paragraph dump. Our cast speaks in natural Lucknow Roman Hinglish with short 1-2 sentence bubbles under 140 characters, sequential cartoon delays, and realistic typing reaction times.",
         files: ["Chat.jsx", "GroqClient.js", "Reaction.js"],
         metrics: [
-            { icon: "💭", label: "Thought Peels", desc: "Inspect Unspoken Motives" },
-            { icon: "🗣️", label: "Roman Hinglish", desc: "Natural Local Slang" },
-            { icon: "⚡", label: "Sub-Second", desc: "Groq LPU Dialogue Core" }
+            { icon: "⏱️", label: "Human Cadence", desc: "1.0s-1.8s Reaction Baseline" },
+            { icon: "🗣️", label: "Roman Hinglish", desc: "Natural Local Banter" },
+            { icon: "⚡", label: "Paced Bubbles", desc: "Under 140 Chars with <delay>" }
         ],
         cameraTarget: "message",
         tooltip: {
-            badge: "POP-OUT: REASONING BUBBLE",
-            title: "Inspectable Cognition (<thought>)",
-            subtitle: "Unspoken Motives & Cadence",
-            desc: "Characters generate unsaid reasoning before speaking. Click 'Peek Thought' on any bubble to inspect what Tom is secretly hiding!"
+            badge: "POP-OUT: SPEECH BUBBLE",
+            title: "Natural Dialogue & Emotions",
+            subtitle: "Sequential Banter & Reaction Timing",
+            desc: "Characters speak in short, natural sitcom bubbles under 140 characters, paced sequentially with <delay> tags, sprite sheet emotions, and realistic typing reaction times."
         }
     },
     {
@@ -95,10 +95,10 @@ export const PRESENTATION_LAYERS = [
         tag: "DIRECTOR DEMAND ENGINE",
         headline: "YOU ARE NOT JUST A USER.",
         headlineGradient: "YOU ARE THE DIRECTOR.",
-        blurb: "Stop watching the sitcom. Take the director's chair and guide the 24-hour narrative arc. Type any demand or select from 200+ sitcom cues to restructure the day's timeline with live visual proposal diffs.",
+        blurb: "Stop watching the sitcom. Take the director's chair and guide the 24-hour narrative arc. Type any demand or select from 25 curated sitcom cues to insert delta blocks into the timeline with live visual proposal diffs.",
         files: ["directorPresets.js", "PlannerDrawer.jsx", "WorldSetter.js"],
         metrics: [
-            { icon: "🎬", label: "200+ Cues", desc: "Instant Sitcom Plot Twists" },
+            { icon: "🎬", label: "25 Curated Cues", desc: "Child-Safe Sitcom Directives" },
             { icon: "📅", label: "24h Arc", desc: "Gemini 65K Normalizer" },
             { icon: "⚖️", label: "Visual Diffs", desc: "+Proposed / −Removed Diffs" }
         ],
@@ -107,7 +107,7 @@ export const PRESENTATION_LAYERS = [
             badge: "PLANNER DRAWER • DEMAND ENGINE",
             title: "24-Hour Storyline Engine",
             subtitle: "Gemini Flash 65K Normalizer",
-            desc: "Restructures the entire day in real-time, staging non-destructive proposals (+PROPOSED in green, −REMOVED in red) for human approval."
+            desc: "Generates delta blocks only for your demand, staging non-destructive proposals (+PROPOSED in green, −REMOVED in red) while preserving surrounding scenes intact."
         }
     },
     {
@@ -115,10 +115,10 @@ export const PRESENTATION_LAYERS = [
         tag: "RELATIONAL MEMORY",
         headline: "THEY REMEMBER",
         headlineGradient: "EVERYTHING.",
-        blurb: "Traditional chatbots suffer from catastrophic amnesia. Our characters form persistent relationships using a dual-tier memory engine: 15-minute transient postures and permanent life secrets, with Gemma auto-compression at 20,000 characters.",
+        blurb: "Traditional chatbots suffer from catastrophic amnesia. Our characters form persistent relationships using an episodic memory stack: tagged ≤80-character factual memories with flexible TTLs (15m to permanent), dynamic birthdays, and Gemma auto-compression at 20,000 characters.",
         files: ["UnifiedMemory.js", "SituationEngine.js", "SettingsModal.jsx"],
         metrics: [
-            { icon: "⏳", label: "Dual Memory", desc: "15m Postures vs Permanent Facts" },
+            { icon: "⏳", label: "Tagged Memories", desc: "≤80-Char Facts with Expiry TTLs" },
             { icon: "🎂", label: "Dynamic Ages", desc: "Living Calendar Birthdays" },
             { icon: "🗜️", label: "Gemma Compression", desc: "20,000-Char Budget Vault" }
         ],
@@ -126,8 +126,8 @@ export const PRESENTATION_LAYERS = [
         tooltip: {
             badge: "SETTINGS MODAL • MEMORY VAULT",
             title: "20,000-Char Episodic Vault",
-            subtitle: "Dual-Tier Memory & Dynamic Ages",
-            desc: "Stores posture friction (15m) alongside deep promises and dynamic birthdays. Gemma compacts the stack when the 20k budget is reached."
+            subtitle: "Unified Tagged Stack & Dynamic Ages",
+            desc: "Stores tagged factual memories (≤80 chars) with flexible TTLs (15m to permanent) alongside dynamic birthdays. Gemma compacts the stack when the 20k budget is reached."
         }
     },
     {
@@ -147,7 +147,7 @@ export const PRESENTATION_LAYERS = [
             badge: "FOCUSED INPUT BOX • NEEDLE ROUTER",
             title: "Needle 2 On-Device Router",
             subtitle: "Synchronous • <1ms Route Budget",
-            desc: "Decides which character speaks next and extracts relevant memory tags instantly from the user's keystrokes."
+            desc: "Extracts search keywords and targeted character tags deterministically under 1ms to retrieve relevant episodic memories for the prompt."
         }
     },
     {
@@ -349,25 +349,25 @@ export default function PresentationView({ onFinish }) {
         const baseRotY = -15 + mouseTilt.x;
 
         switch (activeScene.cameraTarget) {
-            case "scenebar": // Act 3: SceneBar (Top high zoom)
+            case "scenebar":
                 return `rotateX(${baseRotX - 2}deg) rotateY(${baseRotY}deg) translate3d(-10px, 95px, 60px) scale(1.45)`;
-            case "message": // Act 2: Speech Bubble & Thought (Center high zoom)
+            case "message":
                 return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 15px, 65px) scale(1.48)`;
-            case "planner": // Act 4: Director Drawer (Lower-middle high zoom)
+            case "planner":
                 return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -35px, 65px) scale(1.48)`;
-            case "memory": // Act 5: Memory Vault in Settings (Center high zoom)
+            case "memory":
                 return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, -15px, 65px) scale(1.48)`;
-            case "needle": // Act 6: Input Box & Needle Chip (Bottom extreme high zoom)
+            case "needle":
                 return `rotateX(${baseRotX + 2}deg) rotateY(${baseRotY}deg) translate3d(0, -95px, 75px) scale(1.62)`;
-            case "dualcore": // Act 7: 3D Layered Hierarchy (Dramatic 3D perspective)
+            case "dualcore":
                 return `rotateX(${baseRotX + 12}deg) rotateY(${baseRotY - 4}deg) translate3d(0, 0, 70px) scale(1.22)`;
-            case "sound": // Act 8: Sound Mixer in Settings (Lower high zoom)
+            case "sound":
                 return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -35px, 65px) scale(1.48)`;
-            case "armor": // Act 9: BackgroundBar & Shield (Top-center high zoom)
+            case "armor":
                 return `rotateX(${baseRotX}deg) rotateY(${baseRotY}deg) translate3d(-5px, 75px, 60px) scale(1.45)`;
-            case "cockpit": // Act 10: DevTools Prompts (Lower-center high zoom)
+            case "cockpit":
                 return `rotateX(${baseRotX + 1}deg) rotateY(${baseRotY}deg) translate3d(-5px, -20px, 65px) scale(1.48)`;
-            case "bifurcated": // Act 11: All Layers Exploded
+            case "bifurcated":
                 return `rotateX(${baseRotX + 6}deg) rotateY(${baseRotY - 6}deg) translate3d(0, -10px, 10px) scale(0.9)`;
             case "hero":
             default:
@@ -588,11 +588,11 @@ export default function PresentationView({ onFinish }) {
                                                         <div className={styles.vaultBarFill} style={{ width: "42%" }} />
                                                     </div>
                                                     <div className={styles.vaultItem}>
-                                                        <span className={styles.vaultKey}>📌 Tom: [Mood: Hyper-Excited]</span>
-                                                        <span className={styles.ttlTag}>15m TTL</span>
+                                                        <span className={styles.vaultKey}>📌 Tom: [Promised chai at Gomti Nagar stall]</span>
+                                                        <span className={styles.ttlTag}>1h TTL</span>
                                                     </div>
                                                     <div className={styles.vaultItem}>
-                                                        <span className={styles.vaultKey}>📌 Ben: [Secret: Hidden battery pack]</span>
+                                                        <span className={styles.vaultKey}>📌 Ben: [Completed solar charging circuit]</span>
                                                         <span className={styles.foreverTag}>Permanent</span>
                                                     </div>
                                                     <div className={styles.gemmaBadge}>
@@ -695,14 +695,11 @@ export default function PresentationView({ onFinish }) {
                                                     <div className={styles.speechBubble}>
                                                         <div className={styles.bubbleSender}>Tom</div>
                                                         <p className={styles.bubbleText}>
-                                                            "Arre yaar! Mere Lucknow wale ghar mein swagat hai. Maine naya drone setup kiya hai, aaj shaam ko terrace pe test karenge!"
+                                                            "Arre yaar! Mere Lucknow wale ghar mein swagat hai. Maine naya drone setup kiya hai, shaam ko terrace pe test karenge!"
                                                         </p>
-                                                        {/* Unfolded Thought Box Peek */}
-                                                        <div className={styles.thoughtBox}>
-                                                            <span className={styles.thoughtHeader}>💭 INNER MONOLOGUE:</span>
-                                                            <p className={styles.thoughtContent}>
-                                                                "Main Ben ko dikhana chahta hoon ki main bhi tech samajhta hoon, bhale hi drone crash ho jaye!"
-                                                            </p>
+                                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
+                                                            <span style={{ fontSize: "8.5px", color: "#94a3b8" }}>Paced with &lt;delay sec="2"/&gt;</span>
+                                                            <span style={{ fontSize: "11px" }} title="Emotion: Laughing">😂</span>
                                                         </div>
                                                     </div>
                                                 </div>
