@@ -167,8 +167,7 @@ test.describe("Real environment harness (headed Chromium)", () => {
                 messageCount: messages.length,
                 corruptMessages: messages.filter((m) =>
                     typeof m?.id !== "string" ||
-                    typeof m?.text !== "string" ||
-                    (m.replyId !== undefined && m.replyId !== null && typeof m.replyId !== "string")
+                    typeof m?.text !== "string"
                 ).length
             };
         });

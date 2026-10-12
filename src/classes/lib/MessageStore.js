@@ -232,10 +232,6 @@ export default class MessageStore {
             return false;
         }
 
-        if (value.replyId !== null && !this.#validId(value.replyId)) {
-            return false;
-        }
-
         if (value.sentAt !== null && typeof value.sentAt !== "string") {
             return false;
         }

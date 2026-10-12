@@ -957,7 +957,7 @@ describe("ConversationManager — Tier-3 Needle → UnifiedMemory injection", ()
 
         await manager.requestTurn();
 
-        expect(captured.system).not.toContain("## Active Memories");
+        expect(captured.system).not.toContain("## Active Memories\n"); // block heading only — the Turn Priority ladder may reference it
         expect(captured.system).toContain("## Ambient Setting");
     });
 

@@ -224,8 +224,11 @@ describe("SituationEngine — Gemma output parsing", () => {
 
         expect(unifiedMemory.entries).toHaveLength(2);
         expect(unifiedMemory.entries[0].tags).toEqual(["angela", "drone"]);
-        expect(unifiedMemory.entries[0].expiry).toBe("forever");
-        expect(unifiedMemory.entries[1].expiry).toBe("1h");
+        // Task 13: "forever" stores as -1 (permanent) — an absolute epoch anchor.
+        expect(unifiedMemory.entries[0].expiry).toBe(-1);
+        // Task 13: "1h" stores as an absolute UTC epoch-ms timestamp.
+        expect(typeof unifiedMemory.entries[1].expiry).toBe("number");
+        expect(unifiedMemory.entries[1].expiry).toBeGreaterThan(Date.now());
 
         await expect(engine.storage.getItem("situation_summary_paragraph")).resolves.toBeNull();
         expect(engine.isProcessing).toBe(false);
@@ -458,7 +461,9 @@ describe("SituationEngine — news distillation (ingestNews)", () => {
         for (const entry of unifiedMemory.entries) {
             expect(entry.tags).toContain("%world%");
             expect(entry.tags).toContain("news");
-            expect(entry.expiry).toBe("1h");
+            // Task 13: 1h TTL anchored as an absolute UTC epoch-ms timestamp.
+            expect(typeof entry.expiry).toBe("number");
+            expect(entry.expiry).toBeGreaterThan(Date.now());
             expect(entry.data.length).toBeLessThanOrEqual(80);
         }
 

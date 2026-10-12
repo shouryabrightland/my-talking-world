@@ -207,6 +207,20 @@
     flex-shrink: 0;
 }
 
+/* Task 14: flood protection — locked while an AI turn streams or during
+   the 1.5s post-submit cooldown. */
+.inputField:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.sendBtn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+    filter: grayscale(0.4);
+}
+
 /* Slide-Up Emotion Drawer */
 .drawer {
     padding: 10px 14px 12px 14px;

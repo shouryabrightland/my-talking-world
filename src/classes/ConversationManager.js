@@ -676,7 +676,7 @@ export default class ConversationManager {
 
     /**
      * Injects a Stage Directive from Director Mode as an ACTIVE TWIST:
-     * validates the 30s cooldown / 5-twist limit (Phase 6.2), synthesizes the
+     * validates the 30s cooldown / 2-twist limit (Task 9), synthesizes the
      * incident through Gemma (conflict cancellations + pre/mid/post plots),
      * aborts any in-flight Groq stream, and triggers a fresh turn so the cast
      * reacts to the new incident immediately.
@@ -1121,8 +1121,11 @@ export default class ConversationManager {
             // 1. Search Long-Term UnifiedMemory (Facts, Promises, World)
             const memoryMatches = this.unifiedMemory.searchDeterministic(keywords, [member]);
 
-            // Safety fallback: if recall query or 0 matches, pull the 3 most recent entries
-            if (memoryMatches.length === 0 && /(?:remember|earlier|before|what did|kya tha)\b/i.test(humanText)) {
+            // Task 6 — recency fallback: Needle yielding 0 matches OR a
+            // recall-word query (what / remember / earlier / before) injects
+            // the 3 most recent non-world entries as a safety net.
+            const isRecallQuery = /(?:\bwhat\b|\bremember\b|\bearlier\b|\bbefore\b|kya\b)/i.test(humanText);
+            if (memoryMatches.length === 0 || isRecallQuery) {
                 const recentEntries = this.unifiedMemory.entries
                     .filter(e => !e.tags.includes("%world%"))
                     .slice(-3);
@@ -1861,7 +1864,7 @@ export default class ConversationManager {
                 "1) The human's LATEST message — answer it first.",
                 "2) Relevant facts from ## Active Memories and ## Relevant Past Dialogue.",
                 "3) The recent chat flow.",
-                "4) Ambient settings",
+                "4) Ambient setting is background only.",
                 "",
                 "## Dialogue Instructions",
                 "- Language: Natural Lucknow Hinglish (Roman/Latin script only).",

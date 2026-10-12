@@ -18,7 +18,7 @@ import MemoryExpiryParser from "./MemoryExpiryParser";
  * @property {string} datetime "YYYY-MM-DD HH:mm"
  * @property {string[]} tags e.g. ["tom", "drone", "repair"]
  * @property {string} data The factual memory string
- * @property {string|number|null} expiry "15m", "1h", "24h", "forever", UTC epoch ms timestamp, or ISO string
+ * @property {string|number|null} expiry Absolute UTC epoch-millisecond timestamp (canonical), or legacy "15m"/"1h"/"24h"/"forever" directive (converted to epoch ms on write — Task 13). -1 = permanent.
  */
 
 export default class UnifiedMemory {
@@ -60,6 +60,22 @@ export default class UnifiedMemory {
         return cleaned.slice(0, UnifiedMemory.MAX_RECORD_CHARACTERS).trim();
     }
 
+    /**
+     * Normalizes any expiry directive into an absolute UTC epoch-millisecond
+     * NUMBER (Task 13) so stored TTLs are immune to local clock shifts and
+     * timezone travel. Permanent ("forever", -1) and unset entries return -1;
+     * relative strings ("15m", "1h") resolve against Date.now(); garbage
+     * degrades to a safe +24h TTL via MemoryExpiryParser (never permanent).
+     *
+     * @param {string|number|null|undefined} expiry
+     * @returns {number} Absolute epoch ms, or -1 for permanent.
+     */
+    static toUtcEpochExpiry(expiry) {
+        if (expiry === null || expiry === undefined) return -1;
+        const epoch = MemoryExpiryParser.toEpochMs(expiry);
+        return epoch === null ? -1 : epoch;
+    }
+
     /** @param {import("./Logger").default} logger */
     constructor(logger) {
         this.logger = logger.child("UnifiedMemory");
@@ -87,7 +103,10 @@ export default class UnifiedMemory {
                 this.entries = /** @type {UnifiedMemoryEntry[]} */ (raw)
                     .map(entry => ({
                         ...entry,
-                        data: UnifiedMemory.clampRecord(entry?.data)
+                        data: UnifiedMemory.clampRecord(entry?.data),
+                        // Task 13: legacy relative string TTLs are anchored to
+                        // absolute UTC epoch ms on every boot.
+                        expiry: UnifiedMemory.toUtcEpochExpiry(entry?.expiry)
                     }))
                     .filter(entry => entry.data);
                 await this.clearExpired(new Date());
@@ -124,7 +143,9 @@ export default class UnifiedMemory {
                 ? [...new Set(tags.map(t => String(t).toLowerCase().trim()).filter(Boolean))]
                 : [],
             data: cleanData,
-            expiry: (expiry === null || expiry === undefined) ? "forever" : expiry
+            // Task 13: expiry is stored as an absolute UTC epoch-ms number,
+            // never a loose relative string offset.
+            expiry: UnifiedMemory.toUtcEpochExpiry((expiry === null || expiry === undefined) ? "forever" : expiry)
         };
 
         this.entries.push(entry);
@@ -421,7 +442,7 @@ export default class UnifiedMemory {
                         id: crypto.randomUUID(),
                         datetime: stamp,
                         tags: (m[1] || "").split(",").map(t => t.trim().toLowerCase()).filter(Boolean),
-                        expiry: m[2] || "forever",
+                        expiry: UnifiedMemory.toUtcEpochExpiry(m[2] || "forever"),
                         data
                     });
                 }
@@ -488,7 +509,7 @@ export default class UnifiedMemory {
                 data: UnifiedMemory.clampRecord(
                     `Current weather in ${env.city || "Lucknow"}: ${env.temperature || "32°C"}, ${env.weather} (Humidity: ${env.humidity || "55%"})`
                 ),
-                expiry: "1h"
+                expiry: UnifiedMemory.toUtcEpochExpiry("1h")
             });
         }
 
@@ -499,7 +520,7 @@ export default class UnifiedMemory {
                 datetime: stamp,
                 tags: ["environment", "occasion", "festival", "celebration", "lucknow"],
                 data: UnifiedMemory.clampRecord(`Today's celebration: ${env.todayCelebration}`),
-                expiry: "24h"
+                expiry: UnifiedMemory.toUtcEpochExpiry("24h")
             });
         }
 
@@ -525,7 +546,7 @@ export default class UnifiedMemory {
                     datetime: stamp,
                     tags: [...new Set(["%world%", "event", "calendar", ...eventKeywords])],
                     data: UnifiedMemory.clampRecord(`In ${daysLeft}d: ${evt.name} (${evt.dateStr})`),
-                    expiry: "24h"
+                    expiry: UnifiedMemory.toUtcEpochExpiry("24h")
                 });
             }
         }
@@ -552,7 +573,7 @@ export default class UnifiedMemory {
                     datetime: stamp,
                     tags,
                     data: UnifiedMemory.clampRecord(`Headlines: ${headline}`),
-                    expiry: "1h"
+                    expiry: UnifiedMemory.toUtcEpochExpiry("1h")
                 });
             }
         }
@@ -619,7 +640,7 @@ export default class UnifiedMemory {
                 datetime: stamp,
                 tags,
                 data,
-                expiry: "24h"
+                expiry: UnifiedMemory.toUtcEpochExpiry("24h")
             });
             count++;
         }

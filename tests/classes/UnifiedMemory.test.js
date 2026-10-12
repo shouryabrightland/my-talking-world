@@ -30,7 +30,8 @@ describe("UnifiedMemory — stack operations", () => {
         const added = await memory.add({ tags: [" Tom ", "CHAI", "tom"], data: "Tom likes chai" });
 
         expect(added.tags).toEqual(["tom", "chai"]);
-        expect(added.expiry).toBe("forever");
+        // Task 13: expiry is stored as an absolute UTC epoch-ms number (-1 = permanent).
+        expect(added.expiry).toBe(-1);
         expect(added.datetime).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
         expect(memory.entries).toHaveLength(1);
     });
@@ -363,7 +364,9 @@ describe("UnifiedMemory — planner scene sync (future events for the cast)", ()
         expect(planner[0].tags).toContain("tom");
         expect(planner[0].tags).toContain("schedule");
         expect(planner[0].tags).toContain("tom");
-        expect(planner[0].expiry).toBe("24h");
+        // Task 13: 24h TTL anchored as an absolute UTC epoch-ms timestamp.
+        expect(typeof planner[0].expiry).toBe("number");
+        expect(planner[0].expiry).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
 
         // Re-sync with a changed plan REPLACES the old entry.
         await memory.syncPlannerScenes(makeSchedule("Chai run at the stall", "Grab chai for the group"));
@@ -432,7 +435,9 @@ describe("UnifiedMemory — calendar event seeding (Phase 4.2)", () => {
             expect(record.data.length).toBeLessThanOrEqual(80);
             expect(record.tags).toContain("%world%");
             expect(record.tags).toContain("event");
-            expect(record.expiry).toBe("24h");
+            // Task 13: 24h TTL anchored as an absolute UTC epoch-ms timestamp.
+            expect(typeof record.expiry).toBe("number");
+            expect(record.expiry).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
         }
 
         expect(calendar[0].data).toBe("In 10d: Diwali Festival of Lights (20 Oct)");

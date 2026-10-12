@@ -42,13 +42,13 @@ Central dialogue flow and turn orchestrator — the heart of the app.
   mandate, language mandate, location mandate, current scene (`## Current Scene:
   <title> (<timeRange>)` + the planner's `denseParagraph`), active memories,
   recent dialogue, and any active director twist (`pre_plot`/`mid_plot`/`post_plot`).
-- Drives the Groq streaming loop, parses `<msg>`, `<delay ms="…"/>` and
+- Drives the Groq streaming loop, parses `<msg>`, `<delay sec="…"/>` and
   `<next time="HH:MM"/>` from the stream, and schedules the next turn.
-- **Message splitting**: `splitMessageText()` guarantees no bubble exceeds 70 chars;
+- **Message splitting**: `splitMessageText()` guarantees no bubble exceeds 140 chars;
   `handleBanterMessage()` fans a long line into several `Message` objects with
   1000–1500 ms inter-message delays so bubbles pop in sequentially.
 - **Director Twist Engine**: `injectDirectorPlot()` with a 30 s cooldown
-  (`directorCooldownUntil`), a max of 5 active twists (`activeDirectives`),
+  (`directorCooldownUntil`), a max of 2 active twists (`activeDirectives`),
   conflict cancellation parsed from Gemma's `<twist_analysis>` XML, and an
   end-of-twist lock (`endLockUntilTurn`). Emits `DIRECTOR_TWIST_CHANGE` for the
   footer rail.

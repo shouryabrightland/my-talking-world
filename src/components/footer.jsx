@@ -35,6 +35,14 @@ import { sampleDirectorPresets } from "../util/directorPresets";
 const TYPING_IDLE_MS = 800;
 
 /**
+ * Strict submission cooldown (Task 14) armed after every send: the message
+ * input's send button and Enter key stay locked for 1.5s to stop rapid-fire
+ * message spam and rate-limit lockouts.
+ * @type {number}
+ */
+const SEND_COOLDOWN_MS = 1500;
+
+/**
  * Dual-Mode Footer Hub.
  * Renders either the User input or Director input based on the current mode.
  * In offline mode, forces User mode and disables Director mode.
@@ -191,6 +199,26 @@ const UserInputBox = memo(function UserInputBox() {
     /** @type {[boolean, React.Dispatch<React.SetStateAction<boolean>>]} */
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+    /** Epoch ms until which the send button / Enter key stay locked (Task 14). */
+    /** @type {[number, React.Dispatch<React.SetStateAction<number>>]} */
+    const [cooldownUntil, setCooldownUntil] = useState(0);
+
+    /** Re-render tick driving the cooldown unlock. */
+    /** @type {[number, React.Dispatch<React.SetStateAction<number>>]} */
+    const [cooldownTick, setCooldownTick] = useState(0);
+
+    /** Task 14: disable input + send while an AI turn is requesting/streaming. */
+    const turnInFlight = conv?.requesting === true;
+    const onCooldown = cooldownUntil > Date.now();
+    const isLocked = turnInFlight || onCooldown;
+
+    useEffect(() => {
+        if (cooldownUntil <= Date.now()) return undefined;
+        const remaining = Math.max(50, cooldownUntil - Date.now());
+        const timer = setTimeout(() => setCooldownTick(t => t + 1), remaining);
+        return () => clearTimeout(timer);
+    }, [cooldownUntil, cooldownTick]);
+
     /** Ref to track typing debounce timeout */
     /** @type {React.MutableRefObject<ReturnType<typeof setTimeout>|null>} */
     const typingTimeout = useRef(null);
@@ -227,6 +255,10 @@ const UserInputBox = memo(function UserInputBox() {
      * @param {string} emotionName The emotion to attach to the message.
      */
     const handleSendWithEmotion = useCallback((/** @type {string} */ emotionName) => {
+        // Task 14: flood guard — an in-flight AI turn or an active 1.5s
+        // cooldown silently drops the submission.
+        if (turnInFlight || Date.now() < cooldownUntil) return;
+
         const trimmed = text.trim();
         const messageText = trimmed || `*${emotionName} expression*`;
 
@@ -239,6 +271,9 @@ const UserInputBox = memo(function UserInputBox() {
 
         user.send(message);
 
+        // Task 14: arm the strict 1.5s submission cooldown.
+        setCooldownUntil(Date.now() + SEND_COOLDOWN_MS);
+
         setText("");
         setIsDrawerOpen(false);
 
@@ -249,17 +284,19 @@ const UserInputBox = memo(function UserInputBox() {
             typingTimeout.current = null;
         }
         user.events.emit(ChatMemberEvents.TYPING, false);
-    }, [text, user]);
+    }, [text, user, turnInFlight, cooldownUntil, conv]);
 
     /** Handle form submission (Enter key or Send button) */
     const handleFormSubmit = useCallback((/** @type {React.FormEvent} */ event) => {
         event.preventDefault();
+        // Task 14: Enter key obeys the same flood guard as the send button.
+        if (turnInFlight || Date.now() < cooldownUntil) return;
         if (text.trim()) {
             handleSendWithEmotion("Default");
         } else {
             setIsDrawerOpen(true);
         }
-    }, [text, handleSendWithEmotion]);
+    }, [text, handleSendWithEmotion, turnInFlight, cooldownUntil]);
 
     /** Cleanup typing indicator on unmount */
     useEffect(() => {
@@ -307,6 +344,7 @@ const UserInputBox = memo(function UserInputBox() {
                     placeholder="Talk with Tom and the cast..."
                     value={text}
                     onChange={handleChange}
+                    disabled={isLocked}
                     className={styles.inputField}
                 />
                 <button
@@ -319,7 +357,7 @@ const UserInputBox = memo(function UserInputBox() {
                     🎭
                 </button>
                 {text.trim() && (
-                    <button type="submit" className={styles.sendBtn} title="Send Message">
+                    <button type="submit" className={styles.sendBtn} disabled={isLocked} title="Send Message">
                         🚀
                     </button>
                 )}
@@ -406,7 +444,7 @@ const DirectorInputBox = memo(function DirectorInputBox() {
 
     /**
      * Injects a director plot twist into the conversation flow.
-     * Runs the synchronous gate (cooldown / 5-twist limit / offline) BEFORE
+     * Runs the synchronous gate (cooldown / 2-twist limit / offline) BEFORE
      * consuming the text so a rejected directive stays editable.
      * @param {string} directive The plot twist text.
      */
@@ -419,9 +457,8 @@ const DirectorInputBox = memo(function DirectorInputBox() {
             setCooldownUntil(conv.directorCooldownUntil || Date.now());
             setNotice(
                 gate.reason === "cooldown"
-                    ? `⏳ Wait ${gate.waitSeconds ?? 30}s before the next twist.`
-                    : gate.reason === "limit"
-                        ? "Max 5 active twists — end one before adding another."
+                    ? `⏳ Wait ${gate.waitSeconds ?? 30}s before the next twist.`                        : gate.reason === "limit"
+                            ? "Max 2 active twists — end one before adding another."
                         : "Director mode is offline right now."
             );
             return;
